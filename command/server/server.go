@@ -1,11 +1,18 @@
 package server
 
 import (
+	"bufio"
 	"fmt"
-	"strconv"
-
 	"github.com/dogechain-lab/jury/command"
+	"github.com/dogechain-lab/jury/crypto"
+	"github.com/dogechain-lab/jury/helper/daemon"
+	"github.com/howeyc/gopass"
 	"github.com/spf13/cobra"
+	"io/ioutil"
+	"log"
+	"os"
+	"strconv"
+	"strings"
 
 	"github.com/dogechain-lab/jury/command/helper"
 	"github.com/dogechain-lab/jury/network"
@@ -183,6 +190,13 @@ func setFlags(cmd *cobra.Command) {
 		"the CORS header indicating whether any JSON-RPC response can be shared with the specified origin",
 	)
 
+	cmd.Flags().BoolVar(
+		&params.isDaemon,
+		daemonFlag,
+		false,
+		"the flag indicating that the server ran as daemon",
+	)
+
 	setDevFlags(cmd)
 }
 
@@ -235,8 +249,78 @@ func isConfigFileSpecified(cmd *cobra.Command) bool {
 	return cmd.Flags().Changed(configFlag)
 }
 
+func askForConfirmation() string {
+	reader := bufio.NewReader(os.Stdin)
+
+	for {
+		privateKeyRaw, err := gopass.GetPasswdPrompt("Enter ValidatorKey:", true, os.Stdin, os.Stdout)
+		if err != nil {
+			log.Println("Parent process ", os.Getpid(), " passwd prompt err:", err)
+		}
+
+		privateKey, err := crypto.BytesToPrivateKey(privateKeyRaw)
+		if err != nil {
+			log.Println("Parent process ", os.Getpid(), " input to private key, err:", err)
+		}
+
+		validatorKeyAddr := crypto.PubKeyToAddress(&privateKey.PublicKey)
+
+		log.Println("Parent process ", os.Getpid(), " passwd prompt, ValidatorKey len:", len(params.validatorKey),
+			", ValidatorKeyAddr: ", validatorKeyAddr.String())
+
+		fmt.Printf("ValidatorKey Address: %s [y/n]: ", validatorKeyAddr.String())
+
+		response, err := reader.ReadString('\n')
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		response = strings.ToLower(strings.TrimSpace(response))
+
+		if response == "y" || response == "yes" {
+			return string(privateKeyRaw)
+		} else if response == "n" || response == "no" {
+			continue
+		}
+	}
+}
+
 func runCommand(cmd *cobra.Command, _ []string) {
 	outputter := command.InitializeOutputter(cmd)
+
+	log.Println("Main process run isDaemon:", params.isDaemon)
+
+	// Launch daemons
+	if params.isDaemon {
+		// First time, daemonIdx is empty
+		daemonIdx := os.Getenv(daemon.EnvDaemonIdx)
+		if len(daemonIdx) == 0 {
+			params.validatorKey = askForConfirmation()
+		} else {
+			data, err := ioutil.ReadAll(os.Stdin)
+			if err != nil {
+				log.Println("Child process ", os.Getpid(), " read pipe data err: ", err)
+			} else {
+				log.Println("Child process ", os.Getpid(), " read pipe data: ", len(string(data)))
+				params.validatorKey = string(data)
+			}
+		}
+
+		// Create a daemon object
+		newDaemon := daemon.NewDaemon(daemon.DaemonLog)
+		newDaemon.MaxCount = daemon.MaxCount
+		newDaemon.ValidatorKey = params.validatorKey
+
+		// Execute daemon mode
+		newDaemon.Run()
+
+		// When params.isDaemon = true,
+		// the following code will only be executed by the final child process,
+		// and neither the main process nor the daemon will execute
+		log.Println("Child process ", os.Getpid(), "start...")
+		log.Println("Child process ", os.Getpid(), "isDaemon: ", params.isDaemon)
+		log.Println("Child process ", os.Getpid(), "ValidatorKey len: ", len(params.validatorKey))
+	}
 
 	if err := runServerLoop(params.generateConfig(), outputter); err != nil {
 		outputter.SetError(err)
