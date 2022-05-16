@@ -74,9 +74,10 @@ type signer interface {
 }
 
 type Config struct {
-	PriceLimit uint64
-	MaxSlots   uint64
-	Sealing    bool
+	PriceLimit          uint64
+	MaxSlots            uint64
+	Sealing             bool
+	MaxAccountDemotions uint64
 }
 
 /* All requests are passed to the main loop
@@ -161,6 +162,9 @@ type TxPool struct {
 
 	// indicates which txpool operator commands should be implemented
 	proto.UnimplementedTxnPoolOperatorServer
+
+	// maximum account demotion count. when reach, drop all transactions of this account
+	maxAccountDemotions uint64
 }
 
 // NewTxPool returns a new pool for processing incoming transactions.
@@ -174,16 +178,17 @@ func NewTxPool(
 	config *Config,
 ) (*TxPool, error) {
 	pool := &TxPool{
-		logger:      logger.Named("txpool"),
-		forks:       forks,
-		store:       store,
-		metrics:     metrics,
-		accounts:    accountsMap{},
-		executables: newPricedQueue(),
-		index:       lookupMap{all: make(map[types.Hash]*types.Transaction)},
-		gauge:       slotGauge{height: 0, max: config.MaxSlots},
-		priceLimit:  config.PriceLimit,
-		sealing:     config.Sealing,
+		logger:              logger.Named("txpool"),
+		forks:               forks,
+		store:               store,
+		metrics:             metrics,
+		accounts:            accountsMap{},
+		executables:         newPricedQueue(),
+		index:               lookupMap{all: make(map[types.Hash]*types.Transaction)},
+		gauge:               slotGauge{height: 0, max: config.MaxSlots},
+		priceLimit:          config.PriceLimit,
+		sealing:             config.Sealing,
+		maxAccountDemotions: config.MaxAccountDemotions,
 	}
 
 	// Attach the event manager
@@ -317,6 +322,9 @@ func (p *TxPool) Pop(tx *types.Transaction) {
 	// pop the top most promoted tx
 	account.promoted.pop()
 
+	//	successfully popping an account resets its demotions count to 0
+	account.demotions = 0
+
 	// update state
 	p.gauge.decrease(slotsRequired(tx))
 
@@ -378,7 +386,28 @@ func (p *TxPool) Drop(tx *types.Transaction) {
 	)
 }
 
+// Demote excludes an account from being further processed during block building
+// due to a recoverable error.
+//
+// If an account has been demoted too many times (maxAccountDemotions), it is Dropped instead.
 func (p *TxPool) Demote(tx *types.Transaction) {
+	account := p.accounts.get(tx.From)
+	if account.demotions == p.maxAccountDemotions {
+		p.logger.Debug(
+			"Demote: threshold reached - dropping account",
+			"addr", tx.From.String(),
+		)
+
+		p.Drop(tx)
+
+		//	reset the demotions counter
+		account.demotions = 0
+
+		return
+	}
+
+	account.demotions++
+
 	p.eventManager.signalEvent(proto.EventType_DEMOTED, tx.Hash)
 }
 
@@ -684,6 +713,9 @@ func (p *TxPool) resetAccounts(stateNonces map[types.Address]uint64) {
 		//	append pruned
 		allPrunedPromoted = append(allPrunedPromoted, prunedPromoted...)
 		allPrunedEnqueued = append(allPrunedEnqueued, prunedEnqueued...)
+
+		// new state for account -> demotions are reset to 0
+		account.demotions = 0
 	}
 
 	//	pool cleanup callback
