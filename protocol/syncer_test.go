@@ -10,9 +10,11 @@ import (
 	"github.com/dogechain-lab/jury/blockchain"
 	"github.com/dogechain-lab/jury/helper/tests"
 	"github.com/dogechain-lab/jury/network"
+	"github.com/dogechain-lab/jury/protocol/proto"
 	"github.com/dogechain-lab/jury/types"
 	"github.com/hashicorp/go-hclog"
 	"github.com/stretchr/testify/assert"
+	anypb "google.golang.org/protobuf/types/known/anypb"
 )
 
 func TestHandleNewPeer(t *testing.T) {
@@ -312,6 +314,99 @@ func TestWatchSyncWithPeer(t *testing.T) {
 			assert.Equal(t, tt.expectedHeight, syncer.status.Number)
 		})
 	}
+}
+
+func TestNilPointerAttackFromFaultyPeer(t *testing.T) {
+	tests := []struct {
+		name              string
+		headers           []*types.Header
+		peerHeaders       []*types.Header
+		numNewBlocks      int
+		testBroadcastFunc func(s *Syncer, b *types.Block)
+	}{
+		{
+			name:              "should not crash even notify raw data is nil",
+			headers:           blockchain.NewTestHeaderChainWithSeed(nil, 3, 0),
+			peerHeaders:       blockchain.NewTestHeaderChainWithSeed(nil, 1, 0),
+			numNewBlocks:      1,
+			testBroadcastFunc: broadcastNilRawData,
+		},
+		{
+			name:              "should not crash even notify status is nil",
+			headers:           blockchain.NewTestHeaderChainWithSeed(nil, 5, 0),
+			peerHeaders:       blockchain.NewTestHeaderChainWithSeed(nil, 1, 0),
+			numNewBlocks:      1,
+			testBroadcastFunc: broadcastNilStatusData,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			chain, peerChain := NewMockBlockchain(tt.headers), NewMockBlockchain(tt.peerHeaders)
+
+			_, peerSyncers := SetupSyncerNetwork(t, chain, []blockchainShim{peerChain})
+			peerSyncer := peerSyncers[0]
+
+			newBlocks := GenerateNewBlocks(t, peerChain, tt.numNewBlocks)
+
+			for _, newBlock := range newBlocks {
+				assert.NoError(t, peerSyncer.blockchain.WriteBlock(newBlock))
+			}
+
+			for _, b := range newBlocks {
+				assert.NotPanics(t, func() {
+					tt.testBroadcastFunc(peerSyncer, b)
+				})
+			}
+		})
+	}
+}
+
+func broadcastNilRawData(s *Syncer, b *types.Block) {
+	// Get the chain difficulty associated with block
+	td, ok := s.blockchain.GetTD(b.Hash())
+	if !ok {
+		// not supposed to happen
+		s.logger.Error("total difficulty not found", "block number", b.Number())
+
+		return
+	}
+
+	// broadcast the new block to all the peers
+	req := &proto.NotifyReq{
+		Status: &proto.V1Status{
+			Hash:       b.Hash().String(),
+			Number:     b.Number(),
+			Difficulty: td.String(),
+		},
+		Raw: nil,
+	}
+
+	s.peers.Range(func(peerID, peer interface{}) bool {
+		if _, err := peer.(*SyncPeer).client.Notify(context.Background(), req); err != nil {
+			s.logger.Error("failed to notify", "err", err)
+		}
+
+		return true
+	})
+}
+
+func broadcastNilStatusData(s *Syncer, b *types.Block) {
+	// broadcast the new block to all the peers
+	req := &proto.NotifyReq{
+		Status: nil,
+		Raw: &anypb.Any{
+			Value: b.MarshalRLP(),
+		},
+	}
+
+	s.peers.Range(func(peerID, peer interface{}) bool {
+		if _, err := peer.(*SyncPeer).client.Notify(context.Background(), req); err != nil {
+			s.logger.Error("failed to notify", "err", err)
+		}
+
+		return true
+	})
 }
 
 func TestBulkSyncWithPeer(t *testing.T) {
