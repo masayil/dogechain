@@ -15,6 +15,7 @@ import (
 	"github.com/golang/protobuf/ptypes/any"
 	"github.com/hashicorp/go-hclog"
 	"github.com/stretchr/testify/assert"
+	"google.golang.org/protobuf/types/known/anypb"
 )
 
 const (
@@ -388,6 +389,40 @@ func TestDropKnownGossipTx(t *testing.T) {
 	assert.Nil(t, err)
 
 	assert.Equal(t, uint64(1), pool.accounts.get(addr1).enqueued.length())
+}
+
+func TestAddGossipTx_ShouldNotCrash(t *testing.T) {
+	pool, err := newTestPool()
+	assert.NoError(t, err)
+	pool.SetSigner(&mockSigner{})
+
+	assert.NotPanics(t, func() {
+		// type assertion
+		pool.addGossipTx(&types.Block{Header: &types.Header{Number: 10}})
+	})
+
+	assert.Nil(t, pool.accounts.get(addr1), "addr in txpool should be nil")
+
+	assert.NotPanics(t, func() {
+		pool.addGossipTx(createNilRawTxn())
+		pool.addGossipTx(createNilRawDataTxn())
+	})
+
+	assert.Nil(t, pool.accounts.get(addr1), "addr in txpool should be nil")
+}
+
+func createNilRawTxn() *proto.Txn {
+	return &proto.Txn{
+		Raw: nil,
+	}
+}
+
+func createNilRawDataTxn() *proto.Txn {
+	return &proto.Txn{
+		Raw: &anypb.Any{
+			Value: nil,
+		},
+	}
 }
 
 func TestAddHandler(t *testing.T) {
