@@ -37,6 +37,9 @@ var (
 	ErrForkNotFound           = errors.New("fork not found")
 	ErrPopTimeout             = errors.New("timeout")
 	ErrConnectionClosed       = errors.New("connection closed")
+	ErrTooManyHeaders         = errors.New("unexpected more than 1 result")
+	ErrDecodeDifficulty       = errors.New("failed to decode difficulty")
+	ErrInvalidTypeAssertion   = errors.New("invalid type assertion")
 )
 
 // SyncPeer is a representation of the peer the node is syncing with
@@ -187,7 +190,7 @@ func statusFromProto(p *proto.V1Status) (*Status, error) {
 
 	diff, ok := new(big.Int).SetString(p.Difficulty, 10)
 	if !ok {
-		return nil, fmt.Errorf("failed to decode difficulty")
+		return nil, ErrDecodeDifficulty
 	}
 
 	s.Difficulty = diff
@@ -495,7 +498,7 @@ func (s *Syncer) DeletePeer(peerID peer.ID) error {
 	if ok {
 		syncPeer, ok := p.(*SyncPeer)
 		if !ok {
-			return errors.New("invalid type assertion")
+			return ErrInvalidTypeAssertion
 		}
 
 		if err := syncPeer.conn.Close(); err != nil {
@@ -720,12 +723,18 @@ func getHeader(clt proto.V1Client, num *uint64, hash *types.Hash) (*types.Header
 	}
 
 	if len(resp.Objs) != 1 {
-		return nil, fmt.Errorf("unexpected more than 1 result")
+		return nil, ErrTooManyHeaders
+	}
+
+	obj := resp.Objs[0]
+
+	if obj == nil || obj.Spec == nil || len(obj.Spec.Value) == 0 {
+		return nil, ErrNilHeaderResponse
 	}
 
 	header := &types.Header{}
 
-	if err := header.UnmarshalRLP(resp.Objs[0].Spec.Value); err != nil {
+	if err := header.UnmarshalRLP(obj.Spec.Value); err != nil {
 		return nil, err
 	}
 
