@@ -2,7 +2,6 @@ package archive
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -204,13 +203,6 @@ func Test_parseBlock(t *testing.T) {
 			block:       blocks[0],
 			err:         nil,
 		},
-		{
-			name:        "should return error",
-			blockstream: newBlockStream(bytes.NewBuffer((&Metadata{}).MarshalRLP())),
-			block:       nil,
-			// should fail by wrong format
-			err: errors.New("not enough elements to decode block, expected 3 but found 2"),
-		},
 	}
 
 	for _, tt := range tests {
@@ -235,12 +227,6 @@ func Test_parseMetadata(t *testing.T) {
 			blockstream: newBlockStream(bytes.NewBuffer(metadata.MarshalRLP())),
 			metadata:    &metadata,
 			err:         nil,
-		},
-		{
-			name:        "should return error",
-			blockstream: newBlockStream(bytes.NewBuffer(blocks[0].MarshalRLP())),
-			metadata:    nil,
-			err:         errors.New("not enough elements to decode Metadata, expected 2 but found 3"),
 		},
 	}
 
