@@ -316,6 +316,12 @@ func (s *Syncer) updatePeerStatus(peerID peer.ID, status *Status) {
 
 // Broadcast broadcasts a block to all peers
 func (s *Syncer) Broadcast(b *types.Block) {
+	sendNotify := func(peerID, peer interface{}, req *proto.NotifyReq) {
+		if _, err := peer.(*SyncPeer).client.Notify(context.Background(), req); err != nil {
+			s.logger.Error("failed to notify", "err", err)
+		}
+	}
+
 	// Get the chain difficulty associated with block
 	td, ok := s.blockchain.GetTD(b.Hash())
 	if !ok {
@@ -337,13 +343,13 @@ func (s *Syncer) Broadcast(b *types.Block) {
 		},
 	}
 
+	s.logger.Debug("broadcast start")
 	s.peers.Range(func(peerID, peer interface{}) bool {
-		if _, err := peer.(*SyncPeer).client.Notify(context.Background(), req); err != nil {
-			s.logger.Error("failed to notify", "err", err)
-		}
+		go sendNotify(peerID, peer, req)
 
 		return true
 	})
+	s.logger.Debug("broadcast end")
 }
 
 // Start starts the syncer protocol
