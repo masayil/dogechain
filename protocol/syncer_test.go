@@ -102,8 +102,8 @@ func TestBroadcast(t *testing.T) {
 	}{
 		{
 			name:          "syncer should receive new block in peer",
-			syncerHeaders: blockchain.NewTestHeaderChainWithSeed(nil, 5, 0),
-			peerHeaders:   blockchain.NewTestHeaderChainWithSeed(nil, 10, 0),
+			syncerHeaders: blockchain.NewTestHeadersWithSeed(nil, 5, 0),
+			peerHeaders:   blockchain.NewTestHeadersWithSeed(nil, 10, 0),
 			numNewBlocks:  5,
 		},
 	}
@@ -117,6 +117,7 @@ func TestBroadcast(t *testing.T) {
 			newBlocks := GenerateNewBlocks(t, peerSyncer.blockchain, tt.numNewBlocks)
 
 			for _, newBlock := range newBlocks {
+				assert.NoError(t, peerSyncer.blockchain.VerifyFinalizedBlock(newBlock))
 				assert.NoError(t, peerSyncer.blockchain.WriteBlock(newBlock))
 			}
 
@@ -206,8 +207,8 @@ func TestFindCommonAncestor(t *testing.T) {
 	}{
 		{
 			name:          "should find common ancestor",
-			syncerHeaders: blockchain.NewTestHeaderChainWithSeed(nil, 10, 0),
-			peerHeaders:   blockchain.NewTestHeaderChainWithSeed(nil, 20, 0),
+			syncerHeaders: blockchain.NewTestHeadersWithSeed(nil, 10, 0),
+			peerHeaders:   blockchain.NewTestHeadersWithSeed(nil, 20, 0),
 			found:         true,
 			headerIndex:   9,
 			forkIndex:     10,
@@ -215,8 +216,8 @@ func TestFindCommonAncestor(t *testing.T) {
 		},
 		{
 			name:          "should return error if there is no fork",
-			syncerHeaders: blockchain.NewTestHeaderChainWithSeed(nil, 11, 0),
-			peerHeaders:   blockchain.NewTestHeaderChainWithSeed(nil, 10, 0),
+			syncerHeaders: blockchain.NewTestHeadersWithSeed(nil, 11, 0),
+			peerHeaders:   blockchain.NewTestHeadersWithSeed(nil, 10, 0),
 			found:         false,
 			err:           errors.New("fork not found"),
 		},
@@ -259,16 +260,16 @@ func TestWatchSyncWithPeer(t *testing.T) {
 	}{
 		{
 			name:           "should sync until peer's latest block",
-			headers:        blockchain.NewTestHeaderChainWithSeed(nil, 10, 0),
-			peerHeaders:    blockchain.NewTestHeaderChainWithSeed(nil, 1, 0),
+			headers:        blockchain.NewTestHeadersWithSeed(nil, 10, 0),
+			peerHeaders:    blockchain.NewTestHeadersWithSeed(nil, 1, 0),
 			numNewBlocks:   15,
 			shouldSync:     true,
 			expectedHeight: 15,
 		},
 		{
 			name:           "shouldn't sync",
-			headers:        blockchain.NewTestHeaderChainWithSeed(nil, 10, 0),
-			peerHeaders:    blockchain.NewTestHeaderChainWithSeed(nil, 1, 0),
+			headers:        blockchain.NewTestHeadersWithSeed(nil, 10, 0),
+			peerHeaders:    blockchain.NewTestHeadersWithSeed(nil, 1, 0),
 			numNewBlocks:   9,
 			shouldSync:     false,
 			expectedHeight: 9,
@@ -285,6 +286,7 @@ func TestWatchSyncWithPeer(t *testing.T) {
 			newBlocks := GenerateNewBlocks(t, peerChain, tt.numNewBlocks)
 
 			for _, newBlock := range newBlocks {
+				assert.NoError(t, peerSyncer.blockchain.VerifyFinalizedBlock(newBlock))
 				assert.NoError(t, peerSyncer.blockchain.WriteBlock(newBlock))
 			}
 
@@ -326,15 +328,15 @@ func TestNilPointerAttackFromFaultyPeer(t *testing.T) {
 	}{
 		{
 			name:              "should not crash even notify raw data is nil",
-			headers:           blockchain.NewTestHeaderChainWithSeed(nil, 3, 0),
-			peerHeaders:       blockchain.NewTestHeaderChainWithSeed(nil, 1, 0),
+			headers:           blockchain.NewTestHeadersWithSeed(nil, 3, 0),
+			peerHeaders:       blockchain.NewTestHeadersWithSeed(nil, 1, 0),
 			numNewBlocks:      1,
 			testBroadcastFunc: broadcastNilRawData,
 		},
 		{
 			name:              "should not crash even notify status is nil",
-			headers:           blockchain.NewTestHeaderChainWithSeed(nil, 5, 0),
-			peerHeaders:       blockchain.NewTestHeaderChainWithSeed(nil, 1, 0),
+			headers:           blockchain.NewTestHeadersWithSeed(nil, 5, 0),
+			peerHeaders:       blockchain.NewTestHeadersWithSeed(nil, 1, 0),
 			numNewBlocks:      1,
 			testBroadcastFunc: broadcastNilStatusData,
 		},
@@ -350,6 +352,7 @@ func TestNilPointerAttackFromFaultyPeer(t *testing.T) {
 			newBlocks := GenerateNewBlocks(t, peerChain, tt.numNewBlocks)
 
 			for _, newBlock := range newBlocks {
+				assert.NoError(t, peerSyncer.blockchain.VerifyFinalizedBlock(newBlock))
 				assert.NoError(t, peerSyncer.blockchain.WriteBlock(newBlock))
 			}
 
@@ -421,16 +424,16 @@ func TestBulkSyncWithPeer(t *testing.T) {
 	}{
 		{
 			name:          "should sync until peer's latest block",
-			headers:       blockchain.NewTestHeaderChainWithSeed(nil, 10, 0),
-			peerHeaders:   blockchain.NewTestHeaderChainWithSeed(nil, 30, 0),
+			headers:       blockchain.NewTestHeadersWithSeed(nil, 10, 0),
+			peerHeaders:   blockchain.NewTestHeadersWithSeed(nil, 30, 0),
 			shouldSync:    true,
 			syncFromBlock: 10,
 			err:           nil,
 		},
 		{
 			name:          "shouldn't sync if peer's latest block is behind",
-			headers:       blockchain.NewTestHeaderChainWithSeed(nil, 20, 0),
-			peerHeaders:   blockchain.NewTestHeaderChainWithSeed(nil, 10, 0),
+			headers:       blockchain.NewTestHeadersWithSeed(nil, 20, 0),
+			peerHeaders:   blockchain.NewTestHeadersWithSeed(nil, 10, 0),
 			shouldSync:    false,
 			syncFromBlock: 0,
 			err:           errors.New("fork not found"),
@@ -473,11 +476,11 @@ func TestSyncer_GetSyncProgression(t *testing.T) {
 	initialChainSize := 10
 	targetChainSize := 1000
 
-	existingChain := blockchain.NewTestHeaderChainWithSeed(nil, initialChainSize, 0)
+	existingChain := blockchain.NewTestHeadersWithSeed(nil, initialChainSize, 0)
 	syncerChain := NewMockBlockchain(existingChain)
 	syncer := CreateSyncer(t, syncerChain, nil)
 
-	syncHeaders := blockchain.NewTestHeaderChainWithSeed(nil, targetChainSize, 0)
+	syncHeaders := blockchain.NewTestHeadersWithSeed(nil, targetChainSize, 0)
 	syncBlocks := blockchain.HeadersToBlocks(syncHeaders)
 
 	syncer.syncProgression.StartProgression(uint64(initialChainSize), syncerChain.SubscribeEvents())
@@ -583,6 +586,10 @@ func (m *mockBlockStore) WriteBlock(block *types.Block) error {
 	m.td.Add(m.td, big.NewInt(int64(block.Header.Difficulty)))
 	m.blocks = append(m.blocks, block)
 
+	return nil
+}
+
+func (m *mockBlockStore) VerifyFinalizedBlock(block *types.Block) error {
 	return nil
 }
 
