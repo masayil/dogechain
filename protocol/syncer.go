@@ -6,14 +6,14 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"sort"
 	"sync"
 	"time"
-
-	"github.com/dogechain-lab/dogechain/network/event"
 
 	"github.com/dogechain-lab/dogechain/blockchain"
 	"github.com/dogechain-lab/dogechain/helper/progress"
 	"github.com/dogechain-lab/dogechain/network"
+	"github.com/dogechain-lab/dogechain/network/event"
 	libp2pGrpc "github.com/dogechain-lab/dogechain/network/grpc"
 	"github.com/dogechain-lab/dogechain/protocol/proto"
 	"github.com/dogechain-lab/dogechain/types"
@@ -42,17 +42,41 @@ var (
 	ErrInvalidTypeAssertion   = errors.New("invalid type assertion")
 )
 
+// blocks sorted by number (ascending)
+type minNumBlockQueue []*types.Block
+
+// must implement sort interface
+var _ sort.Interface = (*minNumBlockQueue)(nil)
+
+func (q *minNumBlockQueue) Len() int {
+	return len(*q)
+}
+
+func (q *minNumBlockQueue) Less(i, j int) bool {
+	return (*q)[i].Number() < (*q)[j].Number()
+}
+
+func (q *minNumBlockQueue) Swap(i, j int) {
+	(*q)[i], (*q)[j] = (*q)[j], (*q)[i]
+}
+
 // SyncPeer is a representation of the peer the node is syncing with
 type SyncPeer struct {
 	peer   peer.ID
 	conn   *grpc.ClientConn
 	client proto.V1Client
 
+	// Peer status might not be the latest block due to its asynchronous broadcast
+	// mechanism. The goroutine would makes the sequence unpredictable.
+	// So do not rely on its status for step by step watching syncing, especially
+	// in a bad network status.
+	// We would rather evolve the syncing protocol instead of patching too much for
+	// v1 protocol.
 	status     *Status
 	statusLock sync.RWMutex
 
 	enqueueLock sync.Mutex
-	enqueue     []*types.Block
+	enqueue     minNumBlockQueue
 	enqueueCh   chan struct{}
 }
 
@@ -119,12 +143,15 @@ func (s *SyncPeer) appendBlock(b *types.Block) {
 	s.enqueueLock.Lock()
 	defer s.enqueueLock.Unlock()
 
-	if len(s.enqueue) == maxEnqueueSize {
-		// pop first element
-		s.enqueue = s.enqueue[1:]
-	}
-	// append to the end
+	// append block
 	s.enqueue = append(s.enqueue, b)
+	// sort blocks
+	sort.Stable(&s.enqueue)
+
+	if s.enqueue.Len() > maxEnqueueSize {
+		// pop elements to meet capacity
+		s.enqueue = s.enqueue[s.enqueue.Len()-maxEnqueueSize:]
+	}
 
 	select {
 	case s.enqueueCh <- struct{}{}:
@@ -135,6 +162,16 @@ func (s *SyncPeer) appendBlock(b *types.Block) {
 func (s *SyncPeer) updateStatus(status *Status) {
 	s.statusLock.Lock()
 	defer s.statusLock.Unlock()
+
+	// compare current status, would only update until new height meet or fork happens
+	switch {
+	case status.Number < s.status.Number:
+		return
+	case status.Number == s.status.Number:
+		if status.Hash == s.status.Hash {
+			return
+		}
+	}
 
 	s.status = status
 }
@@ -259,9 +296,7 @@ func (s *Syncer) syncCurrentStatus() {
 				Number:     evnt.NewChain[0].Number,
 			}
 
-			s.statusLock.Lock()
-			s.status = status
-			s.statusLock.Unlock()
+			s.updateStatus(status)
 
 		case <-s.stopCh:
 			sub.Close()
@@ -269,6 +304,25 @@ func (s *Syncer) syncCurrentStatus() {
 			return
 		}
 	}
+}
+
+func (s *Syncer) updateStatus(status *Status) {
+	s.statusLock.Lock()
+	defer s.statusLock.Unlock()
+
+	// compare current status, would only update until new height meet or fork happens
+	switch {
+	case status.Number < s.status.Number:
+		return
+	case status.Number == s.status.Number:
+		if status.Hash == s.status.Hash {
+			return
+		}
+	}
+
+	s.logger.Debug("update syncer status", "status", status)
+
+	s.status = status
 }
 
 const syncerV1 = "/syncer/0.1"
@@ -492,6 +546,7 @@ func (s *Syncer) AddPeer(peerID peer.ID) error {
 		conn:      conn,
 		client:    clt,
 		status:    status,
+		enqueue:   make(minNumBlockQueue, 0, maxEnqueueSize+1),
 		enqueueCh: make(chan struct{}),
 	})
 

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"math/big"
+	"sort"
+	"sync"
 	"testing"
 	"time"
 
@@ -94,7 +96,7 @@ func TestDeletePeer(t *testing.T) {
 }
 
 func TestBroadcast(t *testing.T) {
-	tests := []struct {
+	tests := []*struct {
 		name          string
 		syncerHeaders []*types.Header
 		peerHeaders   []*types.Header
@@ -127,6 +129,23 @@ func TestBroadcast(t *testing.T) {
 
 			peer := getPeer(syncer, peerSyncer.server.AddrInfo().ID)
 			assert.NotNil(t, peer)
+
+			// wait a little bit for receiving blocs
+			// do not wait too much, because the block enqueu will be purge and written during syncing
+			endSyncTime := time.Now().Add(time.Second * 3)
+			ticker := time.NewTicker(time.Millisecond * 2)
+
+			for range ticker.C {
+				// time out
+				if time.Now().After(endSyncTime) {
+					ticker.Stop()
+					break
+				}
+				// all blocks received
+				if len(peer.enqueue) >= tt.numNewBlocks {
+					break
+				}
+			}
 
 			// Check peer's queue
 			assert.Len(t, peer.enqueue, tt.numNewBlocks)
@@ -250,7 +269,7 @@ func TestFindCommonAncestor(t *testing.T) {
 }
 
 func TestWatchSyncWithPeer(t *testing.T) {
-	tests := []struct {
+	tests := []*struct {
 		name           string
 		headers        []*types.Header
 		peerHeaders    []*types.Header
@@ -297,23 +316,49 @@ func TestWatchSyncWithPeer(t *testing.T) {
 			peer := getPeer(syncer, peerSyncer.server.AddrInfo().ID)
 			assert.NotNil(t, peer)
 
-			latestBlock := newBlocks[len(newBlocks)-1]
-			startSyncTime := time.Now()
-			endSyncTime := startSyncTime.Add(time.Second * 5)
+			blocks := make([]*types.Block, 0, len(newBlocks))
+			blockMu := new(sync.Mutex)
+			endSyncTime := time.Now().Add(time.Second * 5)
 			syncer.WatchSyncWithPeer(peer, func(b *types.Block) bool {
 				if time.Now().After(endSyncTime) {
 					// Timeout
 					return true
 				}
-				// sync until latest block
-				return b.Header.Number >= latestBlock.Header.Number
+
+				blockMu.Lock()
+				defer blockMu.Unlock()
+
+				blocks = append(blocks, b)
+
+				return len(blocks) >= len(newBlocks)
 			})
 
-			if tt.shouldSync {
-				assert.Equal(t, HeaderToStatus(latestBlock.Header), syncer.status)
+			// sort the slice outside
+			sort.Slice(blocks, func(i, j int) bool {
+				return blocks[i].Number() < blocks[j].Number()
+			})
+
+			// wait a little bit for syncer status update right
+			endWriteBlockTime := time.Now().Add(time.Second * 2)
+			ticker := time.NewTicker(time.Millisecond * 2)
+
+			for range ticker.C {
+				// time out
+				if time.Now().After(endWriteBlockTime) {
+					ticker.Stop()
+					break
+				}
+				// all blocks received
+				if syncer.status.Number >= blocks[len(blocks)-1].Header.Number {
+					break
+				}
 			}
 
+			if tt.shouldSync {
+				assert.Equal(t, HeaderToStatus(blocks[len(blocks)-1].Header), syncer.status)
+			}
 			assert.Equal(t, tt.expectedHeight, syncer.status.Number)
+			assert.Equal(t, len(blocks), len(newBlocks))
 		})
 	}
 }
