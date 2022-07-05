@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"time"
 
 	"github.com/golang/protobuf/ptypes/any"
 	"github.com/hashicorp/go-hclog"
@@ -18,9 +19,11 @@ import (
 )
 
 const (
-	txSlotSize  = 32 * 1024  // 32kB
-	txMaxSize   = 128 * 1024 //128Kb
-	topicNameV1 = "txpool/0.1"
+	txSlotSize                   = 32 * 1024  // 32kB
+	txMaxSize                    = 128 * 1024 //128Kb
+	topicNameV1                  = "txpool/0.1"
+	defaultPruneTickSeconds      = 300
+	defaultPromoteOutdateSeconds = 1800
 )
 
 // errors
@@ -74,10 +77,12 @@ type signer interface {
 }
 
 type Config struct {
-	PriceLimit          uint64
-	MaxSlots            uint64
-	Sealing             bool
-	MaxAccountDemotions uint64
+	PriceLimit            uint64
+	MaxSlots              uint64
+	Sealing               bool
+	MaxAccountDemotions   uint64
+	PruneTickSeconds      uint64
+	PromoteOutdateSeconds uint64
 }
 
 /* All requests are passed to the main loop
@@ -165,6 +170,12 @@ type TxPool struct {
 
 	// maximum account demotion count. when reach, drop all transactions of this account
 	maxAccountDemotions uint64
+
+	// pruning configs
+	// ticker for pruning account outdated transactions
+	pruneAccountTicker     *time.Ticker
+	pruneTick              time.Duration
+	promoteOutdateDuration time.Duration
 }
 
 // NewTxPool returns a new pool for processing incoming transactions.
@@ -177,18 +188,33 @@ func NewTxPool(
 	metrics *Metrics,
 	config *Config,
 ) (*TxPool, error) {
+	var (
+		pruneTickSeconds      = config.PruneTickSeconds
+		promoteOutdateSeconds = config.PromoteOutdateSeconds
+	)
+
+	if pruneTickSeconds == 0 {
+		pruneTickSeconds = defaultPruneTickSeconds
+	}
+
+	if promoteOutdateSeconds == 0 {
+		promoteOutdateSeconds = defaultPromoteOutdateSeconds
+	}
+
 	pool := &TxPool{
-		logger:              logger.Named("txpool"),
-		forks:               forks,
-		store:               store,
-		metrics:             metrics,
-		accounts:            accountsMap{},
-		executables:         newPricedQueue(),
-		index:               lookupMap{all: make(map[types.Hash]*types.Transaction)},
-		gauge:               slotGauge{height: 0, max: config.MaxSlots},
-		priceLimit:          config.PriceLimit,
-		sealing:             config.Sealing,
-		maxAccountDemotions: config.MaxAccountDemotions,
+		logger:                 logger.Named("txpool"),
+		forks:                  forks,
+		store:                  store,
+		metrics:                metrics,
+		accounts:               accountsMap{},
+		executables:            newPricedQueue(),
+		index:                  lookupMap{all: make(map[types.Hash]*types.Transaction)},
+		gauge:                  slotGauge{height: 0, max: config.MaxSlots},
+		priceLimit:             config.PriceLimit,
+		sealing:                config.Sealing,
+		maxAccountDemotions:    config.MaxAccountDemotions,
+		pruneTick:              time.Second * time.Duration(pruneTickSeconds),
+		promoteOutdateDuration: time.Second * time.Duration(promoteOutdateSeconds),
 	}
 
 	// Attach the event manager
@@ -224,8 +250,10 @@ func NewTxPool(
 // On each request received, the appropriate handler
 // is invoked in a separate goroutine.
 func (p *TxPool) Start() {
-	// set default value of txpool pending transactions gauge
-	p.metrics.PendingTxs.Set(0)
+	// set default value of txpool transactions gauge
+	p.metrics.SetDefaultValue(0)
+
+	p.pruneAccountTicker = time.NewTicker(p.pruneTick)
 
 	go func() {
 		for {
@@ -236,6 +264,8 @@ func (p *TxPool) Start() {
 				go p.handleEnqueueRequest(req)
 			case req := <-p.promoteReqCh:
 				go p.handlePromoteRequest(req)
+			case <-p.pruneAccountTicker.C:
+				go p.pruneStaleAccounts()
 			}
 		}
 	}()
@@ -243,6 +273,10 @@ func (p *TxPool) Start() {
 
 // Close shuts down the pool's main loop.
 func (p *TxPool) Close() {
+	if p.pruneAccountTicker != nil {
+		p.pruneAccountTicker.Stop()
+	}
+
 	p.eventManager.Close()
 	p.shutdownCh <- struct{}{}
 }
@@ -377,6 +411,9 @@ func (p *TxPool) Drop(tx *types.Transaction) {
 	// drop enqueued
 	dropped = account.enqueued.clear()
 	clearAccountQueue(dropped)
+
+	// update metrics
+	p.metrics.EnqueueTxs.Add(float64(-1 * len(dropped)))
 
 	p.eventManager.signalEvent(proto.EventType_DROPPED, tx.Hash)
 	p.logger.Debug("dropped account txs",
@@ -633,6 +670,8 @@ func (p *TxPool) handleEnqueueRequest(req enqueueRequest) {
 
 	p.gauge.increase(slotsRequired(tx))
 
+	// update metrics
+	p.metrics.EnqueueTxs.Add(1)
 	p.eventManager.signalEvent(proto.EventType_ENQUEUED, tx.Hash)
 
 	if tx.Nonce > account.getNonce() {
@@ -657,7 +696,27 @@ func (p *TxPool) handlePromoteRequest(req promoteRequest) {
 
 	// update metrics
 	p.metrics.PendingTxs.Add(float64(len(promoted)))
+	// do not forget to delete from enqueued gauge
+	p.metrics.EnqueueTxs.Add(-1 * float64(len(promoted)))
+
 	p.eventManager.signalEvent(proto.EventType_PROMOTED, toHash(promoted...)...)
+}
+
+// pruneStaleAccounts would find out all need-to-prune transactions,
+// remove them from txpool.
+func (p *TxPool) pruneStaleAccounts() {
+	pruned := p.accounts.pruneStaleEnqueuedTxs(p.promoteOutdateDuration)
+
+	if len(pruned) == 0 {
+		return
+	}
+
+	p.index.remove(pruned...)
+	p.gauge.decrease(slotsRequired(pruned...))
+
+	p.logger.Debug("pruned stale enqueued txs", "num", pruned)
+	p.metrics.EnqueueTxs.Add(-1 * float64(len(pruned)))
+	p.eventManager.signalEvent(proto.EventType_PRUNED_ENQUEUED, toHash(pruned...)...)
 }
 
 // addGossipTx handles receiving transactions
@@ -740,6 +799,7 @@ func (p *TxPool) resetAccounts(stateNonces map[types.Address]uint64) {
 			toHash(allPrunedPromoted...)...,
 		)
 
+		// update metrics
 		p.metrics.PendingTxs.Add(float64(-1 * len(allPrunedPromoted)))
 	}
 
@@ -749,6 +809,9 @@ func (p *TxPool) resetAccounts(stateNonces map[types.Address]uint64) {
 			proto.EventType_PRUNED_ENQUEUED,
 			toHash(allPrunedEnqueued...)...,
 		)
+
+		// update metrics
+		p.metrics.EnqueueTxs.Add(float64(-1 * len(allPrunedEnqueued)))
 	}
 }
 
