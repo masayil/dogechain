@@ -21,7 +21,7 @@ func GetCommand() *cobra.Command {
 
 	setFlags(genesisCmd)
 	setLegacyFlags(genesisCmd)
-	setRequiredFlags(genesisCmd)
+	helper.SetRequiredFlags(genesisCmd, params.getRequiredFlags())
 
 	return genesisCmd
 }
@@ -31,38 +31,21 @@ func setFlags(cmd *cobra.Command) {
 		&params.genesisPath,
 		dirFlag,
 		fmt.Sprintf("./%s", command.DefaultGenesisFileName),
-		fmt.Sprintf(
-			"the directory for the Dogechain-Lab Dogechain genesis data. Default: %s",
-			fmt.Sprintf("./%s", command.DefaultGenesisFileName),
-		),
+		"the directory for the Dogechain-Lab Dogechain genesis data",
 	)
 
 	cmd.Flags().StringVar(
 		&params.name,
 		nameFlag,
 		command.DefaultChainName,
-		fmt.Sprintf(
-			"the name for the chain. Default: %s",
-			command.DefaultChainName,
-		),
+		"the name for the chain",
 	)
 
 	cmd.Flags().StringVar(
 		&params.consensusRaw,
 		command.ConsensusFlag,
 		string(command.DefaultConsensus),
-		fmt.Sprintf(
-			"the consensus protocol to be used. Default: %s",
-			command.DefaultConsensus,
-		),
-	)
-
-	cmd.Flags().StringVar(
-		&params.validatorPrefixPath,
-		ibftValidatorPrefixFlag,
-		"",
-		"prefix path for validator folder directory. "+
-			"Needs to be present if ibft-validator is omitted",
+		"the consensus protocol to be used",
 	)
 
 	cmd.Flags().StringArrayVar(
@@ -82,13 +65,27 @@ func setFlags(cmd *cobra.Command) {
 		"multiAddr URL for p2p discovery bootstrap. This flag can be used multiple times",
 	)
 
-	cmd.Flags().StringArrayVar(
-		&params.ibftValidatorsRaw,
-		ibftValidatorFlag,
-		[]string{},
-		"addresses to be used as IBFT validators, can be used multiple times. "+
-			"Needs to be present if ibft-validators-prefix-path is omitted",
-	)
+	// IBFT Validators
+	{
+		cmd.Flags().StringVar(
+			&params.validatorPrefixPath,
+			ibftValidatorPrefixFlag,
+			"",
+			"prefix path for validator folder directory. "+
+				"Needs to be present if ibft-validator is omitted",
+		)
+
+		cmd.Flags().StringArrayVar(
+			&params.ibftValidatorsRaw,
+			ibftValidatorFlag,
+			[]string{},
+			"addresses to be used as IBFT validators, can be used multiple times. "+
+				"Needs to be present if ibft-validators-prefix-path is omitted",
+		)
+
+		// --ibft-validator-prefix-path & --ibft-validator can't be given at same time
+		cmd.MarkFlagsMutuallyExclusive(ibftValidatorPrefixFlag, ibftValidatorFlag)
+	}
 
 	cmd.Flags().BoolVar(
 		&params.isPos,
@@ -102,30 +99,21 @@ func setFlags(cmd *cobra.Command) {
 		&params.chainID,
 		chainIDFlag,
 		command.DefaultChainID,
-		fmt.Sprintf(
-			"the ID of the chain. Default: %d",
-			command.DefaultChainID,
-		),
+		"the ID of the chain",
 	)
 
 	cmd.Flags().Uint64Var(
 		&params.epochSize,
 		epochSizeFlag,
 		ibft.DefaultEpochSize,
-		fmt.Sprintf(
-			"the epoch size for the chain. Default %d",
-			ibft.DefaultEpochSize,
-		),
+		"the epoch size for the chain",
 	)
 
 	cmd.Flags().Uint64Var(
 		&params.blockGasLimit,
 		blockGasLimitFlag,
 		command.DefaultGenesisGasLimit,
-		fmt.Sprintf(
-			"the maximum amount of gas used by all transactions in a block. Default: %d",
-			command.DefaultGenesisGasLimit,
-		),
+		"the maximum amount of gas used by all transactions in a block",
 	)
 
 	cmd.Flags().StringVar(
@@ -172,12 +160,6 @@ func setLegacyFlags(cmd *cobra.Command) {
 	)
 
 	_ = cmd.Flags().MarkHidden(chainIDFlagLEGACY)
-}
-
-func setRequiredFlags(cmd *cobra.Command) {
-	for _, requiredFlag := range params.getRequiredFlags() {
-		_ = cmd.MarkFlagRequired(requiredFlag)
-	}
 }
 
 func runPreRun(_ *cobra.Command, _ []string) error {
