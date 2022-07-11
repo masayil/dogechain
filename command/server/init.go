@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"net"
@@ -13,6 +14,11 @@ import (
 	"github.com/dogechain-lab/dogechain/secrets"
 	"github.com/dogechain-lab/dogechain/server"
 	"github.com/dogechain-lab/dogechain/types"
+)
+
+var (
+	errInvalidBlockTime       = errors.New("invalid block time specified")
+	errDataDirectoryUndefined = errors.New("data directory not defined")
 )
 
 func (p *serverParams) initConfigFromFile() error {
@@ -42,6 +48,10 @@ func (p *serverParams) initRawParams() error {
 		return err
 	}
 
+	if err := p.initBlockTime(); err != nil {
+		return err
+	}
+
 	if p.isDevMode {
 		p.initDevMode()
 	}
@@ -52,9 +62,17 @@ func (p *serverParams) initRawParams() error {
 	return p.initAddresses()
 }
 
+func (p *serverParams) initBlockTime() error {
+	if p.rawConfig.BlockTime < 1 {
+		return errInvalidBlockTime
+	}
+
+	return nil
+}
+
 func (p *serverParams) initDataDirLocation() error {
 	if p.rawConfig.DataDir == "" {
-		return fmt.Errorf("data directory not defined")
+		return errDataDirectoryUndefined
 	}
 
 	return nil
