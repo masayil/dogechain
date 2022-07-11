@@ -15,8 +15,9 @@ import (
 )
 
 var (
-	ErrNilRawRequest    = errors.New("notify request raw is nil")
-	ErrNilStatusRequest = errors.New("notify request status is nil")
+	errInvalidHeadersRequest = errors.New("cannot provide both a number and a hash")
+	errNilRawRequest         = errors.New("notify request raw is nil")
+	errNilStatusRequest      = errors.New("notify request status is nil")
 )
 
 // serviceV1 is the GRPC server implementation for the v1 protocol
@@ -37,11 +38,11 @@ type rlpObject interface {
 func (s *serviceV1) Notify(ctx context.Context, req *proto.NotifyReq) (*empty.Empty, error) {
 	if req.Raw == nil || len(req.Raw.Value) == 0 {
 		// malicious node conducted denial of service
-		return nil, ErrNilRawRequest
+		return nil, errNilRawRequest
 	}
 
 	if req.Status == nil {
-		return nil, ErrNilStatusRequest
+		return nil, errNilStatusRequest
 	}
 
 	var id peer.ID
@@ -57,7 +58,7 @@ func (s *serviceV1) Notify(ctx context.Context, req *proto.NotifyReq) (*empty.Em
 		return nil, err
 	}
 
-	status, err := fromProto(req.Status)
+	status, err := statusFromProto(req.Status)
 	if err != nil {
 		return nil, err
 	}
@@ -117,21 +118,22 @@ func (s *serviceV1) GetObjectsByHash(_ context.Context, req *proto.HashRequest) 
 	return resp, nil
 }
 
-const maxHeadersAmount = 190
+const maxSkeletonHeadersAmount = 190
 
 // GetHeaders implements the V1Server interface
 func (s *serviceV1) GetHeaders(_ context.Context, req *proto.GetHeadersRequest) (*proto.Response, error) {
 	if req.Number != 0 && req.Hash != "" {
-		return nil, errors.New("cannot provide both a number and a hash")
+		return nil, errInvalidHeadersRequest
 	}
 
-	if req.Amount > maxHeadersAmount {
-		req.Amount = maxHeadersAmount
+	if req.Amount > maxSkeletonHeadersAmount {
+		req.Amount = maxSkeletonHeadersAmount
 	}
 
-	var origin *types.Header
-
-	var ok bool
+	var (
+		origin *types.Header
+		ok     bool
+	)
 
 	if req.Number != 0 {
 		origin, ok = s.store.GetHeaderByNumber(uint64(req.Number))
@@ -193,7 +195,13 @@ func getBodies(ctx context.Context, clt proto.V1Client, hashes []types.Hash) ([]
 		input = append(input, h.String())
 	}
 
-	resp, err := clt.GetObjectsByHash(ctx, &proto.HashRequest{Hash: input, Type: proto.HashRequest_BODIES})
+	resp, err := clt.GetObjectsByHash(
+		ctx,
+		&proto.HashRequest{
+			Hash: input,
+			Type: proto.HashRequest_BODIES,
+		},
+	)
 	if err != nil {
 		return nil, err
 	}

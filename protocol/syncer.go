@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"math/big"
 	"sort"
 	"sync"
 	"time"
@@ -19,8 +18,6 @@ import (
 	"github.com/dogechain-lab/dogechain/types"
 	"github.com/hashicorp/go-hclog"
 	"github.com/libp2p/go-libp2p-core/peer"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/connectivity"
 	anypb "google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
@@ -58,181 +55,6 @@ func (q *minNumBlockQueue) Less(i, j int) bool {
 
 func (q *minNumBlockQueue) Swap(i, j int) {
 	(*q)[i], (*q)[j] = (*q)[j], (*q)[i]
-}
-
-// SyncPeer is a representation of the peer the node is syncing with
-type SyncPeer struct {
-	peer   peer.ID
-	conn   *grpc.ClientConn
-	client proto.V1Client
-
-	// Peer status might not be the latest block due to its asynchronous broadcast
-	// mechanism. The goroutine would makes the sequence unpredictable.
-	// So do not rely on its status for step by step watching syncing, especially
-	// in a bad network status.
-	// We would rather evolve the syncing protocol instead of patching too much for
-	// v1 protocol.
-	status     *Status
-	statusLock sync.RWMutex
-
-	enqueueLock sync.Mutex
-	enqueue     minNumBlockQueue
-	enqueueCh   chan struct{}
-}
-
-// Number returns the latest peer block height
-func (s *SyncPeer) Number() uint64 {
-	s.statusLock.RLock()
-	defer s.statusLock.RUnlock()
-
-	return s.status.Number
-}
-
-// IsClosed returns whether peer's connectivity has been closed
-func (s *SyncPeer) IsClosed() bool {
-	return s.conn.GetState() == connectivity.Shutdown
-}
-
-// purgeBlocks purges the cache of broadcasted blocks the node has written so far
-// from the SyncPeer
-func (s *SyncPeer) purgeBlocks(lastSeen types.Hash) {
-	s.enqueueLock.Lock()
-	defer s.enqueueLock.Unlock()
-
-	indx := -1
-
-	for i, b := range s.enqueue {
-		if b.Hash() == lastSeen {
-			indx = i
-		}
-	}
-
-	if indx != -1 {
-		s.enqueue = s.enqueue[indx+1:]
-	}
-}
-
-// popBlock pops a block from the block queue [BLOCKING]
-func (s *SyncPeer) popBlock(timeout time.Duration) (b *types.Block, err error) {
-	timeoutCh := time.After(timeout)
-
-	for {
-		if !s.IsClosed() {
-			s.enqueueLock.Lock()
-			if len(s.enqueue) != 0 {
-				b, s.enqueue = s.enqueue[0], s.enqueue[1:]
-				s.enqueueLock.Unlock()
-
-				return
-			}
-
-			s.enqueueLock.Unlock()
-			select {
-			case <-s.enqueueCh:
-			case <-timeoutCh:
-				return nil, ErrPopTimeout
-			}
-		} else {
-			return nil, ErrConnectionClosed
-		}
-	}
-}
-
-// appendBlock adds a new block to the block queue
-func (s *SyncPeer) appendBlock(b *types.Block) {
-	s.enqueueLock.Lock()
-	defer s.enqueueLock.Unlock()
-
-	// append block
-	s.enqueue = append(s.enqueue, b)
-	// sort blocks
-	sort.Stable(&s.enqueue)
-
-	if s.enqueue.Len() > maxEnqueueSize {
-		// pop elements to meet capacity
-		s.enqueue = s.enqueue[s.enqueue.Len()-maxEnqueueSize:]
-	}
-
-	select {
-	case s.enqueueCh <- struct{}{}:
-	default:
-	}
-}
-
-func (s *SyncPeer) updateStatus(status *Status) {
-	s.statusLock.Lock()
-	defer s.statusLock.Unlock()
-
-	// compare current status, would only update until new height meet or fork happens
-	switch {
-	case status.Number < s.status.Number:
-		return
-	case status.Number == s.status.Number:
-		if status.Hash == s.status.Hash {
-			return
-		}
-	}
-
-	s.status = status
-}
-
-// Status defines the up to date information regarding the peer
-type Status struct {
-	Difficulty *big.Int   // Current difficulty
-	Hash       types.Hash // Latest block hash
-	Number     uint64     // Latest block number
-}
-
-// Copy creates a copy of the status
-func (s *Status) Copy() *Status {
-	ss := new(Status)
-	ss.Hash = s.Hash
-	ss.Number = s.Number
-	ss.Difficulty = new(big.Int).Set(s.Difficulty)
-
-	return ss
-}
-
-// toProto converts a Status object to a proto.V1Status
-func (s *Status) toProto() *proto.V1Status {
-	return &proto.V1Status{
-		Number:     s.Number,
-		Hash:       s.Hash.String(),
-		Difficulty: s.Difficulty.String(),
-	}
-}
-
-// fromProto converts a proto.V1Status to a Status object
-func fromProto(status *proto.V1Status) (*Status, error) {
-	diff, ok := new(big.Int).SetString(status.Difficulty, 10)
-	if !ok {
-		return nil, fmt.Errorf("failed to parse difficulty: %s", status.Difficulty)
-	}
-
-	return &Status{
-		Number:     status.Number,
-		Hash:       types.StringToHash(status.Hash),
-		Difficulty: diff,
-	}, nil
-}
-
-// statusFromProto extracts a Status object from a passed in proto.V1Status
-func statusFromProto(p *proto.V1Status) (*Status, error) {
-	s := new(Status)
-	if err := s.Hash.UnmarshalText([]byte(p.Hash)); err != nil {
-		return nil, err
-	}
-
-	s.Number = p.Number
-
-	diff, ok := new(big.Int).SetString(p.Difficulty, 10)
-	if !ok {
-		return nil, ErrDecodeDifficulty
-	}
-
-	s.Difficulty = diff
-
-	return s, nil
 }
 
 // Syncer is a sync protocol
@@ -331,17 +153,21 @@ const syncerV1 = "/syncer/0.1"
 func (s *Syncer) enqueueBlock(peerID peer.ID, b *types.Block) {
 	s.logger.Debug("enqueue block", "peer", peerID, "number", b.Number(), "hash", b.Hash())
 
-	peer, ok := s.peers.Load(peerID)
-	if ok {
-		syncPeer, ok := peer.(*SyncPeer)
-		if !ok {
-			s.logger.Error("invalid sync peer type cast")
+	peer, exists := s.peers.Load(peerID)
+	if !exists {
+		s.logger.Error("enqueue block: peer not present", "id", peerID.String())
 
-			return
-		}
-
-		syncPeer.appendBlock(b)
+		return
 	}
+
+	syncPeer, ok := peer.(*SyncPeer)
+	if !ok {
+		s.logger.Error("invalid sync peer type cast")
+
+		return
+	}
+
+	syncPeer.appendBlock(b)
 }
 
 func (s *Syncer) updatePeerStatus(peerID peer.ID, status *Status) {
@@ -371,9 +197,21 @@ func (s *Syncer) updatePeerStatus(peerID peer.ID, status *Status) {
 // Broadcast broadcasts a block to all peers
 func (s *Syncer) Broadcast(b *types.Block) {
 	sendNotify := func(peerID, peer interface{}, req *proto.NotifyReq) {
+		startTime := time.Now()
+
 		if _, err := peer.(*SyncPeer).client.Notify(context.Background(), req); err != nil {
 			s.logger.Error("failed to notify", "err", err)
+
+			return
 		}
+
+		duration := time.Since(startTime)
+
+		s.logger.Debug(
+			"notifying peer",
+			"id", peerID,
+			"duration", duration.Seconds(),
+		)
 	}
 
 	// Get the chain difficulty associated with block
@@ -408,8 +246,11 @@ func (s *Syncer) Broadcast(b *types.Block) {
 
 // Start starts the syncer protocol
 func (s *Syncer) Start() {
-	// TODO: why not derived logger instead of null one?
-	s.serviceV1 = &serviceV1{syncer: s, logger: hclog.NewNullLogger(), store: s.blockchain}
+	s.serviceV1 = &serviceV1{
+		syncer: s,
+		logger: s.logger.With("name", "serviceV1"),
+		store:  s.blockchain,
+	}
 
 	// Get the current status of the syncer
 	currentHeader := s.blockchain.Header()
@@ -476,9 +317,10 @@ func (s *Syncer) handlePeerEvent() {
 
 // BestPeer returns the best peer by difficulty (if any)
 func (s *Syncer) BestPeer() *SyncPeer {
-	var bestPeer *SyncPeer
-
-	var bestTd *big.Int
+	var (
+		bestPeer        *SyncPeer
+		bestBlockNumber uint64
+	)
 
 	s.peers.Range(func(peerID, peer interface{}) bool {
 		syncPeer, ok := peer.(*SyncPeer)
@@ -486,28 +328,17 @@ func (s *Syncer) BestPeer() *SyncPeer {
 			return false
 		}
 
-		status := syncPeer.status
-		if bestPeer == nil || status.Difficulty.Cmp(bestTd) > 0 {
-			var correctAssertion bool
-
-			bestPeer, correctAssertion = peer.(*SyncPeer)
-			if !correctAssertion {
-				return false
-			}
-
-			bestTd = status.Difficulty
+		peerBlockNumber := syncPeer.Number()
+		if bestPeer == nil || peerBlockNumber > bestBlockNumber {
+			bestPeer = syncPeer
+			bestBlockNumber = peerBlockNumber
 		}
 
 		return true
 	})
 
-	if bestPeer == nil {
-		return nil
-	}
-
-	curDiff := s.blockchain.CurrentTD()
-	if bestTd.Cmp(curDiff) <= 0 {
-		return nil
+	if bestBlockNumber <= s.blockchain.Header().Number {
+		bestPeer = nil
 	}
 
 	return bestPeer
@@ -647,7 +478,11 @@ func (s *Syncer) findCommonAncestor(clt proto.V1Client, status *Status) (*types.
 }
 
 // WatchSyncWithPeer subscribes and adds peer's latest block
-func (s *Syncer) WatchSyncWithPeer(p *SyncPeer, handler func(b *types.Block) bool) {
+func (s *Syncer) WatchSyncWithPeer(
+	p *SyncPeer,
+	newBlockHandler func(b *types.Block) bool,
+	blockTimeout time.Duration,
+) {
 	// purge from the cache of broadcasted blocks all the ones we have written so far
 	header := s.blockchain.Header()
 	p.purgeBlocks(header.Hash)
@@ -660,7 +495,8 @@ func (s *Syncer) WatchSyncWithPeer(p *SyncPeer, handler func(b *types.Block) boo
 			break
 		}
 
-		b, err := p.popBlock(popTimeout)
+		// safe estimate time for fetching new block broadcast
+		b, err := p.popBlock(blockTimeout * 3)
 		if err != nil {
 			s.logSyncPeerPopBlockError(err, p)
 
@@ -679,7 +515,11 @@ func (s *Syncer) WatchSyncWithPeer(p *SyncPeer, handler func(b *types.Block) boo
 			break
 		}
 
-		if handler(b) {
+		shouldExit := newBlockHandler(b)
+
+		s.prunePeerEnqueuedBlocks(b)
+
+		if shouldExit {
 			break
 		}
 	}
@@ -695,10 +535,12 @@ func (s *Syncer) logSyncPeerPopBlockError(err error, peer *SyncPeer) {
 }
 
 // BulkSyncWithPeer finds common ancestor with a peer and syncs block until latest block
+// Only missing blocks are synced up to the peer's highest block number
 func (s *Syncer) BulkSyncWithPeer(p *SyncPeer, newBlockHandler func(block *types.Block)) error {
 	// find the common ancestor
 	ancestor, fork, err := s.findCommonAncestor(p.client, p.status)
 	if err != nil {
+		// No need to sync with this peer
 		return err
 	}
 
@@ -707,7 +549,10 @@ func (s *Syncer) BulkSyncWithPeer(p *SyncPeer, newBlockHandler func(block *types
 
 	startBlock := fork
 
-	var lastTarget uint64
+	var (
+		lastTarget        uint64
+		currentSyncHeight = ancestor.Number + 1
+	)
 
 	// Create a blockchain subscription for the sync progression and start tracking
 	s.syncProgression.StartProgression(startBlock.Number, s.blockchain.SubscribeEvents())
@@ -717,7 +562,10 @@ func (s *Syncer) BulkSyncWithPeer(p *SyncPeer, newBlockHandler func(block *types
 
 	// sync up to the current known header
 	for {
-		// update target
+		// Update the target. This entire outer loop
+		// is there in order to make sure bulk syncing is entirely done
+		// as the peer's status can change over time if block writes have a significant
+		// time impact on the node in question
 		target := p.status.Number
 
 		s.syncProgression.UpdateHighestProgression(target)
@@ -728,42 +576,42 @@ func (s *Syncer) BulkSyncWithPeer(p *SyncPeer, newBlockHandler func(block *types
 		}
 
 		for {
-			s.logger.Debug("sync up to block", "from", startBlock.Number, "to", target)
+			s.logger.Debug(
+				"sync up to block",
+				"from",
+				currentSyncHeight,
+				"to",
+				target,
+			)
 
-			// start to synchronize with it
+			// Create the base request skeleton
 			sk := &skeleton{
-				span: 10,
-				num:  5,
+				amount: maxSkeletonHeadersAmount,
 			}
 
-			if err := sk.build(p.client, startBlock.Hash); err != nil {
-				return fmt.Errorf("failed to build skeleton: %w", err)
+			// Fetch the blocks from the peer
+			if err := sk.getBlocksFromPeer(p.client, currentSyncHeight); err != nil {
+				return fmt.Errorf("unable to fetch blocks from peer, %w", err)
 			}
 
-			// fill skeleton
-			for indx := range sk.slots {
-				sk.fillSlot(uint64(indx), p.client) //nolint
-			}
-
-			// sync the data
-			for _, slot := range sk.slots {
-				for _, block := range slot.blocks {
-					if err := s.blockchain.VerifyFinalizedBlock(block); err != nil {
-						return fmt.Errorf("unable to verify block, %w", err)
-					}
-
-					if err := s.blockchain.WriteBlock(block); err != nil {
-						return fmt.Errorf("failed to write bulk sync block: %w", err)
-					}
-
-					newBlockHandler(block)
+			// Verify and write the data locally
+			for _, block := range sk.blocks {
+				if err := s.blockchain.VerifyFinalizedBlock(block); err != nil {
+					return fmt.Errorf("unable to verify block, %w", err)
 				}
+
+				if err := s.blockchain.WriteBlock(block); err != nil {
+					return fmt.Errorf("failed to write block while bulk syncing: %w", err)
+				}
+
+				newBlockHandler(block)
+				// prune the peers' enqueued block
+				s.prunePeerEnqueuedBlocks(block)
+				currentSyncHeight++
 			}
 
-			// try to get the next block
-			startBlock = sk.LastHeader()
-
-			if startBlock.Number >= target {
+			if currentSyncHeight >= target {
+				// Target has been reached
 				break
 			}
 		}
@@ -800,7 +648,7 @@ func getHeader(clt proto.V1Client, num *uint64, hash *types.Hash) (*types.Header
 	obj := resp.Objs[0]
 
 	if obj == nil || obj.Spec == nil || len(obj.Spec.Value) == 0 {
-		return nil, ErrNilHeaderResponse
+		return nil, errNilHeaderResponse
 	}
 
 	header := &types.Header{}
@@ -810,4 +658,22 @@ func getHeader(clt proto.V1Client, num *uint64, hash *types.Hash) (*types.Header
 	}
 
 	return header, nil
+}
+
+func (s *Syncer) prunePeerEnqueuedBlocks(block *types.Block) {
+	s.peers.Range(func(key, value interface{}) bool {
+		peerID, _ := key.(peer.ID)
+		syncPeer, _ := value.(*SyncPeer)
+
+		pruned := syncPeer.purgeBlocks(block.Hash())
+
+		s.logger.Debug(
+			"pruned peer enqueued block",
+			"num", pruned,
+			"id", peerID.String(),
+			"reference_block_num", block.Number(),
+		)
+
+		return true
+	})
 }
