@@ -8,7 +8,10 @@ import (
 )
 
 type TxPoolStatusResult struct {
-	Transactions uint64 `json:"transactions"`
+	Transactions         uint64 `json:"transactions"`
+	PendingTransactions  uint64 `json:"pendingTransactions"`
+	EnqueuedTransactions uint64 `json:"enqueuedTransactions"`
+	MaxSlots             uint64 `json:"maxSlots"`
 }
 
 func (r *TxPoolStatusResult) GetOutput() string {
@@ -16,7 +19,9 @@ func (r *TxPoolStatusResult) GetOutput() string {
 
 	buffer.WriteString("\n[TXPOOL STATUS]\n")
 	buffer.WriteString(helper.FormatKV([]string{
-		fmt.Sprintf("Number of transactions in pool:|%d", r.Transactions),
+		fmt.Sprintf("Pending transactions|%d", r.PendingTransactions),
+		fmt.Sprintf("Enqueued transactions|%d", r.EnqueuedTransactions),
+		fmt.Sprintf("Max slots|%d", r.MaxSlots),
 	}))
 	buffer.WriteString("\n")
 
