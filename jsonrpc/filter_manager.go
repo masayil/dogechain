@@ -468,7 +468,7 @@ func (f *FilterManager) GetLogs(query *LogQuery) ([]*Log, error) {
 	return f.getLogsFromBlocks(query)
 }
 
-//GetLogFilterFromID return log filter for given filterID
+// GetLogFilterFromID return log filter for given filterID
 func (f *FilterManager) GetLogFilterFromID(filterID string) (*logFilter, error) {
 	f.lock.RLock()
 	defer f.lock.RUnlock()
@@ -760,7 +760,7 @@ func (t timeHeapImpl) Swap(i, j int) {
 
 func (t *timeHeapImpl) Push(x interface{}) {
 	n := len(*t)
-	item := x.(*filterBase) //nolint: forcetypeassert
+	item := x.(*filterBase) //nolint:forcetypeassert
 	item.heapIndex = n
 	*t = append(*t, item)
 }

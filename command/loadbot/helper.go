@@ -103,7 +103,7 @@ func (l *Loadbot) calculateGasMetrics(jsonClient *jsonrpc.Client, gasMetrics *Bl
 }
 
 func (l *Loadbot) updateGasEstimate(jsonClient *jsonrpc.Client) error {
-	//nolint: ifshort
+	//nolint:ifshort
 	gasLimit := l.cfg.GasLimit
 
 	if gasLimit == nil {
@@ -153,7 +153,7 @@ func (l *Loadbot) isTokenTransferMode() bool {
 	}
 }
 
-//initialze gas metrics blocks map with block number as key
+// initGasMetricsBlocksMap initialzes gas metrics blocks map with block number as key
 func (l *Loadbot) initGasMetricsBlocksMap(blockNum uint64) {
 	l.metrics.GasMetrics.BlockGasMutex.Lock()
 	l.metrics.GasMetrics.Blocks[blockNum] = GasMetrics{}
