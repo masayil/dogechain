@@ -45,8 +45,8 @@ type blockchainInterface interface {
 type txPoolInterface interface {
 	Prepare()
 	Length() uint64
-	Peek() *types.Transaction
-	Pop(tx *types.Transaction)
+	Pop() *types.Transaction
+	Remove(tx *types.Transaction)
 	Drop(tx *types.Transaction)
 	Demote(tx *types.Transaction)
 	ResetWithHeaders(headers ...*types.Header)
@@ -670,8 +670,10 @@ func (i *Ibft) writeTransactions(gasLimit uint64, transition transitionInterface
 	i.txpool.Prepare()
 
 	for {
-		tx := i.txpool.Peek()
+		tx := i.txpool.Pop()
 		if tx == nil {
+			i.logger.Debug("no more transactions")
+
 			break
 		}
 
@@ -693,9 +695,15 @@ func (i *Ibft) writeTransactions(gasLimit uint64, transition transitionInterface
 		}
 
 		if err := transition.Write(tx); err != nil {
-			if _, ok := err.(*state.GasLimitReachedTransitionApplicationError); ok { //nolint:errorlint
+			i.logger.Debug("write transaction failed", "hash", tx.Hash, "from", tx.From, "nonce", tx.Nonce, "err", err)
+
+			//nolint:errorlint
+			if appErr, ok := err.(*state.GasLimitReachedTransitionApplicationError); ok && appErr.IsRecoverable {
+				// Ignore those out-of-gas transaction whose gas limit too large
+			} else if appErr, ok := err.(*state.AllGasUsedError); ok && appErr.IsRecoverable {
+				// no more transaction could be packed.
 				break
-			} else if appErr, ok := err.(*state.TransitionApplicationError); ok && appErr.IsRecoverable { //nolint:errorlint
+			} else if appErr, ok := err.(*state.TransitionApplicationError); ok && appErr.IsRecoverable {
 				i.txpool.Demote(tx)
 			} else {
 				failedTxCount++
@@ -705,8 +713,8 @@ func (i *Ibft) writeTransactions(gasLimit uint64, transition transitionInterface
 			continue
 		}
 
-		// no errors, pop the tx from the pool
-		i.txpool.Pop(tx)
+		// no errors, remove the tx from the pool
+		i.txpool.Remove(tx)
 
 		successTxCount++
 

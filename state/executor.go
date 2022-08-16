@@ -430,12 +430,13 @@ func (t *Transition) nonceCheck(msg *types.Transaction) error {
 // surfacing of these errors reject the transaction thus not including it in the block
 
 var (
-	ErrNonceIncorrect        = fmt.Errorf("incorrect nonce")
-	ErrNotEnoughFundsForGas  = fmt.Errorf("not enough funds to cover gas costs")
-	ErrBlockLimitReached     = fmt.Errorf("gas limit reached in the pool")
-	ErrIntrinsicGasOverflow  = fmt.Errorf("overflow in intrinsic gas calculation")
-	ErrNotEnoughIntrinsicGas = fmt.Errorf("not enough gas supplied for intrinsic gas costs")
-	ErrNotEnoughFunds        = fmt.Errorf("not enough funds for transfer with given value")
+	ErrNonceIncorrect        = errors.New("incorrect nonce")
+	ErrNotEnoughFundsForGas  = errors.New("not enough funds to cover gas costs")
+	ErrBlockLimitReached     = errors.New("gas limit reached in the pool")
+	ErrIntrinsicGasOverflow  = errors.New("overflow in intrinsic gas calculation")
+	ErrNotEnoughIntrinsicGas = errors.New("not enough gas supplied for intrinsic gas costs")
+	ErrNotEnoughFunds        = errors.New("not enough funds for transfer with given value")
+	ErrAllGasUsed            = errors.New("all gas used")
 )
 
 type TransitionApplicationError struct {
@@ -464,10 +465,21 @@ func NewGasLimitReachedTransitionApplicationError(err error) *GasLimitReachedTra
 	}
 }
 
+type AllGasUsedError struct {
+	TransitionApplicationError
+}
+
+func NewAllGasUsedError(err error) *AllGasUsedError {
+	return &AllGasUsedError{
+		*NewTransitionApplicationError(err, true),
+	}
+}
+
 func (t *Transition) apply(msg *types.Transaction) (*runtime.ExecutionResult, error) {
 	// First check this message satisfies all consensus rules before
 	// applying the message. The rules include these clauses
 	//
+	// 0. the basic amount of gas is required
 	// 1. the nonce of the message caller is correct
 	// 2. caller has enough balance to cover transaction fee(gaslimit * gasprice)
 	// 3. the amount of gas required is available in the block
@@ -475,6 +487,15 @@ func (t *Transition) apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 	// 5. the purchased gas is enough to cover intrinsic usage
 	// 6. caller has enough balance to cover asset transfer for **topmost** call
 	txn := t.state
+
+	t.logger.Debug("try to apply transaction",
+		"hash", msg.Hash, "from", msg.From, "nonce", msg.Nonce, "price", msg.GasPrice.String(),
+		"remainingGas", t.gasPool, "wantGas", msg.Gas)
+
+	// 0. the basic amount of gas is required
+	if t.gasPool < TxGas {
+		return nil, NewAllGasUsedError(ErrAllGasUsed)
+	}
 
 	// 1. the nonce of the message caller is correct
 	if err := t.nonceCheck(msg); err != nil {
@@ -496,6 +517,8 @@ func (t *Transition) apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 	if err != nil {
 		return nil, NewTransitionApplicationError(err, false)
 	}
+
+	t.logger.Debug("apply transaction would uses gas", "hash", msg.Hash, "gas", intrinsicGasCost)
 
 	// 5. the purchased gas is enough to cover intrinsic usage
 	gasLeft := msg.Gas - intrinsicGasCost

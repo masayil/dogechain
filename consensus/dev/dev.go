@@ -110,8 +110,10 @@ func (d *Dev) writeTransactions(gasLimit uint64, transition transitionInterface)
 	d.txpool.Prepare()
 
 	for {
-		tx := d.txpool.Peek()
+		tx := d.txpool.Pop()
 		if tx == nil {
+			d.logger.Debug("no more transactions")
+
 			break
 		}
 
@@ -122,9 +124,15 @@ func (d *Dev) writeTransactions(gasLimit uint64, transition transitionInterface)
 		}
 
 		if err := transition.Write(tx); err != nil {
-			if _, ok := err.(*state.GasLimitReachedTransitionApplicationError); ok { //nolint:errorlint
+			d.logger.Debug("write transaction failed", "hash", tx.Hash, "from", tx.From, "nonce", tx.Nonce, "err", err)
+
+			//nolint:errorlint
+			if appErr, ok := err.(*state.GasLimitReachedTransitionApplicationError); ok && appErr.IsRecoverable {
+				// Ignore those out-of-gas transaction whose gas limit too large
+			} else if appErr, ok := err.(*state.AllGasUsedError); ok && appErr.IsRecoverable {
+				// no more transaction could be packed.
 				break
-			} else if appErr, ok := err.(*state.TransitionApplicationError); ok && appErr.IsRecoverable { //nolint:errorlint
+			} else if appErr, ok := err.(*state.TransitionApplicationError); ok && appErr.IsRecoverable {
 				d.txpool.Demote(tx)
 			} else {
 				d.txpool.Drop(tx)
@@ -134,7 +142,7 @@ func (d *Dev) writeTransactions(gasLimit uint64, transition transitionInterface)
 		}
 
 		// no errors, pop the tx from the pool
-		d.txpool.Pop(tx)
+		d.txpool.Remove(tx)
 
 		successful = append(successful, tx)
 	}
