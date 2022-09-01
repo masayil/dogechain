@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/rand"
 	"math/big"
+	"strconv"
 	"testing"
 	"time"
 
@@ -94,8 +95,8 @@ func newTestPoolWithSlots(maxSlots uint64, mockStore ...store) (*TxPool, error) 
 			MaxSlots:              maxSlots,
 			Sealing:               false,
 			MaxAccountDemotions:   defaultMaxAccountDemotions,
-			PruneTickSeconds:      defaultPruneTickSeconds,
-			PromoteOutdateSeconds: defaultPromoteOutdateSeconds,
+			PruneTickSeconds:      DefaultPruneTickSeconds,
+			PromoteOutdateSeconds: DefaultPromoteOutdateSeconds,
 		},
 	)
 }
@@ -1276,23 +1277,26 @@ func TestDemote(t *testing.T) {
 	})
 }
 
-func TestEnqueuedPruning(t *testing.T) {
+func TestTxpool_PruneStaleAccounts(t *testing.T) {
 	t.Parallel()
 
 	testTable := []struct {
 		name            string
+		futureTx        *types.Transaction
 		lastPromoted    time.Time
 		expectedTxCount uint64
 		expectedGauge   uint64
 	}{
 		{
 			"prune stale tx",
-			time.Now().Add(-time.Second * defaultPromoteOutdateSeconds),
+			newTx(addr1, 3, 1),
+			time.Now().Add(-time.Second * DefaultPromoteOutdateSeconds),
 			0,
 			0,
 		},
 		{
 			"no stale tx to prune",
+			newTx(addr1, 5, 1),
 			time.Now().Add(-5 * time.Second),
 			1,
 			1,
@@ -1310,7 +1314,8 @@ func TestEnqueuedPruning(t *testing.T) {
 			pool.SetSigner(&mockSigner{})
 
 			go func() {
-				err := pool.addTx(local, newTx(addr1, 5, 1))
+				// add a future nonce tx
+				err := pool.addTx(local, test.futureTx)
 				assert.NoError(t, err)
 			}()
 			pool.handleEnqueueRequest(<-pool.enqueueReqCh)
@@ -1329,6 +1334,60 @@ func TestEnqueuedPruning(t *testing.T) {
 			assert.Equal(t, test.expectedGauge, pool.gauge.read())
 		})
 	}
+}
+
+func BenchmarkPruneStaleAccounts1KAccounts(b *testing.B)   { benchmarkPruneStaleAccounts(b, 1000) }
+func BenchmarkPruneStaleAccounts10KAccounts(b *testing.B)  { benchmarkPruneStaleAccounts(b, 10000) }
+func BenchmarkPruneStaleAccounts100KAccounts(b *testing.B) { benchmarkPruneStaleAccounts(b, 100000) }
+
+func benchmarkPruneStaleAccounts(b *testing.B, accountSize int) {
+	b.Helper()
+
+	pool, err := newTestPoolWithSlots(uint64(accountSize + 1))
+	assert.NoError(b, err)
+
+	pool.SetSigner(&mockSigner{})
+	pool.pruneTick = time.Second // check on every second
+
+	pool.Start()
+	defer pool.Close()
+
+	var (
+		addresses        = make([]types.Address, accountSize)
+		lastPromotedTime = time.Now()
+	)
+
+	for i := 0; i < accountSize; i++ {
+		addresses[i] = types.StringToAddress("0x" + strconv.FormatInt(int64(1024+i), 16))
+		addr := addresses[i]
+		// add enough future tx
+		err := pool.addTx(local, newTx(addr, uint64(10+i), 1))
+		if !assert.NoError(b, err, "add tx failed") {
+			b.FailNow()
+		}
+		// set the account lastPromoted to the same timestamp
+		if !pool.accounts.exists(addr) {
+			pool.createAccountOnce(addr)
+		}
+
+		pool.accounts.get(addr).lastPromoted = lastPromotedTime
+	}
+
+	// mark all transactions outdated
+	pool.promoteOutdateDuration = time.Since(lastPromotedTime) - time.Millisecond
+
+	// Reset the benchmark and measure pruning task
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		// benchmark pruning task
+		pool.pruneStaleAccounts()
+	}
+
+	promoted, enqueued := pool.GetTxs(true)
+	assert.Len(b, promoted, 0)
+	assert.Len(b, enqueued, 0)
 }
 
 /* "Integrated" tests */

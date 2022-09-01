@@ -28,8 +28,8 @@ func (m *accountsMap) initOnce(addr types.Address, nonce uint64) *account {
 		// set the nonce
 		newAccount.setNonce(nonce)
 
-		// set the timestamp for pruning
-		newAccount.lastPromoted = time.Now()
+		// set the timestamp for pruning. Reinit account should reset it.
+		newAccount.updatePromoted()
 
 		// update global count
 		atomic.AddUint64(&m.count, 1)
@@ -161,7 +161,11 @@ func (m *accountsMap) allTxs(includeEnqueued bool) (
 }
 
 func (m *accountsMap) pruneStaleEnqueuedTxs(outdateDuration time.Duration) []*types.Transaction {
-	pruned := make([]*types.Transaction, 0)
+	var (
+		pruned = make([]*types.Transaction, 0)
+		// use same time for faster comparison
+		outdateTimeBound = time.Now().Add(-1 * outdateDuration)
+	)
 
 	m.Range(func(_, value interface{}) bool {
 		account, ok := value.(*account)
@@ -169,15 +173,19 @@ func (m *accountsMap) pruneStaleEnqueuedTxs(outdateDuration time.Duration) []*ty
 			// It shouldn't be. We just do some prevention work.
 			return false
 		}
+		// should not do anything, make things faster
+		if account.enqueued.length() == 0 {
+			return true
+		}
 
-		account.enqueued.lock(true)
-		defer account.enqueued.unlock()
-
-		if time.Since(account.lastPromoted) >= outdateDuration {
+		if account.IsOutdated(outdateTimeBound) {
+			// only lock the account when needed
+			account.enqueued.lock(true)
 			pruned = append(
 				pruned,
 				account.enqueued.clear()...,
 			)
+			account.enqueued.unlock()
 		}
 
 		return true
@@ -341,10 +349,20 @@ func (a *account) promote() (promoted []*types.Transaction, dropped []*types.Tra
 	// is higher than the one previously stored.
 	if nextNonce > currentNonce {
 		a.setNonce(nextNonce)
+		// only update the promotion timestamp when it is actually promoted.
+		a.updatePromoted()
 	}
 
-	// update timestamp for pruning
-	a.lastPromoted = time.Now()
-
 	return
+}
+
+// updatePromoted updates promoted timestamp
+func (a *account) updatePromoted() {
+	a.lastPromoted = time.Now()
+}
+
+// IsOutdated returns whether account was outdated comparing with the outdate time bound,
+// the promoted timestamp before the bound is outdated.
+func (a *account) IsOutdated(outdateTimeBound time.Time) bool {
+	return a.lastPromoted.Before(outdateTimeBound)
 }

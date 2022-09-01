@@ -20,11 +20,9 @@ import (
 )
 
 const (
-	txSlotSize                   = 32 * 1024  // 32kB
-	txMaxSize                    = 128 * 1024 //128Kb
-	topicNameV1                  = "txpool/0.1"
-	defaultPruneTickSeconds      = 300
-	defaultPromoteOutdateSeconds = 1800
+	txSlotSize  = 32 * 1024  // 32kB
+	txMaxSize   = 128 * 1024 //128Kb
+	topicNameV1 = "txpool/0.1"
 )
 
 // errors
@@ -194,14 +192,24 @@ func NewTxPool(
 	var (
 		pruneTickSeconds      = config.PruneTickSeconds
 		promoteOutdateSeconds = config.PromoteOutdateSeconds
+		maxSlot               = config.MaxSlots
+		maxAccountDemotions   = config.MaxAccountDemotions
 	)
 
 	if pruneTickSeconds == 0 {
-		pruneTickSeconds = defaultPruneTickSeconds
+		pruneTickSeconds = DefaultPruneTickSeconds
 	}
 
 	if promoteOutdateSeconds == 0 {
-		promoteOutdateSeconds = defaultPromoteOutdateSeconds
+		promoteOutdateSeconds = DefaultPromoteOutdateSeconds
+	}
+
+	if maxSlot == 0 {
+		maxSlot = DefaultMaxSlots
+	}
+
+	if maxAccountDemotions == 0 {
+		maxAccountDemotions = DefaultMaxAccountDemotions
 	}
 
 	pool := &TxPool{
@@ -212,10 +220,10 @@ func NewTxPool(
 		accounts:               accountsMap{},
 		executables:            newPricedQueue(),
 		index:                  lookupMap{all: make(map[types.Hash]*types.Transaction)},
-		gauge:                  slotGauge{height: 0, max: config.MaxSlots},
+		gauge:                  slotGauge{height: 0, max: maxSlot},
 		priceLimit:             config.PriceLimit,
 		sealing:                config.Sealing,
-		maxAccountDemotions:    config.MaxAccountDemotions,
+		maxAccountDemotions:    maxAccountDemotions,
 		pruneTick:              time.Second * time.Duration(pruneTickSeconds),
 		promoteOutdateDuration: time.Second * time.Duration(promoteOutdateSeconds),
 	}
@@ -256,9 +264,7 @@ func (p *TxPool) Start() {
 	// set default value of txpool transactions gauge
 	p.metrics.SetDefaultValue(0)
 
-	// p.pruneAccountTicker = time.NewTicker(p.pruneTick)
-	// case <-p.pruneAccountTicker.C:
-	// 	go p.pruneStaleAccounts()
+	p.pruneAccountTicker = time.NewTicker(p.pruneTick)
 
 	go func() {
 		for {
@@ -269,6 +275,8 @@ func (p *TxPool) Start() {
 				go p.handleEnqueueRequest(req)
 			case req := <-p.promoteReqCh:
 				go p.handlePromoteRequest(req)
+			case <-p.pruneAccountTicker.C:
+				go p.pruneStaleAccounts()
 			}
 		}
 	}()
@@ -826,24 +834,12 @@ func (p *TxPool) resetAccounts(stateNonces map[types.Address]uint64) {
 	//	prune pool state
 	if len(allPrunedPromoted) > 0 {
 		cleanup(allPrunedPromoted...)
-		p.eventManager.signalEvent(
-			proto.EventType_PRUNED_PROMOTED,
-			toHash(allPrunedPromoted...)...,
-		)
-
-		// update metrics
-		p.metrics.PendingTxs.Add(float64(-1 * len(allPrunedPromoted)))
+		p.decreaseQueueGauge(allPrunedPromoted, p.metrics.PendingTxs, proto.EventType_PRUNED_PROMOTED)
 	}
 
 	if len(allPrunedEnqueued) > 0 {
 		cleanup(allPrunedEnqueued...)
-		p.eventManager.signalEvent(
-			proto.EventType_PRUNED_ENQUEUED,
-			toHash(allPrunedEnqueued...)...,
-		)
-
-		// update metrics
-		p.metrics.EnqueueTxs.Add(float64(-1 * len(allPrunedEnqueued)))
+		p.decreaseQueueGauge(allPrunedEnqueued, p.metrics.EnqueueTxs, proto.EventType_PRUNED_ENQUEUED)
 	}
 }
 
