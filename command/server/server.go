@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/dogechain-lab/dogechain/blockchain/storage/leveldb"
 	"github.com/dogechain-lab/dogechain/command"
 	"github.com/dogechain-lab/dogechain/crypto"
 	"github.com/dogechain-lab/dogechain/helper/daemon"
@@ -61,6 +62,48 @@ func setFlags(cmd *cobra.Command) {
 		configFlag,
 		"",
 		"the path to the CLI config. Supports .json and .hcl",
+	)
+
+	cmd.Flags().IntVar(
+		&params.leveldbCacheSize,
+		leveldbCacheFlag,
+		leveldb.DefaultCache,
+		"the size of the leveldb cache in MB",
+	)
+
+	cmd.Flags().IntVar(
+		&params.leveldbHandles,
+		leveldbHandlesFlag,
+		leveldb.DefaultHandles,
+		"the number of handles to leveldb open files",
+	)
+
+	cmd.Flags().IntVar(
+		&params.leveldbBloomKeyBits,
+		leveldbBloomKeyBitsFlag,
+		leveldb.DefaultBloomKeyBits,
+		"the bits of leveldb bloom filters",
+	)
+
+	cmd.Flags().IntVar(
+		&params.leveldbTableSize,
+		leveldbTableSizeFlag,
+		leveldb.DefaultCompactionTableSize,
+		"the leveldb 'sorted table' size in MB",
+	)
+
+	cmd.Flags().IntVar(
+		&params.leveldbTotalTableSize,
+		leveldbTotalTableSizeFlag,
+		leveldb.DefaultCompactionTotalSize,
+		"limits leveldb total size of 'sorted table' for each level in MB",
+	)
+
+	cmd.Flags().BoolVar(
+		&params.leveldbNoSync,
+		leveldbNoSyncFlag,
+		leveldb.DefaultNoSync,
+		"leveldb nosync allows completely disable fsync",
 	)
 
 	cmd.Flags().StringVar(
