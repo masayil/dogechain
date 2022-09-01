@@ -273,19 +273,36 @@ func (a *account) reset(nonce uint64, promoteCh chan<- promoteRequest) (
 }
 
 // enqueue attempts tp push the transaction onto the enqueued queue.
-func (a *account) enqueue(tx *types.Transaction) error {
+func (a *account) enqueue(tx *types.Transaction) (oldTx *types.Transaction, err error) {
+	// find out the same nonce transaction in all queues
+	replacable, oldTx := a.enqueued.SameNonceTx(tx)
+	if !replacable && oldTx == nil {
+		// find it in promoted queue when enqueued queue not found
+		replacable, oldTx = a.promoted.SameNonceTx(tx)
+	}
+
+	if !replacable {
+		if oldTx != nil {
+			return nil, ErrReplaceUnderpriced
+		}
+
+		// check nonce
+		if tx.Nonce < a.getNonce() {
+			return nil, ErrNonceTooLow
+		}
+	}
+
+	// only lock the queue when adding
 	a.enqueued.lock(true)
 	defer a.enqueued.unlock()
 
-	// reject low nonce tx
-	if tx.Nonce < a.getNonce() {
-		return ErrNonceTooLow
+	// all checks passed, we could add the transcation now.
+	inserted, oldTx := a.enqueued.Add(tx)
+	if !inserted {
+		return nil, ErrUnderpriced
 	}
 
-	// enqueue tx
-	a.enqueued.push(tx)
-
-	return nil
+	return oldTx, nil
 }
 
 // Promote moves eligible transactions from enqueued to promoted.
@@ -293,7 +310,11 @@ func (a *account) enqueue(tx *types.Transaction) error {
 // Eligible transactions are all sequential in order of nonce
 // and the first one has to have nonce less (or equal) to the account's
 // nextNonce. Lower nonce transaction would be dropped when promoting.
-func (a *account) promote() (promoted []*types.Transaction, dropped []*types.Transaction) {
+func (a *account) promote() (
+	promoted []*types.Transaction,
+	dropped []*types.Transaction,
+	replaced []*types.Transaction,
+) {
 	a.promoted.lock(true)
 	a.enqueued.lock(true)
 
@@ -302,7 +323,7 @@ func (a *account) promote() (promoted []*types.Transaction, dropped []*types.Tra
 		a.promoted.unlock()
 	}()
 
-	//	sanity check
+	// sanity check
 	currentNonce := a.getNonce()
 	if a.enqueued.length() == 0 ||
 		a.enqueued.peek().Nonce > currentNonce {
@@ -318,7 +339,21 @@ func (a *account) promote() (promoted []*types.Transaction, dropped []*types.Tra
 	for {
 		tx := a.enqueued.peek()
 		if tx == nil {
-			break
+			break // no transcation
+		}
+
+		// find replacable tx first
+		if old := a.promoted.GetTxByNonce(tx.Nonce); old != nil {
+			// pop out the transaction first
+			tx = a.enqueued.pop()
+
+			if _, old = a.promoted.Add(tx); old != nil {
+				// succed to replace old transaction
+				replaced = append(replaced, old)
+				promoted = append(promoted, tx)
+			}
+
+			continue
 		}
 
 		if tx.Nonce < nextNonce {
@@ -335,8 +370,10 @@ func (a *account) promote() (promoted []*types.Transaction, dropped []*types.Tra
 		// pop from enqueued
 		tx = a.enqueued.pop()
 
-		// push to promoted
-		a.promoted.push(tx)
+		if inserted, _ := a.promoted.Add(tx); !inserted {
+			// failed tx would not stop promoting.
+			continue
+		}
 
 		// update counters
 		nextNonce += 1
@@ -365,4 +402,8 @@ func (a *account) updatePromoted() {
 // the promoted timestamp before the bound is outdated.
 func (a *account) IsOutdated(outdateTimeBound time.Time) bool {
 	return a.lastPromoted.Before(outdateTimeBound)
+}
+
+func txPriceReplacable(newTx, oldTx *types.Transaction) bool {
+	return newTx.GasPrice.Cmp(oldTx.GasPrice) > 0
 }

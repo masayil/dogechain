@@ -39,6 +39,7 @@ var (
 	ErrInvalidAccountState = errors.New("invalid account state")
 	ErrAlreadyKnown        = errors.New("already known")
 	ErrOversizedData       = errors.New("oversized data")
+	ErrReplaceUnderpriced  = errors.New("replacement transaction underpriced")
 )
 
 // indicates origin of a transaction
@@ -671,13 +672,32 @@ func (p *TxPool) handleEnqueueRequest(req enqueueRequest) {
 	account := p.accounts.get(addr)
 
 	// enqueue tx
-	if err := account.enqueue(tx); err != nil {
+	replacedTx, err := account.enqueue(tx)
+	if err != nil {
 		p.logger.Error("enqueue request", "err", err)
 
 		// remove it from index when nonce too low
 		p.index.remove(tx)
 
 		return
+	}
+
+	// old tx exists, replacement
+	if replacedTx != nil {
+		p.logger.Debug(
+			"replace enquque transaction",
+			"old",
+			replacedTx.Hash.String(),
+			"new",
+			tx.Hash.String(),
+		)
+
+		// remove tx index
+		p.index.remove(replacedTx)
+		// gauge, metrics, event
+		p.gauge.decrease(slotsRequired(replacedTx))
+		p.metrics.EnqueueTxs.Add(-1)
+		p.eventManager.signalEvent(proto.EventType_REPLACED, replacedTx.Hash)
 	}
 
 	p.logger.Debug("enqueue request", "hash", tx.Hash.String())
@@ -704,13 +724,22 @@ func (p *TxPool) handlePromoteRequest(req promoteRequest) {
 	account := p.accounts.get(addr)
 
 	// promote enqueued txs
-	promoted, dropped := account.promote()
+	promoted, dropped, replaced := account.promote()
 	p.logger.Debug("promote request", "promoted", promoted, "addr", addr.String())
 
 	// drop lower nonce txs first, to reduce the risk of mining.
 	if len(dropped) > 0 {
 		p.pruneEnqueuedTxs(dropped)
 		p.logger.Debug("dropped transactions when promoting", "dropped", dropped)
+	}
+
+	if len(replaced) > 0 {
+		p.index.remove(replaced...)
+		// state
+		p.gauge.decrease(slotsRequired(replaced...))
+		// metrics and event
+		p.decreaseQueueGauge(replaced, p.metrics.PendingTxs, proto.EventType_REPLACED)
+		p.logger.Debug("replaced transactions when promoting", "replaced", replaced)
 	}
 
 	// metrics and event
