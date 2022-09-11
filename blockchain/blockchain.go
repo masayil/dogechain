@@ -12,6 +12,7 @@ import (
 	"github.com/dogechain-lab/dogechain/blockchain/storage/leveldb"
 	"github.com/dogechain-lab/dogechain/blockchain/storage/memory"
 	"github.com/dogechain-lab/dogechain/chain"
+	"github.com/dogechain-lab/dogechain/contracts/systemcontracts"
 	"github.com/dogechain-lab/dogechain/helper/common"
 	"github.com/dogechain-lab/dogechain/state"
 	"github.com/dogechain-lab/dogechain/types"
@@ -853,6 +854,15 @@ func (b *Blockchain) executeBlockTransactions(block *types.Block) (*BlockResult,
 	if err := b.consensus.PreStateCommit(header, txn); err != nil {
 		return nil, err
 	}
+
+	// upgrade system if needed
+	systemcontracts.UpgradeSystem(
+		b.Config().ChainID,
+		b.Config().Forks,
+		block.Number(),
+		txn.Txn(),
+		b.logger,
+	)
 
 	_, root := txn.Commit()
 
