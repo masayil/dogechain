@@ -339,6 +339,16 @@ func (t *Transition) handleBridgeLogs(msg *types.Transaction, logs []*types.Log)
 
 			// the fee goes to system Vault contract
 			t.state.AddBalance(systemcontracts.AddrVaultContract, parsedLog.Fee)
+		case bridge.BridgeBurnedEventID:
+			parsedLog, err := bridge.ParseBridgeBurnedLog(log)
+			if err != nil {
+				return err
+			}
+
+			// burn
+			if err := t.state.SubBalance(parsedLog.Sender, parsedLog.Amount); err != nil {
+				return err
+			}
 		}
 	}
 

@@ -13,10 +13,12 @@ import (
 const (
 	EventDeposited = "Deposited"
 	EventWithdrawn = "Withdrawn"
+	EventBurned    = "Burned"
 
 	fieldReceiver = "receiver"
 	fieldAmount   = "amount"
 	fieldFee      = "fee"
+	fieldSender   = "sender"
 )
 
 // Frequently used methods. Must exist.
@@ -25,6 +27,8 @@ var (
 	BridgeDepositedEventID = types.Hash(BridgeDepositedEvent.ID())
 	BridgeWithdrawnEvent   = abis.BridgeABI.Events[EventWithdrawn]
 	BridgeWithdrawnEventID = types.Hash(BridgeWithdrawnEvent.ID())
+	BridgeEventBurnedEvent = abis.BridgeABI.Events[EventBurned]
+	BridgeBurnedEventID    = types.Hash(BridgeEventBurnedEvent.ID())
 )
 
 type DepositedLog struct {
@@ -124,4 +128,45 @@ func getBigIntFromWithdrawnLog(log map[string]interface{}, key string) (*big.Int
 	}
 
 	return bigVal, nil
+}
+
+type BurnedLog struct {
+	Sender types.Address
+	Amount *big.Int
+}
+
+func ParseBridgeBurnedLog(log *types.Log) (*BurnedLog, error) {
+	topics := make([]web3.Hash, 0, len(log.Topics))
+	for _, topic := range log.Topics {
+		topics = append(topics, web3.Hash(topic))
+	}
+
+	w3Log, err := BridgeEventBurnedEvent.ParseLog(&web3.Log{
+		Address: web3.Address(log.Address),
+		Topics:  topics,
+		Data:    log.Data,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	sender, ok := w3Log[fieldSender]
+	if !ok {
+		return nil, errors.New("address not exists in Deposited event")
+	}
+
+	account, ok := sender.(web3.Address)
+	if !ok {
+		return nil, errors.New("address downcast failed")
+	}
+
+	amount, err := getBigIntFromWithdrawnLog(w3Log, fieldAmount)
+	if err != nil {
+		return nil, err
+	}
+
+	return &BurnedLog{
+		Sender: types.Address(account),
+		Amount: amount,
+	}, nil
 }

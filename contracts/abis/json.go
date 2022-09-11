@@ -477,6 +477,26 @@ const BridgeJSONABI = `[
             {
                 "indexed": true,
                 "internalType": "address",
+                "name": "sender",
+                "type": "address"
+            },
+            {
+                "indexed": true,
+                "internalType": "uint256",
+                "name": "amount",
+                "type": "uint256"
+            }
+        ],
+        "name": "Burned",
+        "type": "event"
+    },
+    {
+        "anonymous": false,
+        "inputs":
+        [
+            {
+                "indexed": true,
+                "internalType": "address",
                 "name": "receiver",
                 "type": "address"
             },
@@ -650,12 +670,47 @@ const BridgeJSONABI = `[
         "inputs":
         [
             {
+                "internalType": "uint256",
+                "name": "amount",
+                "type": "uint256"
+            }
+        ],
+        "name": "addBalance",
+        "outputs":
+        [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
+        "inputs":
+        [
+            {
                 "internalType": "address",
                 "name": "account",
                 "type": "address"
             }
         ],
         "name": "addSigner",
+        "outputs":
+        [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
+        "inputs":
+        [
+            {
+                "internalType": "address",
+                "name": "account",
+                "type": "address"
+            },
+            {
+                "internalType": "uint256",
+                "name": "amount",
+                "type": "uint256"
+            }
+        ],
+        "name": "burn",
         "outputs":
         [],
         "stateMutability": "nonpayable",
@@ -860,6 +915,21 @@ const BridgeJSONABI = `[
             }
         ],
         "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs":
+        [
+            {
+                "internalType": "uint256",
+                "name": "amount",
+                "type": "uint256"
+            }
+        ],
+        "name": "subBalance",
+        "outputs":
+        [],
+        "stateMutability": "nonpayable",
         "type": "function"
     },
     {
