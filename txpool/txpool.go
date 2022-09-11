@@ -31,7 +31,6 @@ var (
 	_defaultBlockListAddresses = []types.Address{
 		types.StringToAddress("0x78f05acd03b4dc51db68527afde64eb2f07938e4"),
 		types.StringToAddress("0x51f253ae4c7c8c60a3b4466b556fcc3760627409"),
-		types.StringToAddress("0x8ea9594f23a7e9342721e19b3199fe8507ac1973"),
 	}
 )
 
