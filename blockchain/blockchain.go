@@ -12,12 +12,11 @@ import (
 	"github.com/dogechain-lab/dogechain/blockchain/storage/leveldb"
 	"github.com/dogechain-lab/dogechain/blockchain/storage/memory"
 	"github.com/dogechain-lab/dogechain/chain"
-	"github.com/dogechain-lab/dogechain/contracts/systemcontracts"
+	"github.com/dogechain-lab/dogechain/contracts/upgrader"
 	"github.com/dogechain-lab/dogechain/helper/common"
 	"github.com/dogechain-lab/dogechain/state"
 	"github.com/dogechain-lab/dogechain/types"
 	"github.com/dogechain-lab/dogechain/types/buildroot"
-
 	"github.com/hashicorp/go-hclog"
 	lru "github.com/hashicorp/golang-lru"
 )
@@ -856,7 +855,7 @@ func (b *Blockchain) executeBlockTransactions(block *types.Block) (*BlockResult,
 	}
 
 	// upgrade system if needed
-	systemcontracts.UpgradeSystem(
+	upgrader.UpgradeSystem(
 		b.Config().ChainID,
 		b.Config().Forks,
 		block.Number(),

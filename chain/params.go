@@ -141,5 +141,5 @@ var AllForksEnabled = &Forks{
 	Constantinople: NewFork(0),
 	Petersburg:     NewFork(0),
 	Istanbul:       NewFork(0),
-	Portland:       NewFork(1057081),
+	Portland:       NewFork(10222),
 }
