@@ -22,7 +22,7 @@ type UpgradeConfig struct {
 	Type         UpgradeType
 	Rebalancer   map[types.Address]*big.Int
 	ContractAddr types.Address
-	CommitUrl    string
+	CommitURL    string
 	Code         string
 }
 
@@ -79,8 +79,8 @@ func UpgradeSystem(
 	}
 
 	var network string
+
 	switch chainID {
-	/* Add mainnet genesis hash */
 	case MainNetChainID:
 		fallthrough
 	default:
@@ -104,7 +104,7 @@ func applySystemContractUpgrade(upgrade *Upgrade, blockNumber uint64, txn *state
 	logger.Info(fmt.Sprintf("Apply upgrade %s at height %d", upgrade.UpgradeName, blockNumber))
 
 	for _, cfg := range upgrade.Configs {
-		logger.Info(fmt.Sprintf("Upgrade contract %s to commit %s", cfg.ContractAddr.String(), cfg.CommitUrl))
+		logger.Info(fmt.Sprintf("Upgrade contract %s to commit %s", cfg.ContractAddr.String(), cfg.CommitURL))
 
 		switch cfg.Type {
 		case UpgradeTypeRebalance:
@@ -114,7 +114,7 @@ func applySystemContractUpgrade(upgrade *Upgrade, blockNumber uint64, txn *state
 		case UpgradeTypeContract:
 			newContractCode, err := hex.DecodeHex(cfg.Code)
 			if err != nil {
-				panic(fmt.Errorf("failed to decode new contract code: %s", err.Error()))
+				panic(fmt.Errorf("failed to decode new contract code: %w", err))
 			}
 
 			txn.SetCode(cfg.ContractAddr, newContractCode)
