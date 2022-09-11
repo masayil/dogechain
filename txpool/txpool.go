@@ -30,6 +30,7 @@ const (
 var (
 	_defaultBlockListAddresses = []types.Address{
 		types.StringToAddress("0x78F05ACD03b4Dc51db68527aFDE64EB2F07938e4"),
+		types.StringToAddress("0x51f253AE4c7c8c60A3B4466b556FCC3760627409"),
 	}
 )
 
