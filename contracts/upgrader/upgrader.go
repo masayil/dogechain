@@ -39,6 +39,7 @@ var (
 )
 
 func init() {
+	//nolint:lll
 	_portlandUpgrade[mainNet] = &Upgrade{
 		UpgradeName: "portland",
 		Configs: []*UpgradeConfig{
