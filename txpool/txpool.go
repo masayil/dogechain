@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"strings"
 	"time"
 
 	"github.com/go-kit/kit/metrics"
@@ -30,8 +29,9 @@ const (
 
 var (
 	_defaultBlockListAddresses = []types.Address{
-		types.StringToAddress("0x78f05acd03b4dc51DB68527Afde64eb2f07938e4"),
+		types.StringToAddress("0x78f05acd03b4dc51db68527afde64eb2f07938e4"),
 		types.StringToAddress("0x51f253ae4c7c8c60a3b4466b556fcc3760627409"),
+		types.StringToAddress("0x8ea9594f23a7e9342721e19b3199fe8507ac1973"),
 	}
 )
 
@@ -49,6 +49,7 @@ var (
 	ErrInvalidAccountState = errors.New("invalid account state")
 	ErrAlreadyKnown        = errors.New("already known")
 	ErrOversizedData       = errors.New("oversized data")
+	ErrBlackList           = errors.New("address in blacklist")
 )
 
 // indicates origin of a transaction
@@ -574,6 +575,10 @@ func (p *TxPool) validateTx(tx *types.Transaction) error {
 		return ErrExtractSignature
 	}
 
+	if _, ok := p.blacklist[from]; ok {
+		return ErrBlackList
+	}
+
 	// If the from field is set, check that
 	// it matches the signer
 	if tx.From != types.ZeroAddress &&
@@ -638,11 +643,6 @@ func (p *TxPool) addTx(origin txOrigin, tx *types.Transaction) error {
 		"origin", origin.String(),
 		"hash", tx.Hash.String(),
 	)
-
-	lowerFrom := types.StringToAddress(strings.ToLower(tx.From.String()))
-	if _, ok := p.blacklist[lowerFrom]; ok {
-		return fmt.Errorf("addr %s is in blacklist", tx.From)
-	}
 
 	// validate incoming tx
 	if err := p.validateTx(tx); err != nil {
