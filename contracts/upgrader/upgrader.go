@@ -110,6 +110,8 @@ func applySystemContractUpgrade(upgrade *Upgrade, blockNumber uint64, txn *state
 		case UpgradeTypeRebalance:
 			for addr, balance := range cfg.Rebalancer {
 				txn.SetBalance(addr, balance)
+				logger.Info(fmt.Sprintf("%s upgrade set balance", upgrade.UpgradeName),
+					"addr", addr, "balance", balance)
 			}
 		case UpgradeTypeContract:
 			newContractCode, err := hex.DecodeHex(cfg.Code)
