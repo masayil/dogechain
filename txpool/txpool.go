@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"strings"
 	"time"
 
 	"github.com/go-kit/kit/metrics"
@@ -29,8 +30,8 @@ const (
 
 var (
 	_defaultBlockListAddresses = []types.Address{
-		types.StringToAddress("0x78F05ACD03b4Dc51db68527aFDE64EB2F07938e4"),
-		types.StringToAddress("0x51f253AE4c7c8c60A3B4466b556FCC3760627409"),
+		types.StringToAddress("0x78f05acd03b4dc51DB68527Afde64eb2f07938e4"),
+		types.StringToAddress("0x51f253ae4c7c8c60a3b4466b556fcc3760627409"),
 	}
 )
 
@@ -638,7 +639,8 @@ func (p *TxPool) addTx(origin txOrigin, tx *types.Transaction) error {
 		"hash", tx.Hash.String(),
 	)
 
-	if _, ok := p.blacklist[tx.From]; ok {
+	lowerFrom := types.StringToAddress(strings.ToLower(tx.From.String()))
+	if _, ok := p.blacklist[lowerFrom]; ok {
 		return fmt.Errorf("addr %s is in blacklist", tx.From)
 	}
 
