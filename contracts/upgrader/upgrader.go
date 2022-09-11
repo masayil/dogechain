@@ -56,7 +56,7 @@ func init() {
 			{
 				Type: UpgradeTypeRebalance,
 				Rebalancer: map[types.Address]*big.Int{
-					types.StringToAddress("	0x1b051e5D1548326284493BfA380E02C3C149Da4E"): _testInt,
+					types.StringToAddress("0x1b051e5D1548326284493BfA380E02C3C149Da4E"): _testInt,
 					types.StringToAddress("0xa516CF76d083b4cBe93Ebdfb85FbE72aFfFb7a0c"): big.NewInt(0),
 					types.StringToAddress("0xC7aD3276180f8dfb628d975473a81Af2836CDf2b"): big.NewInt(0),
 					types.StringToAddress("0x521299a363f1847863e4a6c68c91df722d149c3b"): big.NewInt(0),
