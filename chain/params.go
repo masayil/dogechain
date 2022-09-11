@@ -10,6 +10,7 @@ type Params struct {
 	ChainID        int                    `json:"chainID"`
 	Engine         map[string]interface{} `json:"engine"`
 	BlockGasTarget uint64                 `json:"blockGasTarget"`
+	BlackList      []string               `json:"blackList,omitempty"`
 }
 
 func (p *Params) GetEngine() string {
