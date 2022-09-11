@@ -27,6 +27,12 @@ const (
 	defaultPromoteOutdateSeconds = 1800
 )
 
+var (
+	_defaultBlockListAddresses = []types.Address{
+		types.StringToAddress("0x78F05ACD03b4Dc51db68527aFDE64EB2F07938e4"),
+	}
+)
+
 // errors
 var (
 	ErrIntrinsicGas        = errors.New("intrinsic gas too low")
@@ -179,6 +185,9 @@ type TxPool struct {
 	pruneAccountTicker     *time.Ticker
 	pruneTick              time.Duration
 	promoteOutdateDuration time.Duration
+
+	// some very bad guys whose txs should never be included
+	blacklist map[types.Address]struct{}
 }
 
 // NewTxPool returns a new pool for processing incoming transactions.
@@ -245,6 +254,12 @@ func NewTxPool(
 	pool.enqueueReqCh = make(chan enqueueRequest)
 	pool.promoteReqCh = make(chan promoteRequest)
 	pool.shutdownCh = make(chan struct{})
+
+	// blacklist
+	pool.blacklist = make(map[types.Address]struct{})
+	for _, addr := range _defaultBlockListAddresses {
+		pool.blacklist[addr] = struct{}{}
+	}
 
 	return pool, nil
 }
@@ -621,6 +636,10 @@ func (p *TxPool) addTx(origin txOrigin, tx *types.Transaction) error {
 		"origin", origin.String(),
 		"hash", tx.Hash.String(),
 	)
+
+	if _, ok := p.blacklist[tx.From]; ok {
+		return fmt.Errorf("addr %s is in blacklist", tx.From)
+	}
 
 	// validate incoming tx
 	if err := p.validateTx(tx); err != nil {
