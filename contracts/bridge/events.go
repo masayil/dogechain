@@ -152,7 +152,7 @@ func ParseBridgeBurnedLog(log *types.Log) (*BurnedLog, error) {
 
 	sender, ok := w3Log[fieldSender]
 	if !ok {
-		return nil, errors.New("address not exists in Deposited event")
+		return nil, errors.New("address not exists in Burned event")
 	}
 
 	account, ok := sender.(web3.Address)
