@@ -1,39 +1,8 @@
 package leveldb
 
 import (
-	"fmt"
-
-	"github.com/dogechain-lab/dogechain/blockchain/storage"
-	"github.com/hashicorp/go-hclog"
 	"github.com/syndtr/goleveldb/leveldb"
 )
-
-// Factory creates a leveldb storage
-func Factory(config map[string]interface{}, logger hclog.Logger) (storage.Storage, error) {
-	path, ok := config["path"]
-	if !ok {
-		return nil, fmt.Errorf("path not found")
-	}
-
-	pathStr, ok := path.(string)
-	if !ok {
-		return nil, fmt.Errorf("path is not a string")
-	}
-
-	return NewLevelDBStorage(pathStr, logger)
-}
-
-// NewLevelDBStorage creates the new storage reference with leveldb
-func NewLevelDBStorage(path string, logger hclog.Logger) (storage.Storage, error) {
-	db, err := leveldb.OpenFile(path, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	kv := &levelDBKV{db}
-
-	return storage.NewKeyValueStorage(logger.Named("leveldb"), kv), nil
-}
 
 // levelDBKV is the leveldb implementation of the kv storage
 type levelDBKV struct {

@@ -9,9 +9,11 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/dogechain-lab/dogechain/blockchain/storage/leveldb"
 	"github.com/dogechain-lab/dogechain/command"
 	"github.com/dogechain-lab/dogechain/crypto"
 	"github.com/dogechain-lab/dogechain/helper/daemon"
+	"github.com/dogechain-lab/dogechain/txpool"
 	"github.com/howeyc/gopass"
 	"github.com/spf13/cobra"
 
@@ -62,6 +64,48 @@ func setFlags(cmd *cobra.Command) {
 		"the path to the CLI config. Supports .json and .hcl",
 	)
 
+	cmd.Flags().IntVar(
+		&params.leveldbCacheSize,
+		leveldbCacheFlag,
+		leveldb.DefaultCache,
+		"the size of the leveldb cache in MB",
+	)
+
+	cmd.Flags().IntVar(
+		&params.leveldbHandles,
+		leveldbHandlesFlag,
+		leveldb.DefaultHandles,
+		"the number of handles to leveldb open files",
+	)
+
+	cmd.Flags().IntVar(
+		&params.leveldbBloomKeyBits,
+		leveldbBloomKeyBitsFlag,
+		leveldb.DefaultBloomKeyBits,
+		"the bits of leveldb bloom filters",
+	)
+
+	cmd.Flags().IntVar(
+		&params.leveldbTableSize,
+		leveldbTableSizeFlag,
+		leveldb.DefaultCompactionTableSize,
+		"the leveldb 'sorted table' size in MB",
+	)
+
+	cmd.Flags().IntVar(
+		&params.leveldbTotalTableSize,
+		leveldbTotalTableSizeFlag,
+		leveldb.DefaultCompactionTotalSize,
+		"limits leveldb total size of 'sorted table' for each level in MB",
+	)
+
+	cmd.Flags().BoolVar(
+		&params.leveldbNoSync,
+		leveldbNoSyncFlag,
+		leveldb.DefaultNoSync,
+		"leveldb nosync allows completely disable fsync",
+	)
+
 	cmd.Flags().StringVar(
 		&params.rawConfig.DataDir,
 		dataDirFlag,
@@ -88,7 +132,7 @@ func setFlags(cmd *cobra.Command) {
 		&params.rawConfig.Network.NatAddr,
 		natFlag,
 		"",
-		"the external IP address without port, as can be seen by peers",
+		"the external address (address:port), as can be seen by peers",
 	)
 
 	cmd.Flags().StringVar(
@@ -174,28 +218,28 @@ func setFlags(cmd *cobra.Command) {
 	cmd.Flags().Uint64Var(
 		&params.rawConfig.TxPool.MaxSlots,
 		maxSlotsFlag,
-		command.DefaultMaxSlots,
+		txpool.DefaultMaxSlots,
 		"maximum slots in the pool",
 	)
 
 	cmd.Flags().Uint64Var(
 		&params.rawConfig.TxPool.MaxAccountDemotions,
 		maxAccountDemotionsFlag,
-		command.DefaultMaxAccountDemotions,
+		txpool.DefaultMaxAccountDemotions,
 		"maximum account demontion counter limit in the pool",
 	)
 
 	cmd.Flags().Uint64Var(
 		&params.rawConfig.TxPool.PruneTickSeconds,
 		pruneTickSecondsFlag,
-		command.DefaultPruneTickSeconds,
+		txpool.DefaultPruneTickSeconds,
 		"tick seconds for pruning account future transactions in the pool",
 	)
 
 	cmd.Flags().Uint64Var(
 		&params.rawConfig.TxPool.PromoteOutdateSeconds,
 		promoteOutdateSecondsFlag,
-		command.DefaultPromoteOutdateSeconds,
+		txpool.DefaultPromoteOutdateSeconds,
 		"account in the pool not promoted for a long time would be pruned",
 	)
 
@@ -234,6 +278,28 @@ func setFlags(cmd *cobra.Command) {
 		"the flag indicating that node enable graphql service",
 	)
 
+	cmd.Flags().Uint64Var(
+		&params.rawConfig.JSONRPCBatchRequestLimit,
+		jsonRPCBatchRequestLimitFlag,
+		defaultConfig.JSONRPCBatchRequestLimit,
+		"the max length to be considered when handling json-rpc batch requests",
+	)
+
+	cmd.Flags().Uint64Var(
+		&params.rawConfig.JSONRPCBlockRangeLimit,
+		jsonRPCBlockRangeLimitFlag,
+		defaultConfig.JSONRPCBlockRangeLimit,
+		"the max block range to be considered when executing json-rpc requests "+
+			"that consider fromBlock/toBlock values (e.g. eth_getLogs)",
+	)
+
+	cmd.Flags().BoolVar(
+		&params.rawConfig.EnableWS,
+		enableWSFlag,
+		false,
+		"the flag indicating that node enable websocket service",
+	)
+
 	setDevFlags(cmd)
 }
 
@@ -253,6 +319,8 @@ func setDevFlags(cmd *cobra.Command) {
 		0,
 		"the client's dev notification interval in seconds (default 1)",
 	)
+
+	helper.RegisterPprofFlag(cmd)
 
 	_ = cmd.Flags().MarkHidden(devIntervalFlag)
 }
@@ -324,6 +392,7 @@ func askForConfirmation() string {
 }
 
 func runCommand(cmd *cobra.Command, _ []string) {
+	command.InitializePprofServer(cmd)
 	outputter := command.InitializeOutputter(cmd)
 
 	log.Println("Main process run isDaemon:", params.isDaemon)

@@ -26,6 +26,7 @@ type Config struct {
 	Forks                    chain.Forks
 	ChainID                  uint64
 	AccessControlAllowOrigin []string
+	BlockRangeLimit          uint64
 }
 
 // GraphQLStore defines all the methods required
@@ -41,7 +42,7 @@ func NewGraphQLService(logger hclog.Logger, config *Config) (*GraphQLService, er
 	q := Resolver{
 		backend:       config.Store,
 		chainID:       config.ChainID,
-		filterManager: rpc.NewFilterManager(hclog.NewNullLogger(), config.Store),
+		filterManager: rpc.NewFilterManager(hclog.NewNullLogger(), config.Store, config.BlockRangeLimit),
 	}
 
 	s, err := graphql.ParseSchema(schema, &q)

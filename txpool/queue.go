@@ -14,6 +14,7 @@ type accountQueue struct {
 	sync.RWMutex
 	wLock uint32
 	queue minNonceQueue
+	txs   sync.Map // nonce filter transactions
 }
 
 func newAccountQueue() *accountQueue {
@@ -72,10 +73,99 @@ func (q *accountQueue) clear() (removed []*types.Transaction) {
 	// clear the underlying queue
 	q.queue = q.queue[:0]
 
+	// clear the underlying map
+	q.clearNonceTxs()
+
 	return
 }
 
-// push pushes the given transactions onto the queue.
+// GetTxByNonce returns the specific nonce transaction.
+//
+// thread-safe
+func (q *accountQueue) GetTxByNonce(nonce uint64) *types.Transaction {
+	v, ok := q.txs.Load(nonce)
+	if !ok {
+		return nil
+	}
+
+	//nolint:forcetypeassert
+	return v.(*types.Transaction)
+}
+
+func (q *accountQueue) setNonceTx(tx *types.Transaction) {
+	q.txs.Store(tx.Nonce, tx)
+}
+
+func (q *accountQueue) deleteNonceTx(nonce uint64) {
+	q.txs.Delete(nonce)
+}
+
+func (q *accountQueue) clearNonceTxs() {
+	q.txs.Range(func(key, value interface{}) bool {
+		q.txs.Delete(key)
+
+		return true
+	})
+}
+
+// Add tries to insert a new transaction into the list, returning whether the
+// transaction was accepted, and if yes, any previous transaction it replaced.
+//
+// not thread-safe, should be lock held.
+func (q *accountQueue) SameNonceTx(tx *types.Transaction) (replacable bool, old *types.Transaction) {
+	old = q.GetTxByNonce(tx.Nonce)
+	if old == nil {
+		return false, nil
+	}
+	// If there's an older better transaction, abort
+	if !txPriceReplacable(tx, old) {
+		return false, old
+	}
+
+	return true, old
+}
+
+// Add tries to insert or replace a new transaction into the list, returning
+// whether the transaction was accepted, and if yes, any previous transaction
+// it replaced.
+//
+// not thread-safe, should be lock held.
+func (q *accountQueue) Add(tx *types.Transaction) (bool, *types.Transaction) {
+	replacable, old := q.SameNonceTx(tx)
+	if !replacable && old != nil {
+		// transaction replace underprice
+		return false, old
+	}
+
+	// cache nonce
+	q.setNonceTx(tx)
+
+	// upsert
+	if old == nil {
+		q.push(tx)
+	} else {
+		old = q.replaceTxByNewTx(tx)
+	}
+
+	return true, old
+}
+
+func (q *accountQueue) replaceTxByNewTx(newTx *types.Transaction) *types.Transaction {
+	var dropped *types.Transaction
+
+	for i, tx := range q.queue {
+		if tx.Nonce == newTx.Nonce && txPriceReplacable(newTx, tx) {
+			dropped = tx
+			q.queue[i] = newTx
+
+			break
+		}
+	}
+
+	return dropped
+}
+
+// push pushes the given transaction onto the queue.
 func (q *accountQueue) push(tx *types.Transaction) {
 	heap.Push(&q.queue, tx)
 }
@@ -99,6 +189,9 @@ func (q *accountQueue) pop() *types.Transaction {
 	if !ok {
 		return nil
 	}
+
+	// remove it from cache
+	q.deleteNonceTx(transaction.Nonce)
 
 	return transaction
 }

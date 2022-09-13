@@ -13,6 +13,7 @@ import (
 const DefaultGRPCPort int = 9632
 const DefaultJSONRPCPort int = 8545
 const DefaultGraphQLPort int = 9898
+const DefaultPprofPort int = 6060
 
 // Config is used to parametrize the minimal client
 type Config struct {
@@ -37,6 +38,8 @@ type Config struct {
 	DataDir     string
 	RestoreFile *string
 
+	LeveldbOptions *LeveldbOptions
+
 	Seal           bool
 	SecretsManager *secrets.SecretsManagerConfig
 
@@ -45,6 +48,16 @@ type Config struct {
 
 	Daemon       bool
 	ValidatorKey string
+}
+
+// LeveldbOptions holds the leveldb options
+type LeveldbOptions struct {
+	CacheSize           int
+	Handles             int
+	BloomKeyBits        int
+	CompactionTableSize int
+	CompactionTotalSize int
+	NoSync              bool
 }
 
 // Telemetry holds the config details for metric services
@@ -56,9 +69,13 @@ type Telemetry struct {
 type JSONRPC struct {
 	JSONRPCAddr              *net.TCPAddr
 	AccessControlAllowOrigin []string
+	BatchLengthLimit         uint64
+	BlockRangeLimit          uint64
+	EnableWS                 bool
 }
 
 type GraphQL struct {
 	GraphQLAddr              *net.TCPAddr
 	AccessControlAllowOrigin []string
+	BlockRangeLimit          uint64
 }

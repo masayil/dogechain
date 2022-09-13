@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/rand"
 	"math/big"
+	"strconv"
 	"testing"
 	"time"
 
@@ -46,6 +47,16 @@ var (
 
 // returns a new valid tx of slots size with the given nonce
 func newTx(addr types.Address, nonce, slots uint64) *types.Transaction {
+	return newPriceTx(
+		addr,
+		big.NewInt(0).SetUint64(defaultPriceLimit),
+		nonce,
+		slots,
+	)
+}
+
+// returns a new valid tx of slots size with the given nonce and gas price
+func newPriceTx(addr types.Address, price *big.Int, nonce, slots uint64) *types.Transaction {
 	// base field should take 1 slot at least
 	size := txSlotSize * (slots - 1)
 	if size <= 0 {
@@ -61,7 +72,7 @@ func newTx(addr types.Address, nonce, slots uint64) *types.Transaction {
 		From:     addr,
 		Nonce:    nonce,
 		Value:    big.NewInt(1),
-		GasPrice: big.NewInt(0).SetUint64(defaultPriceLimit),
+		GasPrice: price,
 		Gas:      validGasLimit,
 		Input:    input,
 	}
@@ -94,8 +105,8 @@ func newTestPoolWithSlots(maxSlots uint64, mockStore ...store) (*TxPool, error) 
 			MaxSlots:              maxSlots,
 			Sealing:               false,
 			MaxAccountDemotions:   defaultMaxAccountDemotions,
-			PruneTickSeconds:      defaultPruneTickSeconds,
-			PromoteOutdateSeconds: defaultPromoteOutdateSeconds,
+			PruneTickSeconds:      DefaultPruneTickSeconds,
+			PromoteOutdateSeconds: DefaultPromoteOutdateSeconds,
 		},
 	)
 }
@@ -1276,23 +1287,26 @@ func TestDemote(t *testing.T) {
 	})
 }
 
-func TestEnqueuedPruning(t *testing.T) {
+func TestTxpool_PruneStaleAccounts(t *testing.T) {
 	t.Parallel()
 
 	testTable := []struct {
 		name            string
+		futureTx        *types.Transaction
 		lastPromoted    time.Time
 		expectedTxCount uint64
 		expectedGauge   uint64
 	}{
 		{
 			"prune stale tx",
-			time.Now().Add(-time.Second * defaultPromoteOutdateSeconds),
+			newTx(addr1, 3, 1),
+			time.Now().Add(-time.Second * DefaultPromoteOutdateSeconds),
 			0,
 			0,
 		},
 		{
 			"no stale tx to prune",
+			newTx(addr1, 5, 1),
 			time.Now().Add(-5 * time.Second),
 			1,
 			1,
@@ -1310,7 +1324,8 @@ func TestEnqueuedPruning(t *testing.T) {
 			pool.SetSigner(&mockSigner{})
 
 			go func() {
-				err := pool.addTx(local, newTx(addr1, 5, 1))
+				// add a future nonce tx
+				err := pool.addTx(local, test.futureTx)
 				assert.NoError(t, err)
 			}()
 			pool.handleEnqueueRequest(<-pool.enqueueReqCh)
@@ -1329,6 +1344,60 @@ func TestEnqueuedPruning(t *testing.T) {
 			assert.Equal(t, test.expectedGauge, pool.gauge.read())
 		})
 	}
+}
+
+func BenchmarkPruneStaleAccounts1KAccounts(b *testing.B)   { benchmarkPruneStaleAccounts(b, 1000) }
+func BenchmarkPruneStaleAccounts10KAccounts(b *testing.B)  { benchmarkPruneStaleAccounts(b, 10000) }
+func BenchmarkPruneStaleAccounts100KAccounts(b *testing.B) { benchmarkPruneStaleAccounts(b, 100000) }
+
+func benchmarkPruneStaleAccounts(b *testing.B, accountSize int) {
+	b.Helper()
+
+	pool, err := newTestPoolWithSlots(uint64(accountSize + 1))
+	assert.NoError(b, err)
+
+	pool.SetSigner(&mockSigner{})
+	pool.pruneTick = time.Second // check on every second
+
+	pool.Start()
+	defer pool.Close()
+
+	var (
+		addresses        = make([]types.Address, accountSize)
+		lastPromotedTime = time.Now()
+	)
+
+	for i := 0; i < accountSize; i++ {
+		addresses[i] = types.StringToAddress("0x" + strconv.FormatInt(int64(1024+i), 16))
+		addr := addresses[i]
+		// add enough future tx
+		err := pool.addTx(local, newTx(addr, uint64(10+i), 1))
+		if !assert.NoError(b, err, "add tx failed") {
+			b.FailNow()
+		}
+		// set the account lastPromoted to the same timestamp
+		if !pool.accounts.exists(addr) {
+			pool.createAccountOnce(addr)
+		}
+
+		pool.accounts.get(addr).lastPromoted = lastPromotedTime
+	}
+
+	// mark all transactions outdated
+	pool.promoteOutdateDuration = time.Since(lastPromotedTime) - time.Millisecond
+
+	// Reset the benchmark and measure pruning task
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		// benchmark pruning task
+		pool.pruneStaleAccounts()
+	}
+
+	promoted, enqueued := pool.GetTxs(true)
+	assert.Len(b, promoted, 0)
+	assert.Len(b, enqueued, 0)
 }
 
 /* "Integrated" tests */
@@ -2324,6 +2393,119 @@ func TestGetTxs(t *testing.T) {
 					assert.True(t, found)
 				}
 			}
+		})
+	}
+}
+
+func TestAddTx_ReplaceSameNonce(t *testing.T) {
+	var (
+		eoa  = new(eoa).create(t)
+		addr = eoa.Address
+		// price
+		lowPrice  = big.NewInt(int64(defaultPriceLimit))
+		midPrice  = big.NewInt(0).Mul(lowPrice, big.NewInt(2))
+		highPrice = big.NewInt(0).Mul(lowPrice, big.NewInt(3))
+		// normal txs
+		tx0 = eoa.signTx(newTx(addr, 0, 1), signerEIP155)
+		// same nonce txs
+		tx1_1 = eoa.signTx(newPriceTx(addr, lowPrice, 1, 1), signerEIP155)
+		tx1_2 = eoa.signTx(newPriceTx(addr, midPrice, 1, 1), signerEIP155)
+		tx2_1 = eoa.signTx(newPriceTx(addr, lowPrice, 2, 1), signerEIP155)
+		tx2_2 = eoa.signTx(newPriceTx(addr, midPrice, 2, 1), signerEIP155)
+		tx3_1 = eoa.signTx(newPriceTx(addr, lowPrice, 3, 1), signerEIP155)
+		tx3_2 = eoa.signTx(newPriceTx(addr, midPrice, 3, 1), signerEIP155)
+		tx3_3 = eoa.signTx(newPriceTx(addr, highPrice, 3, 1), signerEIP155)
+	)
+
+	testCases := []struct {
+		name                  string
+		allTxs                []*types.Transaction
+		expectedEnqueued      []*types.Transaction
+		expectedPromoted      []*types.Transaction
+		expectedPromotedCount int
+		expectedReplacedCount int
+	}{
+		{
+			name: "replace same nonce tx in enqueued list",
+			allTxs: []*types.Transaction{
+				tx1_1,
+				tx1_2,
+				tx2_1,
+				tx2_2,
+				tx3_1,
+				tx3_2,
+				tx3_3,
+			},
+			expectedEnqueued: []*types.Transaction{
+				tx1_2,
+				tx2_2,
+				tx3_3,
+			},
+			expectedReplacedCount: 4,
+		},
+		{
+			name: "replace same nonce tx in promoted list",
+			allTxs: []*types.Transaction{
+				tx0,
+				tx1_1,
+				tx1_2,
+				tx2_1,
+				tx2_2,
+				tx3_1,
+				tx3_2,
+				tx3_3,
+			},
+			expectedPromoted: []*types.Transaction{
+				tx0,
+				tx1_2,
+				tx2_2,
+				tx3_3,
+			},
+			expectedPromotedCount: 8,
+			expectedReplacedCount: 4,
+		},
+	}
+
+	for _, test := range testCases {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			pool, err := newTestPool()
+			assert.NoError(t, err)
+			pool.SetSigner(signerEIP155)
+
+			pool.Start()
+			defer pool.Close()
+
+			var eventSubscription = pool.eventManager.subscribe(
+				[]proto.EventType{
+					proto.EventType_PROMOTED,
+					proto.EventType_REPLACED,
+				},
+			)
+
+			// send txs in a goroutine, to avoid hanging event subscriptions.
+			go func() {
+				for _, tx := range test.allTxs {
+					assert.NoError(t, pool.addTx(local, tx))
+				}
+			}()
+
+			// Wait for promoted transactions
+			ctx, cancelFn := context.WithTimeout(context.Background(), time.Second*10)
+			defer cancelFn()
+
+			expectedEventCount := test.expectedPromotedCount + test.expectedReplacedCount
+			// the events might be emitted too soon in the rpc node, so do not rely on it
+			waitForEvents(ctx, eventSubscription, expectedEventCount)
+
+			allPromoted, allEnqueued := pool.GetTxs(true)
+
+			// assert promoted
+			assert.Equal(t, test.expectedPromoted, allPromoted[addr])
+
+			// assert enqueued
+			assert.Equal(t, test.expectedEnqueued, allEnqueued[addr])
 		})
 	}
 }

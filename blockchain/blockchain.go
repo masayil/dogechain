@@ -4,12 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"path/filepath"
 	"sync"
 	"sync/atomic"
 
 	"github.com/dogechain-lab/dogechain/blockchain/storage"
-	"github.com/dogechain-lab/dogechain/blockchain/storage/leveldb"
 	"github.com/dogechain-lab/dogechain/blockchain/storage/memory"
 	"github.com/dogechain-lab/dogechain/chain"
 	"github.com/dogechain-lab/dogechain/contracts/upgrader"
@@ -80,6 +78,10 @@ type gasPriceAverage struct {
 
 	price *big.Int // The average gas price that gets queried
 	count *big.Int // Param used in the avg. gas price calculation
+}
+
+type StorageBuilder interface {
+	Build() (storage.Storage, error)
 }
 
 type Verifier interface {
@@ -180,8 +182,8 @@ func (b *Blockchain) GetAvgGasPrice() *big.Int {
 // NewBlockchain creates a new blockchain object
 func NewBlockchain(
 	logger hclog.Logger,
-	dataDir string,
 	config *chain.Chain,
+	storageBuilder StorageBuilder,
 	consensus Verifier,
 	executor Executor,
 ) (*Blockchain, error) {
@@ -202,15 +204,12 @@ func NewBlockchain(
 		err error
 	)
 
-	if dataDir == "" {
+	if storageBuilder == nil {
 		if db, err = memory.NewMemoryStorage(nil); err != nil {
 			return nil, err
 		}
 	} else {
-		if db, err = leveldb.NewLevelDBStorage(
-			filepath.Join(dataDir, "blockchain"),
-			logger,
-		); err != nil {
+		if db, err = storageBuilder.Build(); err != nil {
 			return nil, err
 		}
 	}

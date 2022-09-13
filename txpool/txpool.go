@@ -20,11 +20,9 @@ import (
 )
 
 const (
-	txSlotSize                   = 32 * 1024  // 32kB
-	txMaxSize                    = 128 * 1024 //128Kb
-	topicNameV1                  = "txpool/0.1"
-	defaultPruneTickSeconds      = 300
-	defaultPromoteOutdateSeconds = 1800
+	txSlotSize  = 32 * 1024  // 32kB
+	txMaxSize   = 128 * 1024 //128Kb
+	topicNameV1 = "txpool/0.1"
 )
 
 // errors
@@ -41,6 +39,7 @@ var (
 	ErrInvalidAccountState = errors.New("invalid account state")
 	ErrAlreadyKnown        = errors.New("already known")
 	ErrOversizedData       = errors.New("oversized data")
+	ErrReplaceUnderpriced  = errors.New("replacement transaction underpriced")
 	ErrBlackList           = errors.New("address in blacklist")
 )
 
@@ -199,14 +198,24 @@ func NewTxPool(
 	var (
 		pruneTickSeconds      = config.PruneTickSeconds
 		promoteOutdateSeconds = config.PromoteOutdateSeconds
+		maxSlot               = config.MaxSlots
+		maxAccountDemotions   = config.MaxAccountDemotions
 	)
 
 	if pruneTickSeconds == 0 {
-		pruneTickSeconds = defaultPruneTickSeconds
+		pruneTickSeconds = DefaultPruneTickSeconds
 	}
 
 	if promoteOutdateSeconds == 0 {
-		promoteOutdateSeconds = defaultPromoteOutdateSeconds
+		promoteOutdateSeconds = DefaultPromoteOutdateSeconds
+	}
+
+	if maxSlot == 0 {
+		maxSlot = DefaultMaxSlots
+	}
+
+	if maxAccountDemotions == 0 {
+		maxAccountDemotions = DefaultMaxAccountDemotions
 	}
 
 	pool := &TxPool{
@@ -217,10 +226,10 @@ func NewTxPool(
 		accounts:               accountsMap{},
 		executables:            newPricedQueue(),
 		index:                  lookupMap{all: make(map[types.Hash]*types.Transaction)},
-		gauge:                  slotGauge{height: 0, max: config.MaxSlots},
+		gauge:                  slotGauge{height: 0, max: maxSlot},
 		priceLimit:             config.PriceLimit,
 		sealing:                config.Sealing,
-		maxAccountDemotions:    config.MaxAccountDemotions,
+		maxAccountDemotions:    maxAccountDemotions,
 		pruneTick:              time.Second * time.Duration(pruneTickSeconds),
 		promoteOutdateDuration: time.Second * time.Duration(promoteOutdateSeconds),
 	}
@@ -267,9 +276,7 @@ func (p *TxPool) Start() {
 	// set default value of txpool transactions gauge
 	p.metrics.SetDefaultValue(0)
 
-	// p.pruneAccountTicker = time.NewTicker(p.pruneTick)
-	// case <-p.pruneAccountTicker.C:
-	// 	go p.pruneStaleAccounts()
+	p.pruneAccountTicker = time.NewTicker(p.pruneTick)
 
 	go func() {
 		for {
@@ -280,6 +287,8 @@ func (p *TxPool) Start() {
 				go p.handleEnqueueRequest(req)
 			case req := <-p.promoteReqCh:
 				go p.handlePromoteRequest(req)
+			case <-p.pruneAccountTicker.C:
+				go p.pruneStaleAccounts()
 			}
 		}
 	}()
@@ -678,13 +687,32 @@ func (p *TxPool) handleEnqueueRequest(req enqueueRequest) {
 	account := p.accounts.get(addr)
 
 	// enqueue tx
-	if err := account.enqueue(tx); err != nil {
+	replacedTx, err := account.enqueue(tx)
+	if err != nil {
 		p.logger.Error("enqueue request", "err", err)
 
 		// remove it from index when nonce too low
 		p.index.remove(tx)
 
 		return
+	}
+
+	// old tx exists, replacement
+	if replacedTx != nil {
+		p.logger.Debug(
+			"replace enquque transaction",
+			"old",
+			replacedTx.Hash.String(),
+			"new",
+			tx.Hash.String(),
+		)
+
+		// remove tx index
+		p.index.remove(replacedTx)
+		// gauge, metrics, event
+		p.gauge.decrease(slotsRequired(replacedTx))
+		p.metrics.EnqueueTxs.Add(-1)
+		p.eventManager.signalEvent(proto.EventType_REPLACED, replacedTx.Hash)
 	}
 
 	p.logger.Debug("enqueue request", "hash", tx.Hash.String())
@@ -711,13 +739,22 @@ func (p *TxPool) handlePromoteRequest(req promoteRequest) {
 	account := p.accounts.get(addr)
 
 	// promote enqueued txs
-	promoted, dropped := account.promote()
+	promoted, dropped, replaced := account.promote()
 	p.logger.Debug("promote request", "promoted", promoted, "addr", addr.String())
 
 	// drop lower nonce txs first, to reduce the risk of mining.
 	if len(dropped) > 0 {
 		p.pruneEnqueuedTxs(dropped)
 		p.logger.Debug("dropped transactions when promoting", "dropped", dropped)
+	}
+
+	if len(replaced) > 0 {
+		p.index.remove(replaced...)
+		// state
+		p.gauge.decrease(slotsRequired(replaced...))
+		// metrics and event
+		p.decreaseQueueGauge(replaced, p.metrics.PendingTxs, proto.EventType_REPLACED)
+		p.logger.Debug("replaced transactions when promoting", "replaced", replaced)
 	}
 
 	// metrics and event
@@ -841,24 +878,12 @@ func (p *TxPool) resetAccounts(stateNonces map[types.Address]uint64) {
 	//	prune pool state
 	if len(allPrunedPromoted) > 0 {
 		cleanup(allPrunedPromoted...)
-		p.eventManager.signalEvent(
-			proto.EventType_PRUNED_PROMOTED,
-			toHash(allPrunedPromoted...)...,
-		)
-
-		// update metrics
-		p.metrics.PendingTxs.Add(float64(-1 * len(allPrunedPromoted)))
+		p.decreaseQueueGauge(allPrunedPromoted, p.metrics.PendingTxs, proto.EventType_PRUNED_PROMOTED)
 	}
 
 	if len(allPrunedEnqueued) > 0 {
 		cleanup(allPrunedEnqueued...)
-		p.eventManager.signalEvent(
-			proto.EventType_PRUNED_ENQUEUED,
-			toHash(allPrunedEnqueued...)...,
-		)
-
-		// update metrics
-		p.metrics.EnqueueTxs.Add(float64(-1 * len(allPrunedEnqueued)))
+		p.decreaseQueueGauge(allPrunedEnqueued, p.metrics.EnqueueTxs, proto.EventType_PRUNED_ENQUEUED)
 	}
 }
 

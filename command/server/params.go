@@ -14,32 +14,41 @@ import (
 )
 
 const (
-	configFlag                = "config"
-	genesisPathFlag           = "chain"
-	dataDirFlag               = "data-dir"
-	libp2pAddressFlag         = "libp2p"
-	prometheusAddressFlag     = "prometheus"
-	natFlag                   = "nat"
-	dnsFlag                   = "dns"
-	sealFlag                  = "seal"
-	maxPeersFlag              = "max-peers"
-	maxInboundPeersFlag       = "max-inbound-peers"
-	maxOutboundPeersFlag      = "max-outbound-peers"
-	priceLimitFlag            = "price-limit"
-	maxSlotsFlag              = "max-slots"
-	maxAccountDemotionsFlag   = "max-account-demotions"
-	pruneTickSecondsFlag      = "prune-tick-seconds"
-	promoteOutdateSecondsFlag = "promote-outdate-seconds"
-	blockGasTargetFlag        = "block-gas-target"
-	secretsConfigFlag         = "secrets-config"
-	restoreFlag               = "restore"
-	blockTimeFlag             = "block-time"
-	devIntervalFlag           = "dev-interval"
-	devFlag                   = "dev"
-	corsOriginFlag            = "access-control-allow-origins"
-	daemonFlag                = "daemon"
-	logFileLocationFlag       = "log-to"
-	enableGraphQLFlag         = "enable-graphql"
+	configFlag                   = "config"
+	genesisPathFlag              = "chain"
+	dataDirFlag                  = "data-dir"
+	leveldbCacheFlag             = "leveldb.cache-size"
+	leveldbHandlesFlag           = "leveldb.handles"
+	leveldbBloomKeyBitsFlag      = "leveldb.bloom-bits"
+	leveldbTableSizeFlag         = "leveldb.table-size"
+	leveldbTotalTableSizeFlag    = "leveldb.total-table-size"
+	leveldbNoSyncFlag            = "leveldb.nosync"
+	libp2pAddressFlag            = "libp2p"
+	prometheusAddressFlag        = "prometheus"
+	natFlag                      = "nat"
+	dnsFlag                      = "dns"
+	sealFlag                     = "seal"
+	maxPeersFlag                 = "max-peers"
+	maxInboundPeersFlag          = "max-inbound-peers"
+	maxOutboundPeersFlag         = "max-outbound-peers"
+	priceLimitFlag               = "price-limit"
+	maxSlotsFlag                 = "max-slots"
+	maxAccountDemotionsFlag      = "max-account-demotions"
+	pruneTickSecondsFlag         = "prune-tick-seconds"
+	promoteOutdateSecondsFlag    = "promote-outdate-seconds"
+	blockGasTargetFlag           = "block-gas-target"
+	secretsConfigFlag            = "secrets-config"
+	restoreFlag                  = "restore"
+	blockTimeFlag                = "block-time"
+	devIntervalFlag              = "dev-interval"
+	devFlag                      = "dev"
+	corsOriginFlag               = "access-control-allow-origins"
+	daemonFlag                   = "daemon"
+	logFileLocationFlag          = "log-to"
+	enableGraphQLFlag            = "enable-graphql"
+	jsonRPCBatchRequestLimitFlag = "json-rpc-batch-request-limit"
+	jsonRPCBlockRangeLimitFlag   = "json-rpc-block-range-limit"
+	enableWSFlag                 = "enable-ws"
 )
 
 const (
@@ -58,16 +67,23 @@ var (
 
 var (
 	errInvalidPeerParams = errors.New("both max-peers and max-inbound/outbound flags are set")
-	errInvalidNATAddress = errors.New("could not parse NAT IP address")
+	errInvalidNATAddress = errors.New("could not parse NAT address (ip:port)")
 )
 
 type serverParams struct {
 	rawConfig  *Config
 	configPath string
 
+	leveldbCacheSize      int
+	leveldbHandles        int
+	leveldbBloomKeyBits   int
+	leveldbTableSize      int
+	leveldbTotalTableSize int
+	leveldbNoSync         bool
+
 	libp2pAddress     *net.TCPAddr
 	prometheusAddress *net.TCPAddr
-	natAddress        net.IP
+	natAddress        *net.TCPAddr
 	dnsAddress        multiaddr.Multiaddr
 	grpcAddress       *net.TCPAddr
 	jsonRPCAddress    *net.TCPAddr
@@ -162,11 +178,15 @@ func (p *serverParams) generateConfig() *server.Config {
 		JSONRPC: &server.JSONRPC{
 			JSONRPCAddr:              p.jsonRPCAddress,
 			AccessControlAllowOrigin: p.corsAllowedOrigins,
+			BatchLengthLimit:         p.rawConfig.JSONRPCBatchRequestLimit,
+			BlockRangeLimit:          p.rawConfig.JSONRPCBlockRangeLimit,
+			EnableWS:                 p.rawConfig.EnableWS,
 		},
 		EnableGraphQL: p.rawConfig.EnableGraphQL,
 		GraphQL: &server.GraphQL{
 			GraphQLAddr:              p.graphqlAddress,
 			AccessControlAllowOrigin: p.corsAllowedOrigins,
+			BlockRangeLimit:          p.rawConfig.JSONRPCBlockRangeLimit,
 		},
 		GRPCAddr:   p.grpcAddress,
 		LibP2PAddr: p.libp2pAddress,
@@ -193,10 +213,18 @@ func (p *serverParams) generateConfig() *server.Config {
 		PromoteOutdateSeconds: p.rawConfig.TxPool.PromoteOutdateSeconds,
 		SecretsManager:        p.secretsConfig,
 		RestoreFile:           p.getRestoreFilePath(),
-		BlockTime:             p.rawConfig.BlockTime,
-		LogLevel:              hclog.LevelFromString(p.rawConfig.LogLevel),
-		LogFilePath:           p.logFileLocation,
-		Daemon:                p.isDaemon,
-		ValidatorKey:          p.validatorKey,
+		LeveldbOptions: &server.LeveldbOptions{
+			CacheSize:           p.leveldbCacheSize,
+			Handles:             p.leveldbHandles,
+			BloomKeyBits:        p.leveldbBloomKeyBits,
+			CompactionTableSize: p.leveldbTableSize,
+			CompactionTotalSize: p.leveldbTotalTableSize,
+			NoSync:              p.leveldbNoSync,
+		},
+		BlockTime:    p.rawConfig.BlockTime,
+		LogLevel:     hclog.LevelFromString(p.rawConfig.LogLevel),
+		LogFilePath:  p.logFileLocation,
+		Daemon:       p.isDaemon,
+		ValidatorKey: p.validatorKey,
 	}
 }

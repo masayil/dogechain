@@ -13,6 +13,7 @@ import (
 
 	"github.com/dogechain-lab/dogechain/archive"
 	"github.com/dogechain-lab/dogechain/blockchain"
+	"github.com/dogechain-lab/dogechain/blockchain/storage/leveldb"
 	"github.com/dogechain-lab/dogechain/chain"
 	"github.com/dogechain-lab/dogechain/consensus"
 	"github.com/dogechain-lab/dogechain/crypto"
@@ -197,8 +198,27 @@ func NewServer(config *Config) (*Server, error) {
 	genesisRoot := m.executor.WriteGenesis(config.Chain.Genesis.Alloc)
 	config.Chain.Genesis.StateRoot = genesisRoot
 
+	// create leveldb storageBuilder
+	leveldbBuilder := leveldb.NewBuilder(
+		logger,
+		filepath.Join(m.config.DataDir, "blockchain"),
+	)
+
+	leveldbBuilder.SetCacheSize(config.LeveldbOptions.CacheSize).
+		SetHandles(config.LeveldbOptions.Handles).
+		SetBloomKeyBits(config.LeveldbOptions.BloomKeyBits).
+		SetCompactionTableSize(config.LeveldbOptions.CompactionTableSize).
+		SetCompactionTotalSize(config.LeveldbOptions.CompactionTotalSize).
+		SetNoSync(config.LeveldbOptions.NoSync)
+
 	// blockchain object
-	m.blockchain, err = blockchain.NewBlockchain(logger, m.config.DataDir, config.Chain, nil, m.executor)
+	m.blockchain, err = blockchain.NewBlockchain(
+		logger,
+		config.Chain,
+		leveldbBuilder,
+		nil,
+		m.executor,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -582,6 +602,9 @@ func (s *Server) setupJSONRPC() error {
 		Addr:                     s.config.JSONRPC.JSONRPCAddr,
 		ChainID:                  uint64(s.config.Chain.Params.ChainID),
 		AccessControlAllowOrigin: s.config.JSONRPC.AccessControlAllowOrigin,
+		BatchLengthLimit:         s.config.JSONRPC.BatchLengthLimit,
+		BlockRangeLimit:          s.config.JSONRPC.BlockRangeLimit,
+		EnableWS:                 s.config.JSONRPC.EnableWS,
 	}
 
 	srv, err := jsonrpc.NewJSONRPC(s.logger, conf)
@@ -615,6 +638,7 @@ func (s *Server) setupGraphQL() error {
 		Addr:                     s.config.GraphQL.GraphQLAddr,
 		ChainID:                  uint64(s.config.Chain.Params.ChainID),
 		AccessControlAllowOrigin: s.config.GraphQL.AccessControlAllowOrigin,
+		BlockRangeLimit:          s.config.GraphQL.BlockRangeLimit,
 	}
 
 	srv, err := graphql.NewGraphQLService(s.logger, conf)
