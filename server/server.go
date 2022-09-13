@@ -230,6 +230,12 @@ func NewServer(config *Config) (*Server, error) {
 			state:      m.state,
 			Blockchain: m.blockchain,
 		}
+
+		blackList := make([]types.Address, len(m.config.Chain.Params.BlackList))
+		for i, a := range m.config.Chain.Params.BlackList {
+			blackList[i] = types.StringToAddress(a)
+		}
+
 		// start transaction pool
 		m.txpool, err = txpool.NewTxPool(
 			logger,
@@ -245,6 +251,7 @@ func NewServer(config *Config) (*Server, error) {
 				MaxAccountDemotions:   m.config.MaxAccountDemotions,
 				PruneTickSeconds:      m.config.PruneTickSeconds,
 				PromoteOutdateSeconds: m.config.PromoteOutdateSeconds,
+				BlackList:             blackList,
 			},
 		)
 		if err != nil {

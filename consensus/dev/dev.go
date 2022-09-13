@@ -7,6 +7,7 @@ import (
 
 	"github.com/dogechain-lab/dogechain/blockchain"
 	"github.com/dogechain-lab/dogechain/consensus"
+	"github.com/dogechain-lab/dogechain/contracts/upgrader"
 	"github.com/dogechain-lab/dogechain/helper/progress"
 	"github.com/dogechain-lab/dogechain/state"
 	"github.com/dogechain-lab/dogechain/txpool"
@@ -184,6 +185,15 @@ func (d *Dev) writeNewBlock(parent *types.Header) error {
 	}
 
 	txns := d.writeTransactions(gasLimit, transition)
+
+	// upgrade system if needed
+	upgrader.UpgradeSystem(
+		d.blockchain.Config().ChainID,
+		d.blockchain.Config().Forks,
+		header.Number,
+		transition.Txn(),
+		d.logger,
+	)
 
 	// Commit the changes
 	_, root := transition.Commit()

@@ -40,6 +40,7 @@ var (
 	ErrAlreadyKnown        = errors.New("already known")
 	ErrOversizedData       = errors.New("oversized data")
 	ErrReplaceUnderpriced  = errors.New("replacement transaction underpriced")
+	ErrBlackList           = errors.New("address in blacklist")
 )
 
 // indicates origin of a transaction
@@ -83,6 +84,7 @@ type Config struct {
 	MaxAccountDemotions   uint64
 	PruneTickSeconds      uint64
 	PromoteOutdateSeconds uint64
+	BlackList             []types.Address
 }
 
 /* All requests are passed to the main loop
@@ -178,6 +180,9 @@ type TxPool struct {
 	pruneAccountTicker     *time.Ticker
 	pruneTick              time.Duration
 	promoteOutdateDuration time.Duration
+
+	// some very bad guys whose txs should never be included
+	blacklist map[types.Address]struct{}
 }
 
 // NewTxPool returns a new pool for processing incoming transactions.
@@ -254,6 +259,12 @@ func NewTxPool(
 	pool.enqueueReqCh = make(chan enqueueRequest)
 	pool.promoteReqCh = make(chan promoteRequest)
 	pool.shutdownCh = make(chan struct{})
+
+	// blacklist
+	pool.blacklist = make(map[types.Address]struct{})
+	for _, addr := range config.BlackList {
+		pool.blacklist[addr] = struct{}{}
+	}
 
 	return pool, nil
 }
@@ -564,6 +575,10 @@ func (p *TxPool) validateTx(tx *types.Transaction) error {
 	from, signerErr := p.signer.Sender(tx)
 	if signerErr != nil {
 		return ErrExtractSignature
+	}
+
+	if _, ok := p.blacklist[from]; ok {
+		return ErrBlackList
 	}
 
 	// If the from field is set, check that

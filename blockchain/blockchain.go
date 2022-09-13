@@ -10,11 +10,11 @@ import (
 	"github.com/dogechain-lab/dogechain/blockchain/storage"
 	"github.com/dogechain-lab/dogechain/blockchain/storage/memory"
 	"github.com/dogechain-lab/dogechain/chain"
+	"github.com/dogechain-lab/dogechain/contracts/upgrader"
 	"github.com/dogechain-lab/dogechain/helper/common"
 	"github.com/dogechain-lab/dogechain/state"
 	"github.com/dogechain-lab/dogechain/types"
 	"github.com/dogechain-lab/dogechain/types/buildroot"
-
 	"github.com/hashicorp/go-hclog"
 	lru "github.com/hashicorp/golang-lru"
 )
@@ -852,6 +852,15 @@ func (b *Blockchain) executeBlockTransactions(block *types.Block) (*BlockResult,
 	if err := b.consensus.PreStateCommit(header, txn); err != nil {
 		return nil, err
 	}
+
+	// upgrade system if needed
+	upgrader.UpgradeSystem(
+		b.Config().ChainID,
+		b.Config().Forks,
+		block.Number(),
+		txn.Txn(),
+		b.logger,
+	)
 
 	_, root := txn.Commit()
 

@@ -10,6 +10,7 @@ import (
 
 	"github.com/dogechain-lab/dogechain/consensus"
 	"github.com/dogechain-lab/dogechain/consensus/ibft/proto"
+	"github.com/dogechain-lab/dogechain/contracts/upgrader"
 	"github.com/dogechain-lab/dogechain/crypto"
 	"github.com/dogechain-lab/dogechain/helper/common"
 	"github.com/dogechain-lab/dogechain/helper/hex"
@@ -625,6 +626,15 @@ func (i *Ibft) buildBlock(snap *Snapshot, parent *types.Header) (*types.Block, e
 	if err := i.PreStateCommit(header, transition); err != nil {
 		return nil, err
 	}
+
+	// upgrade system if needed
+	upgrader.UpgradeSystem(
+		i.config.Params.ChainID,
+		i.config.Params.Forks,
+		header.Number,
+		transition.Txn(),
+		i.logger,
+	)
 
 	_, root := transition.Commit()
 	header.StateRoot = root
