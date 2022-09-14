@@ -142,7 +142,7 @@ func (m *accountsMap) allTxs(includeEnqueued bool) (
 		defer account.promoted.unlock()
 
 		if account.promoted.length() != 0 {
-			allPromoted[addr] = account.promoted.queue
+			allPromoted[addr] = account.promoted.Transactions()
 		}
 
 		if includeEnqueued {
@@ -150,7 +150,7 @@ func (m *accountsMap) allTxs(includeEnqueued bool) (
 			defer account.enqueued.unlock()
 
 			if account.enqueued.length() != 0 {
-				allEnqueued[addr] = account.enqueued.queue
+				allEnqueued[addr] = account.enqueued.Transactions()
 			}
 		}
 
@@ -183,7 +183,7 @@ func (m *accountsMap) pruneStaleEnqueuedTxs(outdateDuration time.Duration) []*ty
 			account.enqueued.lock(true)
 			pruned = append(
 				pruned,
-				account.enqueued.clear()...,
+				account.enqueued.Clear()...,
 			)
 			account.enqueued.unlock()
 		}
@@ -212,7 +212,6 @@ type account struct {
 	init               sync.Once
 	enqueued, promoted *accountQueue
 	nextNonce          uint64
-	demotions          uint64
 	lastPromoted       time.Time // timestamp for pruning
 }
 

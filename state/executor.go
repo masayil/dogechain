@@ -430,9 +430,9 @@ func (t *Transition) nonceCheck(msg *types.Transaction) error {
 	nonce := t.state.GetNonce(msg.From)
 
 	if msg.Nonce < nonce {
-		return NewNonceTooLowError(fmt.Errorf("%w, actual: %d, wanted: %d", ErrNonceIncorrect, msg.Nonce, nonce))
+		return NewNonceTooLowError(fmt.Errorf("%w, actual: %d, wanted: %d", ErrNonceIncorrect, msg.Nonce, nonce), nonce)
 	} else if msg.Nonce > nonce {
-		return NewNonceTooHighError(fmt.Errorf("%w, actual: %d, wanted: %d", ErrNonceIncorrect, msg.Nonce, nonce))
+		return NewNonceTooHighError(fmt.Errorf("%w, actual: %d, wanted: %d", ErrNonceIncorrect, msg.Nonce, nonce), nonce)
 	}
 
 	return nil
@@ -469,21 +469,25 @@ func NewTransitionApplicationError(err error, isRecoverable bool) *TransitionApp
 
 type NonceTooLowError struct {
 	TransitionApplicationError
+	CorrectNonce uint64
 }
 
-func NewNonceTooLowError(err error) *NonceTooLowError {
+func NewNonceTooLowError(err error, correctNonce uint64) *NonceTooLowError {
 	return &NonceTooLowError{
 		*NewTransitionApplicationError(err, false),
+		correctNonce,
 	}
 }
 
 type NonceTooHighError struct {
 	TransitionApplicationError
+	CorrectNonce uint64
 }
 
-func NewNonceTooHighError(err error) *NonceTooHighError {
+func NewNonceTooHighError(err error, correctNonce uint64) *NonceTooHighError {
 	return &NonceTooHighError{
 		*NewTransitionApplicationError(err, false),
+		correctNonce,
 	}
 }
 
@@ -536,6 +540,7 @@ func (t *Transition) apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 
 	// 2. caller has enough balance to cover transaction fee(gaslimit * gasprice)
 	if err := t.subGasLimitPrice(msg); err != nil {
+		// It is not recoverable. All the transactions after that should be dropped
 		return nil, NewTransitionApplicationError(err, true)
 	}
 
@@ -561,6 +566,7 @@ func (t *Transition) apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 
 	// 6. caller has enough balance to cover asset transfer for **topmost** call
 	if balance := txn.GetBalance(msg.From); balance.Cmp(msg.Value) < 0 {
+		// It is not recoverable. All the transactions after that should be dropped
 		return nil, NewTransitionApplicationError(ErrNotEnoughFunds, true)
 	}
 

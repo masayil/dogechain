@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/rand"
+	"fmt"
 	"math/big"
 	"strconv"
 	"testing"
@@ -21,10 +22,9 @@ import (
 )
 
 const (
-	defaultPriceLimit          uint64 = 1
-	defaultMaxSlots            uint64 = 4096
-	defaultMaxAccountDemotions uint64 = 10
-	validGasLimit              uint64 = 4712350
+	defaultPriceLimit uint64 = 1
+	defaultMaxSlots   uint64 = 4096
+	validGasLimit     uint64 = 4712350
 )
 
 var (
@@ -104,7 +104,6 @@ func newTestPoolWithSlots(maxSlots uint64, mockStore ...store) (*TxPool, error) 
 			PriceLimit:            defaultPriceLimit,
 			MaxSlots:              maxSlots,
 			Sealing:               false,
-			MaxAccountDemotions:   defaultMaxAccountDemotions,
 			PruneTickSeconds:      DefaultPruneTickSeconds,
 			PromoteOutdateSeconds: DefaultPromoteOutdateSeconds,
 		},
@@ -1119,7 +1118,7 @@ func TestPop(t *testing.T) {
 	// pop the tx
 	pool.Prepare()
 	tx := pool.Pop()
-	pool.Remove(tx)
+	pool.RemoveExecuted(tx)
 
 	assert.Equal(t, uint64(0), pool.gauge.read())
 	assert.Equal(t, uint64(0), pool.accounts.get(addr1).promoted.length())
@@ -1213,80 +1212,6 @@ func TestDrop_RecoverRightNonce(t *testing.T) {
 	assert.Equal(t, uint64(0), pool.accounts.get(addr1).promoted.length())
 }
 
-func TestDemote(t *testing.T) {
-	t.Parallel()
-
-	t.Run("Demote increments counter", func(t *testing.T) {
-		t.Parallel()
-		//	create pool
-		pool, err := newTestPool()
-		assert.NoError(t, err)
-		pool.SetSigner(&mockSigner{})
-
-		//	send tx
-		go func() {
-			err := pool.addTx(local, newTx(addr1, 0, 1))
-			assert.NoError(t, err)
-		}()
-		go pool.handleEnqueueRequest(<-pool.enqueueReqCh)
-		pool.handlePromoteRequest(<-pool.promoteReqCh)
-
-		assert.Equal(t, uint64(1), pool.gauge.read())
-		assert.Equal(t, uint64(1), pool.accounts.get(addr1).getNonce())
-		assert.Equal(t, uint64(1), pool.accounts.get(addr1).promoted.length())
-		assert.Equal(t, uint64(0), pool.accounts.get(addr1).demotions)
-
-		//	call demote
-		pool.Prepare()
-		tx := pool.Pop()
-		pool.Demote(tx)
-
-		assert.Equal(t, uint64(1), pool.gauge.read())
-		assert.Equal(t, uint64(1), pool.accounts.get(addr1).getNonce())
-		assert.Equal(t, uint64(1), pool.accounts.get(addr1).promoted.length())
-
-		//	assert counter was incremented
-		assert.Equal(t, uint64(1), pool.accounts.get(addr1).demotions)
-	})
-
-	t.Run("Demote calls Drop", func(t *testing.T) {
-		t.Parallel()
-
-		//	create pool
-		pool, err := newTestPool()
-		assert.NoError(t, err)
-		pool.SetSigner(&mockSigner{})
-
-		//	send tx
-		go func() {
-			err := pool.addTx(local, newTx(addr1, 0, 1))
-			assert.NoError(t, err)
-		}()
-		go pool.handleEnqueueRequest(<-pool.enqueueReqCh)
-		pool.handlePromoteRequest(<-pool.promoteReqCh)
-
-		assert.Equal(t, uint64(1), pool.gauge.read())
-		assert.Equal(t, uint64(1), pool.accounts.get(addr1).getNonce())
-		assert.Equal(t, uint64(1), pool.accounts.get(addr1).promoted.length())
-
-		//	set counter to max allowed demotions
-		pool.accounts.get(addr1).demotions = pool.maxAccountDemotions
-
-		//	call demote
-		pool.Prepare()
-		tx := pool.Pop()
-		pool.Demote(tx)
-
-		//	account was dropped
-		assert.Equal(t, uint64(0), pool.gauge.read())
-		assert.Equal(t, uint64(0), pool.accounts.get(addr1).getNonce())
-		assert.Equal(t, uint64(0), pool.accounts.get(addr1).promoted.length())
-
-		//	demotions are reset to 0
-		assert.Equal(t, uint64(0), pool.accounts.get(addr1).demotions)
-	})
-}
-
 func TestTxpool_PruneStaleAccounts(t *testing.T) {
 	t.Parallel()
 
@@ -1357,7 +1282,7 @@ func benchmarkPruneStaleAccounts(b *testing.B, accountSize int) {
 	assert.NoError(b, err)
 
 	pool.SetSigner(&mockSigner{})
-	pool.pruneTick = time.Second // check on every second
+	pool.pruneTick = time.Second // prune check on every second
 
 	pool.Start()
 	defer pool.Close()
@@ -1456,8 +1381,6 @@ func (e *eoa) signTx(tx *types.Transaction, signer crypto.TxSigner) *types.Trans
 var signerEIP155 = crypto.NewEIP155Signer(100)
 
 func TestAddTxns(t *testing.T) {
-	t.Parallel()
-
 	slotSize := uint64(1)
 
 	testTable := []*struct {
@@ -1488,8 +1411,6 @@ func TestAddTxns(t *testing.T) {
 
 	for _, test := range testTable {
 		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-
 			pool, err := newTestPoolWithSlots(test.numTxs * slotSize)
 
 			assert.NoError(t, err)
@@ -1973,7 +1894,7 @@ func TestExecutablesOrder(t *testing.T) {
 					break
 				}
 
-				pool.Remove(tx)
+				pool.RemoveExecuted(tx)
 				successful = append(successful, tx)
 			}
 
@@ -1986,54 +1907,71 @@ func TestExecutablesOrder(t *testing.T) {
 	}
 }
 
-type status int
-
-// Status of a transaction resulted
-// from a transition write attempt
-const (
-	// if a tx is recoverable,
-	// account is excluded from
-	// further processing
-	recoverable status = iota
-
-	// if a tx is unrecoverable,
-	// entire account is dropped
-	unrecoverable
-
-	ok
-)
-
-type statusTx struct {
-	tx     *types.Transaction
-	status status
-}
-
-func TestRecovery(t *testing.T) {
+func TestDropAndRequeue(t *testing.T) {
 	t.Parallel()
 
-	commonAssert := func(accounts map[types.Address]accountState, pool *TxPool) {
+	type status int
+
+	// Status of a transaction resulted
+	// from a transition write attempt
+	const (
+		// if a tx is recoverable,
+		// entire account is dropped,
+		// the transactions behind it
+		// is not executable
+		recoverable status = iota
+
+		// if a tx is unrecoverable,
+		// entire account is dropped
+		unrecoverable
+
+		// if a tx is failed,
+		// remove it only, but the other
+		// txs would be demote if not
+		// promotable
+		failed
+
+		ok
+	)
+
+	type statusTx struct {
+		tx     *types.Transaction
+		status status
+	}
+
+	type testCase struct {
+		name               string
+		allTxs             map[types.Address][]statusTx
+		executableTxsCount uint64
+		expected           result
+	}
+
+	commonAssert := func(test *testCase, pool *TxPool) {
+		accounts := test.expected.accounts
 		for addr := range accounts {
 			assert.Equal(t, // nextNonce
 				accounts[addr].nextNonce,
-				pool.accounts.get(addr).getNonce())
+				pool.accounts.get(addr).getNonce(),
+				fmt.Sprintf("%+v: %s nonce not equal", test.name, addr),
+			)
 
 			assert.Equal(t, // enqueued
 				accounts[addr].enqueued,
-				pool.accounts.get(addr).enqueued.length())
+				pool.accounts.get(addr).enqueued.length(),
+				fmt.Sprintf("%+v: %s enqueued not equal", test.name, addr),
+			)
 
 			assert.Equal(t, // promoted
 				accounts[addr].promoted,
-				pool.accounts.get(addr).promoted.length())
+				pool.accounts.get(addr).promoted.length(),
+				fmt.Sprintf("%+v: %s promoted not equal", test.name, addr),
+			)
 		}
 	}
 
-	testCases := []*struct {
-		name     string
-		allTxs   map[types.Address][]statusTx
-		expected result
-	}{
+	testCases := []*testCase{
 		{
-			name: "unrecoverable drops account",
+			name: "unrecoverable and recoverable all drops account",
 			allTxs: map[types.Address][]statusTx{
 				addr1: {
 					{newTx(addr1, 0, 1), ok},
@@ -2044,17 +1982,17 @@ func TestRecovery(t *testing.T) {
 				},
 				addr2: {
 					{newTx(addr2, 9, 1), unrecoverable},
-					{newTx(addr2, 10, 1), recoverable},
+					{newTx(addr2, 10, 1), ok},
 				},
 				addr3: {
 					{newTx(addr3, 5, 1), ok},
 					{newTx(addr3, 6, 1), recoverable},
-					{newTx(addr3, 7, 1), recoverable},
-					{newTx(addr3, 8, 1), recoverable},
+					{newTx(addr3, 7, 1), ok},
 				},
 			},
+			executableTxsCount: 1 + 1, // addr1 + addr3
 			expected: result{
-				slots: 3, // addr3
+				slots: 0, // all executed
 				accounts: map[types.Address]accountState{
 					addr1: {
 						enqueued:  0,
@@ -2068,39 +2006,38 @@ func TestRecovery(t *testing.T) {
 					},
 					addr3: {
 						enqueued:  0,
-						promoted:  3,
-						nextNonce: 9,
+						promoted:  0,
+						nextNonce: 6,
 					},
 				},
 			},
 		},
 		{
-			name: "recoverable remains in account",
+			name: "failed tx account is dropped",
 			allTxs: map[types.Address][]statusTx{
 				addr1: {
 					{newTx(addr1, 0, 1), ok},
 					{newTx(addr1, 1, 1), ok},
-					{newTx(addr1, 2, 1), ok},
-					{newTx(addr1, 3, 1), recoverable},
-					{newTx(addr1, 4, 1), recoverable},
+					{newTx(addr1, 2, 1), failed},
 				},
 				addr2: {
-					{newTx(addr2, 9, 1), recoverable},
-					{newTx(addr2, 10, 1), recoverable},
+					{newTx(addr2, 9, 1), failed},
+					{newTx(addr2, 10, 1), ok},
 				},
 			},
+			executableTxsCount: 2, // all from addr1
 			expected: result{
-				slots: 4,
+				slots: 0,
 				accounts: map[types.Address]accountState{
 					addr1: {
 						enqueued:  0,
-						promoted:  2,
-						nextNonce: 5,
+						promoted:  0,
+						nextNonce: 2,
 					},
 					addr2: {
 						enqueued:  0,
-						promoted:  2,
-						nextNonce: 11,
+						promoted:  0,
+						nextNonce: 9,
 					},
 				},
 			},
@@ -2131,19 +2068,17 @@ func TestRecovery(t *testing.T) {
 			pool.Start()
 			defer pool.Close()
 
-			promoteSubscription := pool.eventManager.subscribe(
-				[]proto.EventType{proto.EventType_PROMOTED},
-			)
+			promotionSubscription := pool.eventManager.subscribe([]proto.EventType{proto.EventType_PROMOTED})
 
 			// setup prestate
 			totalTx := 0
-			expectedEnqueued := uint64(0)
+			expectedReenqueued := 0
 			for addr, txs := range test.allTxs {
 				// preset nonce so promotions can happen
 				acc := pool.createAccountOnce(addr)
 				acc.setNonce(txs[0].tx.Nonce)
 
-				expectedEnqueued += test.expected.accounts[addr].enqueued
+				expectedReenqueued += int(test.expected.accounts[addr].enqueued)
 
 				// send txs
 				for _, sTx := range txs {
@@ -2152,12 +2087,18 @@ func TestRecovery(t *testing.T) {
 				}
 			}
 
+			// wait for all promotion
 			ctx, cancelFn := context.WithTimeout(context.Background(), time.Second*10)
 			defer cancelFn()
 
 			// All txns should get added
-			assert.Len(t, waitForEvents(ctx, promoteSubscription, totalTx), totalTx)
+			assert.Len(
+				t,
+				waitForEvents(ctx, promotionSubscription, totalTx),
+				totalTx,
+			)
 
+			var executableTxsCount uint64
 			func() {
 				pool.Prepare()
 				for {
@@ -2168,17 +2109,21 @@ func TestRecovery(t *testing.T) {
 
 					switch status(tx) {
 					case recoverable:
-						pool.Demote(tx)
+						pool.Drop(tx)
 					case unrecoverable:
 						pool.Drop(tx)
 					case ok:
-						pool.Remove(tx)
+						executableTxsCount++
+						pool.RemoveExecuted(tx)
+					case failed:
+						pool.Drop(tx)
 					}
 				}
 			}()
 
-			assert.Equal(t, test.expected.slots, pool.gauge.read())
-			commonAssert(test.expected.accounts, pool)
+			assert.Equal(t, test.executableTxsCount, executableTxsCount, "executable transaction count")
+			assert.Equal(t, test.expected.slots, pool.gauge.read(), "gauge not equal")
+			commonAssert(test, pool)
 		})
 	}
 }

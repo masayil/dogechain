@@ -81,7 +81,6 @@ type Config struct {
 	PriceLimit            uint64
 	MaxSlots              uint64
 	Sealing               bool
-	MaxAccountDemotions   uint64
 	PruneTickSeconds      uint64
 	PromoteOutdateSeconds uint64
 	BlackList             []types.Address
@@ -126,6 +125,12 @@ type promoteRequest struct {
 // the pool generates a queue of "executable" transactions. These
 // transactions are the first-in-line of some promoted queue,
 // ready to be written to the state (primaries).
+//
+// TODO: Refactor its interface, only expose input methods and events
+// subscription for those who interest in. Its state shouldn't be
+// manipulated by other components. This means it is self-contained
+// and self-consistent. Get enough promotable txs once and for all.
+// Enough is enough, so we could keep it consise and bug-free.
 type TxPool struct {
 	logger hclog.Logger
 	signer signer
@@ -172,9 +177,6 @@ type TxPool struct {
 	// indicates which txpool operator commands should be implemented
 	proto.UnimplementedTxnPoolOperatorServer
 
-	// maximum account demotion count. when reach, drop all transactions of this account
-	maxAccountDemotions uint64
-
 	// pruning configs
 	// ticker for pruning account outdated transactions
 	pruneAccountTicker     *time.Ticker
@@ -199,7 +201,6 @@ func NewTxPool(
 		pruneTickSeconds      = config.PruneTickSeconds
 		promoteOutdateSeconds = config.PromoteOutdateSeconds
 		maxSlot               = config.MaxSlots
-		maxAccountDemotions   = config.MaxAccountDemotions
 	)
 
 	if pruneTickSeconds == 0 {
@@ -214,10 +215,6 @@ func NewTxPool(
 		maxSlot = DefaultMaxSlots
 	}
 
-	if maxAccountDemotions == 0 {
-		maxAccountDemotions = DefaultMaxAccountDemotions
-	}
-
 	pool := &TxPool{
 		logger:                 logger.Named("txpool"),
 		forks:                  forks,
@@ -229,7 +226,6 @@ func NewTxPool(
 		gauge:                  slotGauge{height: 0, max: maxSlot},
 		priceLimit:             config.PriceLimit,
 		sealing:                config.Sealing,
-		maxAccountDemotions:    maxAccountDemotions,
 		pruneTick:              time.Second * time.Duration(pruneTickSeconds),
 		promoteOutdateDuration: time.Second * time.Duration(promoteOutdateSeconds),
 	}
@@ -287,8 +283,10 @@ func (p *TxPool) Start() {
 				go p.handleEnqueueRequest(req)
 			case req := <-p.promoteReqCh:
 				go p.handlePromoteRequest(req)
-			case <-p.pruneAccountTicker.C:
-				go p.pruneStaleAccounts()
+			case _, ok := <-p.pruneAccountTicker.C:
+				if ok { // readable
+					go p.pruneStaleAccounts()
+				}
 			}
 		}
 	}()
@@ -296,10 +294,7 @@ func (p *TxPool) Start() {
 
 // Close shuts down the pool's main loop.
 func (p *TxPool) Close() {
-	if p.pruneAccountTicker != nil {
-		p.pruneAccountTicker.Stop()
-	}
-
+	p.pruneAccountTicker.Stop()
 	p.eventManager.Close()
 	p.shutdownCh <- struct{}{}
 }
@@ -365,11 +360,11 @@ func (p *TxPool) Pop() *types.Transaction {
 	return p.executables.pop()
 }
 
-// Remove removes the given transaction from the
-// associated promoted queue (account).
+// RemoveExecuted removes the executed transaction from promoted queue
+//
 // Will update executables with the next primary
 // from that account (if any).
-func (p *TxPool) Remove(tx *types.Transaction) {
+func (p *TxPool) RemoveExecuted(tx *types.Transaction) {
 	// fetch the associated account
 	account := p.accounts.get(tx.From)
 
@@ -380,9 +375,6 @@ func (p *TxPool) Remove(tx *types.Transaction) {
 	account.promoted.pop()
 
 	p.logger.Debug("excutables pop out the max price transaction", "hash", tx.Hash, "from", tx.From)
-
-	//	successfully popping an account resets its demotions count to 0
-	account.demotions = 0
 
 	// update state
 	p.gauge.decrease(slotsRequired(tx))
@@ -395,6 +387,44 @@ func (p *TxPool) Remove(tx *types.Transaction) {
 		p.logger.Debug("excutables push in another transaction", "hash", tx.Hash, "from", tx.From)
 		p.executables.push(tx)
 	}
+}
+
+// DemoteAllPromoted clears all promoted transactions of the account which
+// might be not promotable
+//
+// clears all promoted transactions of the account, re-add them to the txpool,
+// and reset the nonce
+func (p *TxPool) DemoteAllPromoted(tx *types.Transaction, correctNonce uint64) {
+	// fetch associated account
+	account := p.accounts.get(tx.From)
+
+	// should lock to rewrite other transactions
+	account.promoted.lock(true)
+	defer account.promoted.unlock()
+
+	// reset account nonce to the correct one
+	account.setNonce(correctNonce)
+
+	if account.promoted.length() == 0 {
+		return
+	}
+
+	// clear it
+	txs := account.promoted.Clear()
+	p.index.remove(txs...)
+	// update metrics and gauge
+	p.metrics.PendingTxs.Add(-1 * float64(len(txs)))
+	p.gauge.decrease(slotsRequired(txs...))
+	// signal events
+	p.eventManager.signalEvent(proto.EventType_DEMOTED, toHash(txs...)...)
+
+	go func(txs []*types.Transaction) {
+		// retry enqueue, and broadcast
+		for _, tx := range txs {
+			//nolint:errcheck
+			p.AddTx(tx)
+		}
+	}(txs)
 }
 
 // Drop clears the entire account associated with the given transaction
@@ -428,14 +458,14 @@ func (p *TxPool) Drop(tx *types.Transaction) {
 	account.setNonce(nextNonce)
 
 	// drop promoted
-	dropped := account.promoted.clear()
+	dropped := account.promoted.Clear()
 	clearAccountQueue(dropped)
 
 	// update metrics
 	p.metrics.PendingTxs.Add(float64(-1 * len(dropped)))
 
 	// drop enqueued
-	dropped = account.enqueued.clear()
+	dropped = account.enqueued.Clear()
 	clearAccountQueue(dropped)
 
 	// update metrics
@@ -447,31 +477,6 @@ func (p *TxPool) Drop(tx *types.Transaction) {
 		"next_nonce", nextNonce,
 		"address", tx.From.String(),
 	)
-}
-
-// Demote excludes an account from being further processed during block building
-// due to a recoverable error.
-//
-// If an account has been demoted too many times (maxAccountDemotions), it is Dropped instead.
-func (p *TxPool) Demote(tx *types.Transaction) {
-	account := p.accounts.get(tx.From)
-	if account.demotions == p.maxAccountDemotions {
-		p.logger.Debug(
-			"Demote: threshold reached - dropping account",
-			"addr", tx.From.String(),
-		)
-
-		p.Drop(tx)
-
-		//	reset the demotions counter
-		account.demotions = 0
-
-		return
-	}
-
-	account.demotions++
-
-	p.eventManager.signalEvent(proto.EventType_DEMOTED, tx.Hash)
 }
 
 // ResetWithHeaders processes the transactions from the new
@@ -864,9 +869,6 @@ func (p *TxPool) resetAccounts(stateNonces map[types.Address]uint64) {
 		//	append pruned
 		allPrunedPromoted = append(allPrunedPromoted, prunedPromoted...)
 		allPrunedEnqueued = append(allPrunedEnqueued, prunedEnqueued...)
-
-		// new state for account -> demotions are reset to 0
-		account.demotions = 0
 	}
 
 	//	pool cleanup callback
