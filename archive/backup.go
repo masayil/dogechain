@@ -1,6 +1,8 @@
 package archive
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -11,6 +13,7 @@ import (
 	"github.com/dogechain-lab/dogechain/server/proto"
 	"github.com/dogechain-lab/dogechain/types"
 	"github.com/hashicorp/go-hclog"
+	"github.com/klauspost/compress/zstd"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -25,32 +28,63 @@ func CreateBackup(
 	from uint64,
 	to *uint64,
 	outPath string,
-) (uint64, uint64, error) {
-	// always create new file, throw error if the file exists
-	fs, err := os.OpenFile(outPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
+	overwriteFile bool,
+	enableZstdCompression bool,
+	zstdLevel int,
+) (resFrom uint64, resTo uint64, err error) {
+	resFrom = 0
+	resTo = 0
+	err = nil
+
+	// allow to overwrite the overwrites file only if it's explicitly set
+	fileFlag := os.O_WRONLY | os.O_CREATE | os.O_EXCL
+	if overwriteFile {
+		fileFlag = os.O_WRONLY | os.O_CREATE | os.O_TRUNC
+	}
+
+	fp, err := os.OpenFile(outPath, fileFlag, 0644)
 	if err != nil {
-		return 0, 0, err
+		return
 	}
 
-	closeFile := func() error {
-		if err := fs.Close(); err != nil {
-			logger.Error("an error occurred while closing file", "err", err)
+	defer func() {
+		err = fp.Close()
+	}()
 
-			return err
+	fbuf := bufio.NewWriterSize(fp, 1*1024*1024)
+
+	defer func() {
+		if err != nil {
+			return
 		}
 
-		return nil
-	}
-	removeFile := func() {
-		if err := os.Remove(outPath); err != nil {
-			logger.Error("an error occurred while removing file", "err", err)
+		err = fbuf.Flush()
+	}()
+
+	var writeBuf io.Writer
+
+	if enableZstdCompression {
+		var zstdWriter *zstd.Encoder
+
+		zstdWriter, err = zstd.NewWriter(fbuf,
+			zstd.WithEncoderLevel(
+				zstd.EncoderLevelFromZstd(zstdLevel),
+			))
+		if err != nil {
+			return
 		}
-	}
-	// clean up function for the file when error occurs in the middle of function
-	closeAndRemoveFile := func() {
-		if err := closeFile(); err == nil {
-			removeFile()
-		}
+
+		defer func() {
+			if err != nil {
+				return
+			}
+
+			err = zstdWriter.Close()
+		}()
+
+		writeBuf = zstdWriter
+	} else {
+		writeBuf = fbuf
 	}
 
 	signalCh := common.GetTerminationSignalCh()
@@ -66,43 +100,35 @@ func CreateBackup(
 
 	clt := proto.NewSystemClient(conn)
 
-	reqTo, reqToHash, err := determineTo(ctx, clt, to)
-	if err != nil {
-		closeAndRemoveFile()
+	var reqTo uint64
 
-		return 0, 0, err
+	var reqToHash types.Hash
+
+	reqTo, reqToHash, err = determineTo(ctx, clt, to)
+	if err != nil {
+		return
 	}
 
-	stream, err := clt.Export(ctx, &proto.ExportRequest{
+	var stream proto.System_ExportClient
+
+	stream, err = clt.Export(ctx, &proto.ExportRequest{
 		From: from,
 		To:   reqTo,
 	})
 	if err != nil {
-		closeAndRemoveFile()
-
-		return 0, 0, err
+		return
 	}
 
-	if err := writeMetadata(fs, logger, reqTo, reqToHash); err != nil {
-		closeAndRemoveFile()
-
-		return 0, 0, err
+	if err = writeMetadata(writeBuf, logger, reqTo, reqToHash); err != nil {
+		return
 	}
 
-	resFrom, resTo, err := processExportStream(stream, logger, fs, from, reqTo)
+	resFrom, resTo, err = processExportStream(stream, logger, writeBuf, from, reqTo)
 	if err != nil {
-		closeAndRemoveFile()
-
-		return 0, 0, err
+		return
 	}
 
-	if err := closeFile(); err != nil {
-		removeFile()
-
-		return 0, 0, err
-	}
-
-	return *resFrom, *resTo, nil
+	return
 }
 
 func determineTo(ctx context.Context, clt proto.SystemClient, to *uint64) (uint64, types.Hash, error) {
@@ -134,7 +160,8 @@ func writeMetadata(writer io.Writer, logger hclog.Logger, to uint64, toHash type
 		LatestHash: toHash,
 	}
 
-	_, err := writer.Write(metadata.MarshalRLP())
+	// tips: writer.Write() not necessarily write all data, use io.Copy() instead
+	_, err := io.Copy(writer, bytes.NewBuffer(metadata.MarshalRLP()))
 	if err != nil {
 		return err
 	}
@@ -149,18 +176,8 @@ func processExportStream(
 	logger hclog.Logger,
 	writer io.Writer,
 	targetFrom, targetTo uint64,
-) (*uint64, *uint64, error) {
-	var from, to *uint64
-
-	getResult := func() (*uint64, *uint64, error) {
-		if from == nil || to == nil {
-			return nil, nil, errors.New("couldn't get any blocks")
-		}
-
-		return from, to, nil
-	}
-
-	var total uint64
+) (uint64, uint64, error) {
+	var from, to, total uint64 = 0, 0, 0
 
 	showProgress := func(event *proto.ExportEvent) {
 		num := event.To - event.From
@@ -183,25 +200,29 @@ func processExportStream(
 		)
 	}
 
+	firstBlok := true
+
 	for {
 		event, err := stream.Recv()
 		if errors.Is(io.EOF, err) || status.Code(err) == codes.Canceled {
-			return getResult()
+			return from, to, nil
 		}
 
 		if err != nil {
-			return nil, nil, err
+			return from, to, err
 		}
 
-		if _, err := writer.Write(event.Data); err != nil {
-			return nil, nil, err
+		// tips: writer.Write() not necessarily write all data, use io.Copy() instead
+		if _, err := io.Copy(writer, bytes.NewBuffer(event.Data)); err != nil {
+			return from, to, err
 		}
 
-		if from == nil {
-			from = &event.From
+		if firstBlok {
+			from = event.From
+			firstBlok = false
 		}
 
-		to = &event.To
+		to = event.To
 
 		showProgress(event)
 	}
