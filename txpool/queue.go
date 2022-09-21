@@ -5,6 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	cmap "github.com/dogechain-lab/dogechain/helper/concurrentmap"
 	"github.com/dogechain-lab/dogechain/types"
 )
 
@@ -14,12 +15,13 @@ type accountQueue struct {
 	sync.RWMutex
 	wLock uint32
 	queue minNonceQueue
-	txs   sync.Map // nonce filter transactions
+	txs   cmap.ConcurrentMap // nonce filter transactions
 }
 
 func newAccountQueue() *accountQueue {
 	q := accountQueue{
 		queue: make(minNonceQueue, 0),
+		txs:   cmap.NewConcurrentMap(),
 	}
 
 	heap.Init(&q.queue)
@@ -108,11 +110,7 @@ func (q *accountQueue) deleteNonceTx(nonce uint64) {
 }
 
 func (q *accountQueue) clearNonceTxs() {
-	q.txs.Range(func(key, value interface{}) bool {
-		q.txs.Delete(key)
-
-		return true
-	})
+	q.txs.Clear()
 }
 
 // Add tries to insert a new transaction into the list, returning whether the
