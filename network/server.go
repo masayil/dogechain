@@ -323,9 +323,13 @@ func (s *Server) setupBootnodes() error {
 
 // checkPeerCount will attempt to make new connections if the active peer count is lesser than the specified limit.
 func (s *Server) checkPeerConnections() {
+	delay := time.NewTimer(10 * time.Second)
+
 	for {
+		delay.Reset(10 * time.Second)
+
 		select {
-		case <-time.After(10 * time.Second):
+		case <-delay.C:
 		case <-s.closeCh:
 			return
 		}
