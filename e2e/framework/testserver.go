@@ -308,6 +308,11 @@ func (t *TestServer) GenerateGenesis() error {
 	blockGasLimit := strconv.FormatUint(t.Config.BlockGasLimit, 10)
 	args = append(args, "--block-gas-limit", blockGasLimit)
 
+	// add validatorset contract owner
+	if t.Config.ValidatorSetOwner != types.ZeroAddress {
+		args = append(args, "--validatorset-owner", t.Config.ValidatorSetOwner.String())
+	}
+
 	// add bridge contract owner
 	if t.Config.BridgeOwner != types.ZeroAddress {
 		args = append(args, "--bridge-owner", t.Config.BridgeOwner.String())
@@ -374,6 +379,11 @@ func (t *TestServer) Start(ctx context.Context) error {
 	// add block gas target
 	if t.Config.BlockGasTarget != 0 {
 		args = append(args, "--block-gas-target", *types.EncodeUint64(t.Config.BlockGasTarget))
+	}
+
+	// block generation time, not dev consesus
+	if t.Config.BlockTime > 0 {
+		args = append(args, "--block-time", strconv.FormatUint(t.Config.BlockTime, 10))
 	}
 
 	t.ReleaseReservedPorts()

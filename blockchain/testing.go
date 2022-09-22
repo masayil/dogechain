@@ -298,6 +298,10 @@ func (m *mockExecutor) ProcessBlock(
 	return nil, nil
 }
 
+func (m *mockExecutor) Stop() {
+	// do nothing
+}
+
 func (m *mockExecutor) HookProcessBlock(fn processBlockDelegate) {
 	m.processBlockFn = fn
 }

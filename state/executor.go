@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"sync/atomic"
 
 	"github.com/dogechain-lab/dogechain/chain"
 	"github.com/dogechain-lab/dogechain/contracts/bridge"
@@ -36,6 +37,7 @@ type Executor struct {
 	runtimes []runtime.Runtime
 	state    State
 	GetHash  GetHashByNumberHelper
+	stopped  uint32 // atomic flag for stopping
 
 	PostHook func(txn *Transition)
 }
@@ -102,6 +104,11 @@ func (e *Executor) ProcessBlock(
 	txn.block = block
 
 	for _, t := range block.Transactions {
+		if e.IsStopped() {
+			// halt more elegantly
+			return nil, ErrExecutionStop
+		}
+
 		if t.ExceedsBlockGasLimit(block.Header.GasLimit) {
 			if err := txn.WriteFailedReceipt(t); err != nil {
 				return nil, err
@@ -116,6 +123,14 @@ func (e *Executor) ProcessBlock(
 	}
 
 	return txn, nil
+}
+
+func (e *Executor) IsStopped() bool {
+	return atomic.LoadUint32(&e.stopped) > 0
+}
+
+func (e *Executor) Stop() {
+	atomic.StoreUint32(&e.stopped, 1)
 }
 
 // StateAt returns snapshot at given root
@@ -449,6 +464,7 @@ var (
 	ErrNotEnoughIntrinsicGas = errors.New("not enough gas supplied for intrinsic gas costs")
 	ErrNotEnoughFunds        = errors.New("not enough funds for transfer with given value")
 	ErrAllGasUsed            = errors.New("all gas used")
+	ErrExecutionStop         = errors.New("execution stop")
 )
 
 type TransitionApplicationError struct {
@@ -621,7 +637,8 @@ func (t *Transition) Call2(
 	value *big.Int,
 	gas uint64,
 ) *runtime.ExecutionResult {
-	c := runtime.NewContractCall(1, caller, caller, to, value, gas, t.state.GetCode(to), input)
+	code := t.state.GetCode(to)
+	c := runtime.NewContractCall(1, caller, caller, to, value, gas, code, input)
 
 	return t.applyCall(c, runtime.Call, t)
 }

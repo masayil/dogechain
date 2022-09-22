@@ -37,6 +37,7 @@ var (
 	ErrInvalidStateRoot     = errors.New("invalid block state root")
 	ErrInvalidGasUsed       = errors.New("invalid block gas used")
 	ErrInvalidReceiptsRoot  = errors.New("invalid block receipts root")
+	ErrClosed               = errors.New("blockchain is closed")
 )
 
 // Blockchain is a blockchain reference
@@ -46,6 +47,7 @@ type Blockchain struct {
 	db        storage.Storage // The Storage object (database)
 	consensus Verifier
 	executor  Executor
+	stopped   uint32 // used in executor halting
 
 	config  *chain.Chain // Config containing chain information
 	genesis types.Hash   // The hash of the genesis block
@@ -93,6 +95,7 @@ type Verifier interface {
 
 type Executor interface {
 	ProcessBlock(parentRoot types.Hash, block *types.Block, blockCreator types.Address) (*state.Transition, error)
+	Stop()
 }
 
 type BlockResult struct {
@@ -862,6 +865,11 @@ func (b *Blockchain) executeBlockTransactions(block *types.Block) (*BlockResult,
 		b.logger,
 	)
 
+	if b.isStopped() {
+		// execute stop, should not commit
+		return nil, ErrClosed
+	}
+
 	_, root := txn.Commit()
 
 	// Append the receipts to the receipts cache
@@ -1303,5 +1311,17 @@ func (b *Blockchain) GetBlockByNumber(blockNumber uint64, full bool) (*types.Blo
 
 // Close closes the DB connection
 func (b *Blockchain) Close() error {
+	b.executor.Stop()
+	b.stop()
+
+	// close db at last
 	return b.db.Close()
+}
+
+func (b *Blockchain) stop() {
+	atomic.StoreUint32(&b.stopped, 1)
+}
+
+func (b *Blockchain) isStopped() bool {
+	return atomic.LoadUint32(&b.stopped) > 0
 }
