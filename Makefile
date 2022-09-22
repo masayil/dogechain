@@ -28,8 +28,8 @@ lint:
 	golangci-lint run -c lint-rule.yaml --timeout=2m
 
 .PHONY: test
-test:
-	PATH=$(shell pwd):${PATH} go test -coverprofile coverage.out -timeout 28m ./...
+test: build
+	PATH=$(shell pwd):${PATH} go test -count=1 -coverprofile coverage.out -timeout 28m ./...
 
 .PHONY: generate-bsd-licenses
 generate-bsd-licenses:

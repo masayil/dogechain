@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -44,10 +45,12 @@ import (
 type TestServerConfigCallback func(*TestServerConfig)
 
 const (
-	serverIP    = "127.0.0.1"
-	initialPort = 12000
-	binaryName  = "dogechain"
+	serverIP   = "127.0.0.1"
+	binaryName = "dogechain"
 )
+
+var lock sync.Mutex
+var initialPort = 12000
 
 type TestServer struct {
 	t *testing.T
@@ -59,11 +62,16 @@ type TestServer struct {
 func NewTestServer(t *testing.T, rootDir string, callback TestServerConfigCallback) *TestServer {
 	t.Helper()
 
-	// Reserve ports
-	ports, err := FindAvailablePorts(3, initialPort, initialPort+10000)
+	lock.Lock()
+	defer lock.Unlock()
+
+	// never use the same port
+	ports, err := FindAvailablePorts(3, initialPort, 65534)
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	initialPort = ports[2].Port() + 1
 
 	// Sets the services to start on open ports
 	config := &TestServerConfig{
@@ -170,7 +178,7 @@ func (t *TestServer) Stop() {
 	t.ReleaseReservedPorts()
 
 	if t.cmd != nil {
-		if err := t.cmd.Process.Kill(); err != nil {
+		if err := processKill(t.cmd); err != nil {
 			t.t.Error(err)
 		}
 	}
@@ -194,9 +202,7 @@ func (t *TestServer) SecretsInit() (*InitIBFTResult, error) {
 	args = append(args, commandSlice...)
 	args = append(args, "--data-dir", t.Config.IBFTDir)
 
-	cmd := exec.Command(binaryName, args...)
-	cmd.Dir = t.Config.RootDir
-
+	cmd := execCommand(t.Config.RootDir, binaryName, args...)
 	if _, err := cmd.Output(); err != nil {
 		return nil, err
 	}
@@ -312,8 +318,7 @@ func (t *TestServer) GenerateGenesis() error {
 		args = append(args, "--bridge-signer", signer.String())
 	}
 
-	cmd := exec.Command(binaryName, args...)
-	cmd.Dir = t.Config.RootDir
+	cmd := execCommand(t.Config.RootDir, binaryName, args...)
 
 	return cmd.Run()
 }
@@ -374,8 +379,7 @@ func (t *TestServer) Start(ctx context.Context) error {
 	t.ReleaseReservedPorts()
 
 	// Start the server
-	t.cmd = exec.Command(binaryName, args...)
-	t.cmd.Dir = t.Config.RootDir
+	t.cmd = execCommand(t.Config.RootDir, binaryName, args...)
 
 	if t.Config.ShowsLog {
 		stdout := io.Writer(os.Stdout)
@@ -386,6 +390,13 @@ func (t *TestServer) Start(ctx context.Context) error {
 	if err := t.cmd.Start(); err != nil {
 		return err
 	}
+
+	registerPID(t.cmd)
+
+	// fix defunct process
+	go func() {
+		_ = t.cmd.Wait()
+	}()
 
 	_, err := tests.RetryUntilTimeout(ctx, func() (interface{}, bool) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -426,8 +437,7 @@ func (t *TestServer) SwitchIBFTType(typ ibft.MechanismType, from uint64, to, dep
 	}
 
 	// Start the server
-	t.cmd = exec.Command(binaryName, args...)
-	t.cmd.Dir = t.Config.RootDir
+	t.cmd = execCommand(t.Config.RootDir, binaryName, args...)
 
 	if t.Config.ShowsLog {
 		stdout := io.Writer(os.Stdout)
