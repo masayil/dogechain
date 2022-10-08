@@ -2,6 +2,7 @@ package evm
 
 import (
 	"errors"
+	"fmt"
 	"math/big"
 	"strings"
 
@@ -59,7 +60,7 @@ type state struct {
 	config *chain.ForksInTime
 
 	// memory
-	memory      []byte
+	memory      []byte // increase capacity by words (1 word = 32 bytes). cap = len. but offset not equal to length
 	lastGasCost uint64
 
 	// stack
@@ -208,9 +209,39 @@ func (c *state) resetReturnData() {
 	c.returnData = c.returnData[:0]
 }
 
+func (c *state) formatPanicDesc() error {
+	// format stack info
+	var stackDesc strings.Builder
+	for _, v := range c.stack {
+		stackDesc.WriteString("0x" + v.Text(16) + ",")
+	}
+
+	return fmt.Errorf(
+		"evm panic on contract: %+v, "+
+			"sp: %d, "+
+			"ip: %d, "+
+			"stack: [%s], "+
+			"memory: %s, "+
+			"ret: %s, "+
+			"returnData: %s",
+		c.msg,
+		c.sp,
+		c.ip,
+		stackDesc.String(),
+		hex.EncodeToHex(c.memory),
+		hex.EncodeToHex(c.ret),
+		hex.EncodeToHex(c.returnData),
+	)
+}
+
 // Run executes the virtual machine
-func (c *state) Run() ([]byte, error) {
-	var vmerr error
+func (c *state) Run() (ret []byte, vmerr error) {
+	defer func(vmerr *error) {
+		// recover from any runtime panic
+		if e := recover(); e != nil {
+			*vmerr = c.formatPanicDesc()
+		}
+	}(&vmerr)
 
 	codeSize := len(c.code)
 	for !c.stop {
@@ -272,15 +303,15 @@ func (c *state) Len() int {
 	return len(c.memory)
 }
 
-func (c *state) checkMemory(offset, size *big.Int) bool {
-	if size.Sign() == 0 {
-		return true
-	}
-
+func (c *state) extendMemory(offset, size *big.Int) bool {
 	if !offset.IsUint64() || !size.IsUint64() {
 		c.exit(errGasUintOverflow)
 
 		return false
+	}
+
+	if size.Sign() == 0 {
+		return true
 	}
 
 	o := offset.Uint64()
@@ -292,7 +323,7 @@ func (c *state) checkMemory(offset, size *big.Int) bool {
 		return false
 	}
 
-	if newSize, m := o+s, uint64(len(c.memory)); m < newSize {
+	if newSize, mCap := o+s, uint64(len(c.memory)); mCap < newSize {
 		w := (newSize + 31) / 32
 		newCost := 3*w + w*w/512
 		cost := newCost - c.lastGasCost
@@ -325,7 +356,7 @@ func (c *state) get2(dst []byte, offset, length *big.Int) ([]byte, bool) {
 		return nil, true
 	}
 
-	if !c.checkMemory(offset, length) {
+	if !c.extendMemory(offset, length) {
 		return nil, false
 	}
 

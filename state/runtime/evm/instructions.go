@@ -419,7 +419,7 @@ func opMStore(c *state) {
 	offset := c.pop()
 	val := c.pop()
 
-	if !c.checkMemory(offset, wordSize) {
+	if !c.extendMemory(offset, wordSize) {
 		return
 	}
 
@@ -452,7 +452,7 @@ func opMStore8(c *state) {
 	offset := c.pop()
 	val := c.pop()
 
-	if !c.checkMemory(offset, one) {
+	if !c.extendMemory(offset, one) {
 		return
 	}
 
@@ -757,7 +757,7 @@ func opExtCodeCopy(c *state) {
 	codeOffset := c.pop()
 	length := c.pop()
 
-	if !c.checkMemory(memOffset, length) {
+	if !c.extendMemory(memOffset, length) {
 		return
 	}
 
@@ -788,7 +788,7 @@ func opCallDataCopy(c *state) {
 	dataOffset := c.pop()
 	length := c.pop()
 
-	if !c.checkMemory(memOffset, length) {
+	if !c.extendMemory(memOffset, length) {
 		return
 	}
 
@@ -813,31 +813,41 @@ func opReturnDataCopy(c *state) {
 	dataOffset := c.pop()
 	length := c.pop()
 
-	if !c.checkMemory(memOffset, length) {
+	// ensure memory size
+	if !c.extendMemory(memOffset, length) {
 		return
 	}
 
-	size := length.Uint64()
-	if !c.consumeGas(((size + 31) / 32) * copyGas) {
+	// check data offset overflow
+	if !dataOffset.IsUint64() {
+		c.exit(errGasUintOverflow)
+
 		return
 	}
 
-	end := length.Add(dataOffset, length)
-	if !end.IsUint64() {
+	// check gas
+	if !c.consumeGas(((length.Uint64() + 31) / 32) * copyGas) {
+		return
+	}
+
+	// check dataEnd exceeds uint64
+	dataEnd := length.Add(dataOffset, length)
+	if !dataEnd.IsUint64() {
 		c.exit(errReturnDataOutOfBounds)
 
 		return
 	}
 
-	size = end.Uint64()
-
-	if uint64(len(c.returnData)) < size {
+	// check return data out of range
+	dataEndIndex := dataEnd.Uint64()
+	if uint64(len(c.returnData)) < dataEndIndex {
 		c.exit(errReturnDataOutOfBounds)
 
 		return
 	}
 
-	data := c.returnData[dataOffset.Uint64():size]
+	// copy data
+	data := c.returnData[dataOffset.Uint64():dataEndIndex]
 	copy(c.memory[memOffset.Uint64():], data)
 }
 
@@ -846,7 +856,7 @@ func opCodeCopy(c *state) {
 	dataOffset := c.pop()
 	length := c.pop()
 
-	if !c.checkMemory(memOffset, length) {
+	if !c.extendMemory(memOffset, length) {
 		return
 	}
 
@@ -1203,7 +1213,7 @@ func (c *state) buildCallContract(op OpCode) (*runtime.Contract, uint64, uint64,
 		return nil, 0, 0, nil
 	}
 	// Check if the memory return offsets are out of bounds
-	if !c.checkMemory(retOffset, retSize) {
+	if !c.extendMemory(retOffset, retSize) {
 		return nil, 0, 0, nil
 	}
 
