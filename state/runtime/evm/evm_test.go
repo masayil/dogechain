@@ -87,6 +87,10 @@ func (m *mockHost) GetNonce(addr types.Address) uint64 {
 	panic("Not implemented in tests")
 }
 
+func (m *mockHost) GetEVMLogger() runtime.EVMLogger {
+	return runtime.NewDummyLogger()
+}
+
 func TestRun(t *testing.T) {
 	tests := []struct {
 		name     string

@@ -61,7 +61,7 @@ type state struct {
 
 	// memory
 	memory      []byte // increase capacity by words (1 word = 32 bytes). cap = len. but offset not equal to length
-	lastGasCost uint64
+	lastGasCost uint64 // caching gas before memory extension
 
 	// stack
 	stack []*big.Int
@@ -236,15 +236,61 @@ func (c *state) formatPanicDesc() error {
 
 // Run executes the virtual machine
 func (c *state) Run() (ret []byte, vmerr error) {
-	defer func(vmerr *error) {
+	var (
+		logger    = c.host.GetEVMLogger()
+		needDebug bool
+		//nolint:stylecheck
+		executedIp uint64
+		logged     bool       // deferred EVMLogger should ignore already logged steps
+		gasBefore  uint64     // for EVMLogger to log gas remaining before execution
+		gasAfter   uint64     // gas after used
+		memory     []byte     // copy memory before execution
+		stack      []*big.Int // copy stack before execution
+		// res        []byte // result of the opcode execution function
+	)
+
+	// only real tracer need
+	switch logger.(type) {
+	case *runtime.DummyLogger:
+		// do nothing
+	default:
+		needDebug = true
+	}
+
+	defer func(needDebug bool, vmerr *error) {
 		// recover from any runtime panic
 		if e := recover(); e != nil {
 			*vmerr = c.formatPanicDesc()
 		}
-	}(&vmerr)
+
+		if !needDebug || *vmerr == nil {
+			return
+		}
+
+		ip := executedIp
+		op := int(c.code[ip])
+		gasAfter = c.gas
+
+		if !logged {
+			c.captureState(ip, op, memory, stack, gasBefore, gasBefore-gasAfter, *vmerr)
+		} else {
+			c.captureFault(ip, op, memory, stack, gasBefore, gasBefore-gasAfter, *vmerr)
+		}
+	}(needDebug, &vmerr)
 
 	codeSize := len(c.code)
+
 	for !c.stop {
+		if needDebug {
+			// capture pre-execution values for tracing
+			executedIp, memory, stack, logged, gasBefore, gasAfter =
+				uint64(c.ip), c.memory, make([]*big.Int, c.sp), false, c.gas, c.gas
+				// deep copy
+			for i, v := range c.stack[:c.sp] {
+				stack[i] = new(big.Int).Set(v)
+			}
+		}
+
 		if c.ip >= codeSize {
 			c.halt()
 
@@ -259,6 +305,7 @@ func (c *state) Run() (ret []byte, vmerr error) {
 
 			break
 		}
+
 		// check if the depth of the stack is enough for the instruction
 		if c.sp < inst.stack {
 			c.exit(errStackUnderflow)
@@ -275,6 +322,15 @@ func (c *state) Run() (ret []byte, vmerr error) {
 		// execute the instruction
 		inst.inst(c)
 
+		gasAfter = c.gas
+
+		if needDebug {
+			// capture execute state
+			c.captureState(executedIp, int(op), memory, stack, gasBefore, gasBefore-gasAfter, nil)
+			// the state is logged
+			logged = true
+		}
+
 		// check if stack size exceeds the max size
 		if c.sp > stackSize {
 			c.exit(errStackOverflow)
@@ -289,6 +345,39 @@ func (c *state) Run() (ret []byte, vmerr error) {
 	}
 
 	return c.ret, vmerr
+}
+
+func (c *state) captureState(ip uint64, op int, memory []byte, stack []*big.Int, gas, gasCost uint64, err error) {
+	c.host.GetEVMLogger().CaptureState(
+		&runtime.ScopeContext{
+			Memory:          memory,
+			Stack:           stack,
+			ContractAddress: c.msg.Address,
+		},
+		ip,
+		op,
+		gas,
+		gasCost,
+		c.returnData,
+		c.msg.Depth,
+		err,
+	)
+}
+
+func (c *state) captureFault(ip uint64, op int, memory []byte, stack []*big.Int, gas, gasCost uint64, err error) {
+	c.host.GetEVMLogger().CaptureFault(
+		&runtime.ScopeContext{
+			Memory:          memory,
+			Stack:           stack,
+			ContractAddress: c.msg.Address,
+		},
+		ip,
+		op,
+		gas,
+		gasCost,
+		c.msg.Depth,
+		err,
+	)
 }
 
 func (c *state) inStaticCall() bool {

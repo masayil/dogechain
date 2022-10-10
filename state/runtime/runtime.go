@@ -69,6 +69,7 @@ type Host interface {
 	Callx(*Contract, Host) *ExecutionResult
 	Empty(addr types.Address) bool
 	GetNonce(addr types.Address) uint64
+	GetEVMLogger() EVMLogger
 }
 
 // ExecutionResult includes all output after executing given evm
@@ -83,6 +84,26 @@ type ExecutionResult struct {
 func (r *ExecutionResult) Succeeded() bool { return r.Err == nil }
 func (r *ExecutionResult) Failed() bool    { return r.Err != nil }
 func (r *ExecutionResult) Reverted() bool  { return errors.Is(r.Err, ErrExecutionReverted) }
+
+// Return is a helper function to help caller distinguish between revert reason
+// and function return. Return returns the data after execution if no error occurs.
+func (r *ExecutionResult) Return() []byte {
+	if r.Err != nil {
+		return nil
+	}
+
+	return r.ReturnValue
+}
+
+// Revert returns the concrete revert reason if the execution is aborted by `REVERT`
+// opcode. Note the reason can be nil if no data supplied with revert opcode.
+func (r *ExecutionResult) Revert() []byte {
+	if !r.Reverted() {
+		return nil
+	}
+
+	return r.ReturnValue
+}
 
 func (r *ExecutionResult) UpdateGasUsed(gasLimit uint64, refund uint64) {
 	r.GasUsed = gasLimit - r.GasLeft
@@ -120,6 +141,24 @@ const (
 	Create
 	Create2
 )
+
+func IsCreateType(typ CallType) bool {
+	switch typ {
+	case Create, Create2:
+		return true
+	}
+
+	return false
+}
+
+func IsCallType(typ CallType) bool {
+	switch typ {
+	case Call, CallCode, DelegateCall, StaticCall:
+		return true
+	}
+
+	return false
+}
 
 // Runtime can process contracts
 type Runtime interface {

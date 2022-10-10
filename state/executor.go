@@ -6,12 +6,14 @@ import (
 	"math"
 	"math/big"
 	"sync/atomic"
+	"time"
 
 	"github.com/dogechain-lab/dogechain/chain"
 	"github.com/dogechain-lab/dogechain/contracts/bridge"
 	"github.com/dogechain-lab/dogechain/contracts/systemcontracts"
 	"github.com/dogechain-lab/dogechain/crypto"
 	"github.com/dogechain-lab/dogechain/state/runtime"
+	"github.com/dogechain-lab/dogechain/state/runtime/evm"
 	"github.com/dogechain-lab/dogechain/types"
 	"github.com/hashicorp/go-hclog"
 )
@@ -183,6 +185,8 @@ func (e *Executor) BeginTxn(
 
 		receipts: []*types.Receipt{},
 		totalGas: 0,
+		// set a dummy tracer to 'collect' tracing
+		evmLogger: runtime.NewDummyLogger(),
 	}
 
 	return txn, nil
@@ -207,6 +211,29 @@ type Transition struct {
 	// result
 	receipts []*types.Receipt
 	totalGas uint64
+
+	// evmLogger for debugging, set a dummy logger to 'collect' tracing,
+	// then we wouldn't have to judge any tracing flag
+	evmLogger runtime.EVMLogger
+	needDebug bool
+}
+
+// SetEVMLogger sets a non nil tracer to it
+func (t *Transition) SetEVMLogger(logger runtime.EVMLogger) {
+	if logger != nil {
+		t.evmLogger = logger
+
+		switch logger.(type) {
+		case *runtime.DummyLogger:
+			// do nothing
+		default:
+			t.needDebug = true
+		}
+	}
+}
+
+func (t *Transition) GetEVMLogger() runtime.EVMLogger {
+	return t.evmLogger
 }
 
 func (t *Transition) TotalGas() uint64 {
@@ -685,6 +712,28 @@ func (t *Transition) applyCall(
 		}
 	}
 
+	var result *runtime.ExecutionResult
+
+	if t.needDebug {
+		if c.Depth == 0 {
+			t.evmLogger.CaptureStart(t.Txn(), c.Caller, c.Address, false, c.Input, c.Gas, c.Value)
+
+			defer func(result *runtime.ExecutionResult) {
+				if result != nil {
+					t.evmLogger.CaptureEnd(result.ReturnValue, result.GasUsed, time.Since(time.Now()), result.Err)
+				}
+			}(result)
+		} else {
+			t.evmLogger.CaptureEnter(int(evm.RuntimeType2OpCode(callType)), c.Caller, c.Address, c.Input, c.Gas, c.Value)
+
+			defer func(result *runtime.ExecutionResult) {
+				if result != nil {
+					t.evmLogger.CaptureExit(result.ReturnValue, result.GasUsed, result.Err)
+				}
+			}(result)
+		}
+	}
+
 	//nolint:ifshort
 	snapshot := t.state.Snapshot()
 	t.state.TouchAccount(c.Address)
@@ -692,14 +741,16 @@ func (t *Transition) applyCall(
 	if callType == runtime.Call {
 		// Transfers only allowed on calls
 		if err := t.transfer(c.Caller, c.Address, c.Value); err != nil {
-			return &runtime.ExecutionResult{
+			result = &runtime.ExecutionResult{
 				GasLeft: c.Gas,
 				Err:     err,
 			}
+
+			return result
 		}
 	}
 
-	result := t.run(c, host)
+	result = t.run(c, host)
 	if result.Failed() {
 		t.state.RevertToSnapshot(snapshot)
 	}
@@ -754,15 +805,39 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 		t.state.IncrNonce(c.Address)
 	}
 
-	// Transfer the value
-	if err := t.transfer(c.Caller, c.Address, c.Value); err != nil {
-		return &runtime.ExecutionResult{
-			GasLeft: gasLimit,
-			Err:     err,
+	var result *runtime.ExecutionResult
+
+	if t.needDebug {
+		if c.Depth == 0 {
+			t.evmLogger.CaptureStart(t.Txn(), c.Caller, c.Address, true, c.Input, c.Gas, c.Value)
+
+			defer func(result *runtime.ExecutionResult) {
+				if result != nil {
+					t.evmLogger.CaptureEnd(result.ReturnValue, result.GasUsed, time.Since(time.Now()), result.Err)
+				}
+			}(result)
+		} else {
+			t.evmLogger.CaptureEnter(int(evm.RuntimeType2OpCode(c.Type)), c.Caller, c.Address, c.Input, c.Gas, c.Value)
+
+			defer func(result *runtime.ExecutionResult) {
+				if result != nil {
+					t.evmLogger.CaptureExit(result.ReturnValue, result.GasUsed, result.Err)
+				}
+			}(result)
 		}
 	}
 
-	result := t.run(c, host)
+	// Transfer the value
+	if err := t.transfer(c.Caller, c.Address, c.Value); err != nil {
+		result = &runtime.ExecutionResult{
+			GasLeft: gasLimit,
+			Err:     err,
+		}
+
+		return result
+	}
+
+	result = t.run(c, host)
 
 	if result.Failed() {
 		t.state.RevertToSnapshot(snapshot)
