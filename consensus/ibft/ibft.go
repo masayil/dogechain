@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"time"
 
+	"go.uber.org/atomic"
+
 	"github.com/dogechain-lab/dogechain/consensus"
 	"github.com/dogechain-lab/dogechain/consensus/ibft/proto"
 	"github.com/dogechain-lab/dogechain/contracts/upgrader"
@@ -74,6 +76,7 @@ type Ibft struct {
 	blockchain blockchainInterface // Interface exposed by the blockchain layer
 	executor   *state.Executor     // Reference to the state executor
 	closeCh    chan struct{}       // Channel for closing
+	isClosed   *atomic.Bool
 
 	validatorKey     *ecdsa.PrivateKey // Private key for the validator
 	validatorKeyAddr types.Address
@@ -161,6 +164,7 @@ func Factory(
 		blockchain:     params.Blockchain,
 		executor:       params.Executor,
 		closeCh:        make(chan struct{}),
+		isClosed:       atomic.NewBool(false),
 		txpool:         params.Txpool,
 		state:          &currentState{},
 		network:        params.Network,
@@ -230,6 +234,7 @@ func (i *Ibft) GetSyncProgression() *progress.Progression {
 
 type transport interface {
 	Gossip(msg *proto.MessageReq) error
+	Close() error
 }
 
 // Define the IBFT libp2p protocol
@@ -242,6 +247,10 @@ type gossipTransport struct {
 // Gossip publishes a new message to the topic
 func (g *gossipTransport) Gossip(msg *proto.MessageReq) error {
 	return g.topic.Publish(msg)
+}
+
+func (g *gossipTransport) Close() error {
+	return g.topic.Close()
 }
 
 // GetIBFTForks returns IBFT fork configurations from chain config
@@ -1422,6 +1431,14 @@ func (i *Ibft) IsLastOfEpoch(number uint64) bool {
 
 // Close closes the IBFT consensus mechanism, and does write back to disk
 func (i *Ibft) Close() error {
+	if i.isClosed.Load() {
+		i.logger.Error("IBFT consensus is Closed")
+
+		return nil
+	}
+
+	i.isClosed.Store(true)
+
 	close(i.closeCh)
 
 	if i.config.Path != "" {
@@ -1431,6 +1448,8 @@ func (i *Ibft) Close() error {
 			return err
 		}
 	}
+
+	i.transport.Close()
 
 	return nil
 }
