@@ -2,7 +2,7 @@ package jsonrpc
 
 import (
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net"
 	"net/http"
 	"sync"
@@ -38,6 +38,7 @@ type JSONRPC struct {
 	logger     hclog.Logger
 	config     *Config
 	dispatcher dispatcher
+	metrics    *Metrics
 }
 
 type dispatcher interface {
@@ -64,6 +65,7 @@ type Config struct {
 	BlockRangeLimit          uint64
 	EnableWS                 bool
 	PriceLimit               uint64
+	Metrics                  *Metrics
 }
 
 // NewJSONRPC returns the JSONRPC http server
@@ -79,6 +81,7 @@ func NewJSONRPC(logger hclog.Logger, config *Config) (*JSONRPC, error) {
 			config.BlockRangeLimit,
 			config.PriceLimit,
 		),
+		metrics: NewDummyMetrics(config.Metrics),
 	}
 
 	// start http server
@@ -261,6 +264,8 @@ func (j *JSONRPC) handleWs(w http.ResponseWriter, req *http.Request) {
 }
 
 func (j *JSONRPC) handle(w http.ResponseWriter, req *http.Request) {
+	defer j.metrics.Requests.Add(1.0)
+
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
 	w.Header().Set(
@@ -275,6 +280,7 @@ func (j *JSONRPC) handle(w http.ResponseWriter, req *http.Request) {
 	if req.Method == "GET" {
 		//nolint
 		w.Write([]byte("Dogechain-Lab Dogechain JSON-RPC"))
+		j.metrics.Errors.Add(1.0)
 
 		return
 	}
@@ -282,15 +288,17 @@ func (j *JSONRPC) handle(w http.ResponseWriter, req *http.Request) {
 	if req.Method != "POST" {
 		//nolint
 		w.Write([]byte("method " + req.Method + " not allowed"))
+		j.metrics.Errors.Add(1.0)
 
 		return
 	}
 
-	data, err := ioutil.ReadAll(req.Body)
+	data, err := io.ReadAll(req.Body)
 
 	if err != nil {
 		//nolint
 		w.Write([]byte(err.Error()))
+		j.metrics.Errors.Add(1.0)
 
 		return
 	}
@@ -298,11 +306,18 @@ func (j *JSONRPC) handle(w http.ResponseWriter, req *http.Request) {
 	// log request
 	j.logger.Debug("handle", "request", string(data))
 
+	startT := time.Now()
+
+	// handle request
 	resp, err := j.dispatcher.Handle(data)
+
+	endT := time.Now()
+	j.metrics.ResponseTime.Observe(endT.Sub(startT).Seconds())
 
 	if err != nil {
 		//nolint
 		w.Write([]byte(err.Error()))
+		j.metrics.Errors.Add(1.0)
 	} else {
 		//nolint
 		w.Write(resp)
