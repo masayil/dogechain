@@ -96,8 +96,8 @@ var dirPaths = []string{
 func newFileLogger(config *Config) (hclog.Logger, error) {
 	logFileWriter, err := os.OpenFile(
 		config.LogFilePath,
-		os.O_CREATE|os.O_WRONLY|os.O_APPEND,
-		os.ModeAppend,
+		os.O_CREATE+os.O_RDWR+os.O_APPEND,
+		0640,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("could not create log file, %w", err)
@@ -251,6 +251,7 @@ func NewServer(config *Config) (*Server, error) {
 		return nil, err
 	}
 
+	// TODO: refactor the design. Executor and blockchain should not rely on each other.
 	m.executor.GetHash = m.blockchain.GetHashHelper
 
 	{
@@ -647,7 +648,7 @@ func (j *jsonRPCHub) StateAtTransaction(block *types.Block, txIndex int) (*state
 		}
 
 		if _, err := txn.Apply(tx); err != nil {
-			return nil, fmt.Errorf("transaction %s failed: %w", tx.Hash, err)
+			return nil, fmt.Errorf("transaction %s failed: %w", tx.Hash(), err)
 		}
 	}
 

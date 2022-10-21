@@ -127,7 +127,7 @@ func (d *Dev) writeTransactions(gasLimit uint64, transition transitionInterface)
 		}
 
 		if err := transition.Write(tx); err != nil {
-			d.logger.Debug("write transaction failed", "hash", tx.Hash, "from", tx.From,
+			d.logger.Debug("write transaction failed", "hash", tx.Hash(), "from", tx.From,
 				"nonce", tx.Nonce, "err", err)
 
 			//nolint:errorlint
@@ -139,12 +139,12 @@ func (d *Dev) writeTransactions(gasLimit uint64, transition transitionInterface)
 			} else if nonceErr, ok := err.(*state.NonceTooLowError); ok {
 				// lower nonce tx, demote all promotable transactions
 				d.txpool.DemoteAllPromoted(tx, nonceErr.CorrectNonce)
-				d.logger.Error("write transaction nonce too low", "hash", tx.Hash, "from", tx.From,
+				d.logger.Error("write transaction nonce too low", "hash", tx.Hash(), "from", tx.From,
 					"nonce", tx.Nonce, "err", err)
 			} else if nonceErr, ok := err.(*state.NonceTooHighError); ok {
 				// higher nonce tx, demote all promotable transactions
 				d.txpool.DemoteAllPromoted(tx, nonceErr.CorrectNonce)
-				d.logger.Error("write miss some transactions with higher nonce", tx.Hash, "from", tx.From,
+				d.logger.Error("write miss some transactions with higher nonce", tx.Hash(), "from", tx.From,
 					"nonce", tx.Nonce, "err", err)
 			} else {
 				// no matter what kind of failure, drop is reasonable for not executed it yet
@@ -196,8 +196,6 @@ func (d *Dev) writeNewBlock(parent *types.Header) error {
 		return err
 	}
 
-	txns := d.writeTransactions(gasLimit, transition)
-
 	// upgrade system if needed
 	upgrader.UpgradeSystem(
 		d.blockchain.Config().ChainID,
@@ -206,6 +204,8 @@ func (d *Dev) writeNewBlock(parent *types.Header) error {
 		transition.Txn(),
 		d.logger,
 	)
+
+	txns := d.writeTransactions(gasLimit, transition)
 
 	// Commit the changes
 	_, root := transition.Commit()
@@ -256,6 +256,10 @@ func (d *Dev) GetBlockCreator(header *types.Header) (types.Address, error) {
 // PreStateCommit a hook to be called before finalizing state transition on inserting block
 func (d *Dev) PreStateCommit(_header *types.Header, _txn *state.Transition) error {
 	return nil
+}
+
+func (d *Dev) IsSystemTransaction(height uint64, coinbase types.Address, tx *types.Transaction) bool {
+	return false
 }
 
 func (d *Dev) GetSyncProgression() *progress.Progression {

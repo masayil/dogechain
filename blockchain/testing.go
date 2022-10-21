@@ -277,24 +277,36 @@ func (m *MockVerifier) PreStateCommit(header *types.Header, txn *state.Transitio
 	return nil
 }
 
+func (m *MockVerifier) IsSystemTransaction(height uint64, coinbase types.Address, tx *types.Transaction) bool {
+	return false
+}
+
 func (m *MockVerifier) HookPreStateCommit(fn preStateCommitDelegate) {
 	m.preStateCommitFn = fn
 }
 
 // Executor delegators
-type processBlockDelegate func(types.Hash, *types.Block, types.Address) (*state.Transition, error)
+type processTransactionDelegate func(*state.Transition, uint64, []*types.Transaction) (*state.Transition, error)
 
 type mockExecutor struct {
-	processBlockFn processBlockDelegate
+	processTransactionFn processTransactionDelegate
 }
 
-func (m *mockExecutor) ProcessBlock(
+func (m *mockExecutor) BeginTxn(
 	parentRoot types.Hash,
-	block *types.Block,
-	blockCreator types.Address,
+	header *types.Header,
+	coinbaseReceiver types.Address,
 ) (*state.Transition, error) {
-	if m.processBlockFn != nil {
-		return m.processBlockFn(parentRoot, block, blockCreator)
+	return &state.Transition{}, nil
+}
+
+func (m *mockExecutor) ProcessTransactions(
+	transition *state.Transition,
+	gasLimit uint64,
+	transactions []*types.Transaction,
+) (*state.Transition, error) {
+	if m.processTransactionFn != nil {
+		return m.processTransactionFn(transition, gasLimit, transactions)
 	}
 
 	return nil, nil
@@ -304,8 +316,8 @@ func (m *mockExecutor) Stop() {
 	// do nothing
 }
 
-func (m *mockExecutor) HookProcessBlock(fn processBlockDelegate) {
-	m.processBlockFn = fn
+func (m *mockExecutor) HookProcessTransction(fn processTransactionDelegate) {
+	m.processTransactionFn = fn
 }
 
 func TestBlockchain(t *testing.T, genesis *chain.Genesis) *Blockchain {

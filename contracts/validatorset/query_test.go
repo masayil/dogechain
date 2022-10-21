@@ -49,9 +49,7 @@ func (m *TxMock) Apply(tx *types.Transaction) (*runtime.ExecutionResult, error) 
 		return nil, nil
 	}
 
-	tx.ComputeHash()
-
-	res, ok := m.hashToRes[tx.Hash]
+	res, ok := m.hashToRes[tx.Hash()]
 	if ok {
 		return res, nil
 	}
@@ -109,7 +107,7 @@ func Test_decodeValidators(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			method := abis.ValidatorSetABI.Methods["validators"]
+			method := abis.ValidatorSetABI.Methods[_validatorsMethodName]
 			assert.NotNil(t, method)
 			res, err := DecodeValidators(method, tt.value)
 			if tt.succeed {
@@ -123,7 +121,7 @@ func Test_decodeValidators(t *testing.T) {
 }
 
 func TestQueryValidators(t *testing.T) {
-	method := abis.ValidatorSetABI.Methods["validators"]
+	method := abis.ValidatorSetABI.Methods[_validatorsMethodName]
 	if method == nil {
 		t.Fail()
 	}
@@ -185,7 +183,7 @@ func TestQueryValidators(t *testing.T) {
 					Value:    big.NewInt(0),
 					Input:    method.ID(),
 					GasPrice: big.NewInt(0),
-					Gas:      queryGasLimit,
+					Gas:      _queryGasLimit,
 					Nonce:    10,
 				},
 			},
@@ -207,12 +205,12 @@ func TestQueryValidators(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			method := abis.ValidatorSetABI.Methods["validators"]
+			method := abis.ValidatorSetABI.Methods[_validatorsMethodName]
 			assert.NotNil(t, method)
 
 			mock := &TxMock{
 				hashToRes: map[types.Hash]*runtime.ExecutionResult{
-					tt.mockArgs.tx.ComputeHash().Hash: tt.mockReturns.res,
+					tt.mockArgs.tx.Hash(): tt.mockReturns.res,
 				},
 				nonce: map[types.Address]uint64{
 					tt.mockArgs.addr: tt.mockReturns.nonce,
@@ -228,4 +226,55 @@ func TestQueryValidators(t *testing.T) {
 			assert.Equal(t, tt.expected, res)
 		})
 	}
+}
+
+func Test_MakeDepositTx_Marshaling(t *testing.T) {
+	method := abis.ValidatorSetABI.Methods[_depositMethodName]
+	if method == nil {
+		t.Errorf("validatorset not supportting method: %s", _depositMethodName)
+		t.FailNow()
+	}
+
+	var (
+		from = addr1
+		mock = &TxMock{
+			nonce: map[types.Address]uint64{
+				from: 0,
+			},
+		}
+	)
+
+	// Marshaling
+	tx, err := MakeDepositTx(mock, from)
+	assert.NoError(t, err)
+
+	assert.Equal(t, method.ID(), tx.Input)
+}
+
+func Test_MakeSlashTx_Marshaling(t *testing.T) {
+	method := abis.ValidatorSetABI.Methods[_slashMethodName]
+	if method == nil {
+		t.Errorf("validatorset not supportting method: %s", _slashMethodName)
+		t.FailNow()
+	}
+
+	var (
+		from = addr1
+		mock = &TxMock{
+			nonce: map[types.Address]uint64{
+				from: 1,
+			},
+		}
+		punished = addr2
+	)
+
+	// Marshaling
+	tx, err := MakeSlashTx(mock, from, punished)
+	assert.NoError(t, err)
+
+	// format expected hash
+	expectedHash := method.ID()
+	expectedHash = append(expectedHash, leftPad(addr2.Bytes(), 32)...) // addr2 hash
+
+	assert.Equal(t, expectedHash, tx.Input)
 }
