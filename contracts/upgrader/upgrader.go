@@ -1,7 +1,9 @@
+//nolint:lll
 package upgrader
 
 import (
 	"fmt"
+	"math/big"
 
 	"github.com/dogechain-lab/dogechain/chain"
 	"github.com/dogechain-lab/dogechain/contracts/systemcontracts"
@@ -15,7 +17,8 @@ type UpgradeConfig struct {
 	ContractAddr       types.Address
 	CommitURL          string
 	Code               string
-	DefaultInitStorage map[types.Hash]types.Hash // the initial storage must be backward compatible
+	DefaultInitStorage map[types.Hash]types.Hash  // the initial storage must be backward compatible
+	Rebalance          map[types.Address]*big.Int // deprecated, only active in test network
 }
 
 type Upgrade struct {
@@ -27,15 +30,19 @@ type Upgrade struct {
 
 const (
 	MainNetChainID = 2000
+	DevNetChainID  = 668
 )
 
 const (
 	mainNet = "Mainnet"
+	devNet  = "Devnet"
 )
 
 var (
 	GenesisHash types.Hash
 	//upgrade config
+	// pre-portland. deprecated in devnet
+	_prePortlandUpgrade = make(map[string]*Upgrade)
 	// portland
 	_portlandUpgrade = make(map[string]*Upgrade)
 	// detroit
@@ -43,8 +50,27 @@ var (
 )
 
 func init() {
-	//nolint:lll
-	_portlandUpgrade[mainNet] = &Upgrade{
+	// pre-portland upgrade
+	_testInt, _ := new(big.Int).SetString("55000000000000000000", 0)
+	_prePortlandUpgradeContent := &Upgrade{
+		UpgradeName: "pre-portland",
+		Configs: []*UpgradeConfig{
+			{
+				Rebalance: map[types.Address]*big.Int{
+					types.StringToAddress("0x1b051e5D1548326284493BfA380E02C3C149Da4E"): _testInt,
+					types.StringToAddress("0xa516CF76d083b4cBe93Ebdfb85FbE72aFfFb7a0c"): big.NewInt(0),
+					types.StringToAddress("0xC7aD3276180f8dfb628d975473a81Af2836CDf2b"): big.NewInt(0),
+					types.StringToAddress("0x521299a363f1847863e4a6c68c91df722d149c3b"): big.NewInt(0),
+					types.StringToAddress("0x3a9185A6b49617cC2d5BE65aF199B73f24834F4f"): big.NewInt(0),
+				},
+			},
+		},
+	}
+	// network supports pre-portland hardfork
+	_prePortlandUpgrade[devNet] = _prePortlandUpgradeContent
+
+	// portland upgrade
+	_portlandUpgradeCfg := &Upgrade{
 		UpgradeName: "portland",
 		Configs: []*UpgradeConfig{
 			{
@@ -54,8 +80,13 @@ func init() {
 			},
 		},
 	}
+	// networks support portland upgrade
+	_portlandUpgrade[mainNet] = _portlandUpgradeCfg
+	_portlandUpgrade[devNet] = _portlandUpgradeCfg
+
+	// detroit hardfork
 	//nolint:lll
-	_detroitUpgrade[mainNet] = &Upgrade{
+	_detroitUpgradeContent := &Upgrade{
 		UpgradeName: "detroit",
 		Configs: []*UpgradeConfig{
 			{
@@ -81,6 +112,9 @@ func init() {
 			},
 		},
 	}
+	// network supports detroit upgrade
+	_detroitUpgrade[mainNet] = _detroitUpgradeContent
+	_detroitUpgrade[devNet] = _detroitUpgradeContent
 }
 
 func UpgradeSystem(
@@ -97,24 +131,39 @@ func UpgradeSystem(
 	var network string
 
 	switch chainID {
+	case DevNetChainID:
+		network = devNet
 	case MainNetChainID:
 		fallthrough
 	default:
 		network = mainNet
 	}
 
+	// only upgrade pre-portland once
+	if forks.IsOnPreportland(blockNumber) {
+		up, ok := _prePortlandUpgrade[network]
+		if ok {
+			applySystemContractUpgrade(up, blockNumber, txn, forks,
+				logger.With("upgrade", up.UpgradeName, "network", network))
+		}
+	}
+
 	// only upgrade portland once
 	if forks.IsOnPortland(blockNumber) {
-		up := _portlandUpgrade[network]
-		applySystemContractUpgrade(up, blockNumber, txn, forks,
-			logger.With("upgrade", up.UpgradeName, "network", network))
+		up, ok := _portlandUpgrade[network]
+		if ok { // only upgrade network needs to be upgraded
+			applySystemContractUpgrade(up, blockNumber, txn, forks,
+				logger.With("upgrade", up.UpgradeName, "network", network))
+		}
 	}
 
 	// only upgrade detroit once
 	if forks.IsOnDetroit(blockNumber) {
-		up := _detroitUpgrade[network]
-		applySystemContractUpgrade(up, blockNumber, txn, forks,
-			logger.With("upgrade", up.UpgradeName, "network", network))
+		up, ok := _detroitUpgrade[network]
+		if ok { // only upgrade network needs to be upgraded
+			applySystemContractUpgrade(up, blockNumber, txn, forks,
+				logger.With("upgrade", up.UpgradeName, "network", network))
+		}
 	}
 }
 
@@ -138,15 +187,23 @@ func applySystemContractUpgrade(
 	for _, cfg := range upgrade.Configs {
 		logger.Info(fmt.Sprintf("Upgrade contract %s to commit %s", cfg.ContractAddr.String(), cfg.CommitURL))
 
+		// parse hex code
 		newContractCode, err := hex.DecodeHex(cfg.Code)
 		if err != nil {
 			panic(fmt.Errorf("failed to decode new contract code: %w", err))
 		}
 
+		// set system contract code
 		txn.SetCode(cfg.ContractAddr, newContractCode)
 
+		// initialize system contract storage if necessary
 		for k, v := range cfg.DefaultInitStorage {
 			txn.SetStorage(cfg.ContractAddr, k, v, &forksInTime)
+		}
+
+		// deprecated. Re-set account balance in test cases
+		for account, balance := range cfg.Rebalance {
+			txn.SetBalance(account, balance)
 		}
 	}
 }
