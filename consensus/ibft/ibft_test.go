@@ -718,15 +718,16 @@ func TestTransition_RoundChangeState_MaxRound(t *testing.T) {
 	})
 }
 
-func TestWriteTransactions(t *testing.T) {
+func TestIBFT_WriteTransactions(t *testing.T) {
 	type testParams struct {
 		txns                        []*types.Transaction
-		recoverableTxnsIndexes      []int
-		unrecoverableTxnsIndexes    []int
+		failedTxnsIndexes           []int
+		notExecutableTxnsIndexes    int
 		gasLimitReachedTxnIndex     int
-		expectedTxPoolLength        int
 		expectedIncludedTxnsCount   int
 		expectedFailReceiptsWritten int
+		expectedDropTxnsCount       int
+		expectedDemoteTxnsCount     int
 	}
 
 	type testCase struct {
@@ -736,17 +737,17 @@ func TestWriteTransactions(t *testing.T) {
 
 	setupMockTransition := func(test testCase, mockTxPool *mockTxPool) *mockTransition {
 		mockTransition := &mockTransition{}
-		for _, i := range test.params.recoverableTxnsIndexes {
-			mockTransition.recoverableTransactions = append(
-				mockTransition.recoverableTransactions,
+		for _, i := range test.params.failedTxnsIndexes {
+			mockTransition.failReceiptsWritten = append(
+				mockTransition.failReceiptsWritten,
 				mockTxPool.transactions[i],
 			)
 		}
 
-		for _, i := range test.params.unrecoverableTxnsIndexes {
-			mockTransition.unrecoverableTransactions = append(
-				mockTransition.unrecoverableTransactions,
-				mockTxPool.transactions[i],
+		if test.params.notExecutableTxnsIndexes >= 0 {
+			mockTransition.shouldDroppedTransactions = append(
+				mockTransition.shouldDroppedTransactions[:0],
+				mockTxPool.transactions[test.params.notExecutableTxnsIndexes:]...,
 			)
 		}
 
@@ -759,27 +760,69 @@ func TestWriteTransactions(t *testing.T) {
 
 	testCases := []testCase{
 		{
-			"transaction whose gas exceeds block gas limit is included but with failedReceipt",
+			"valid transaction is included in transition",
 			testParams{
-				[]*types.Transaction{{Nonce: 1, Gas: 10000000000001}, {Nonce: 2, Gas: 10000000000002}, {Nonce: 1}},
-				nil,
-				nil,
-				-1,
-				0,
-				3,
-				2,
+				txns: []*types.Transaction{
+					{Nonce: 1},
+				},
+				notExecutableTxnsIndexes:    -1,
+				gasLimitReachedTxnIndex:     -1,
+				expectedIncludedTxnsCount:   1,
+				expectedFailReceiptsWritten: 0,
+				expectedDropTxnsCount:       0,
+				expectedDemoteTxnsCount:     0,
 			},
 		},
 		{
-			"valid transaction is included in transition",
+			"transaction whose gas exceeds block gas limit is included but with failedReceipt",
 			testParams{
-				[]*types.Transaction{{Nonce: 1}},
-				nil,
-				nil,
-				-1,
-				0,
-				1,
-				0,
+				txns: []*types.Transaction{
+					{Nonce: 1},
+					{Nonce: 2, Gas: 10001}, // exceeds block gas limit, included with failed receipt
+					{Nonce: 3},
+					{Nonce: 4},
+				},
+				notExecutableTxnsIndexes:    -1,
+				gasLimitReachedTxnIndex:     1,
+				expectedIncludedTxnsCount:   1, // nonce 1
+				expectedFailReceiptsWritten: 1, // nonce 2
+				expectedDropTxnsCount:       1, // nonce 2
+				expectedDemoteTxnsCount:     0,
+			},
+		},
+		{
+			"transactions execute failed should be included too",
+			testParams{
+				txns: []*types.Transaction{
+					{Nonce: 1},
+					{Nonce: 2},
+					{Nonce: 3}, // failed, should be included, too
+					{Nonce: 4},
+				},
+				failedTxnsIndexes:           []int{2},
+				notExecutableTxnsIndexes:    -1,
+				gasLimitReachedTxnIndex:     -1,
+				expectedIncludedTxnsCount:   4, // nonce 1, 2, 3, 4
+				expectedFailReceiptsWritten: 1, // nonce 3
+				expectedDropTxnsCount:       0,
+				expectedDemoteTxnsCount:     0,
+			},
+		},
+		{
+			"transaction not executable account should be dropped",
+			testParams{
+				txns: []*types.Transaction{
+					{Nonce: 1},
+					{Nonce: 2}, // not executable, should be dropped, too
+					{Nonce: 3},
+					{Nonce: 4},
+				},
+				notExecutableTxnsIndexes:    1, // nonce 2
+				gasLimitReachedTxnIndex:     -1,
+				expectedIncludedTxnsCount:   1, // nonce 1
+				expectedFailReceiptsWritten: 0,
+				expectedDropTxnsCount:       1, // nonce 1
+				expectedDemoteTxnsCount:     0,
 			},
 		},
 		// {
@@ -807,22 +850,16 @@ func TestWriteTransactions(t *testing.T) {
 	for _, test := range testCases {
 		t.Run(test.description, func(t *testing.T) {
 			m := newMockIbft(t, []string{"A", "B", "C"}, "A")
-			mockTxPool := &mockTxPool{}
-			mockTxPool.transactions = append(mockTxPool.transactions, test.params.txns...)
+			mockTxPool := newMockTxPool(test.params.txns)
 			m.txpool = mockTxPool
 			mockTransition := setupMockTransition(test, mockTxPool)
 
-			included := m.writeTransactions(1000, mockTransition)
+			included, shouldDropTxs, shouldDemoteTxs := m.writeTransactions(1000, mockTransition)
 
-			assert.Equal(t, uint64(test.params.expectedTxPoolLength), m.txpool.Length())
-			assert.Equal(t, test.params.expectedFailReceiptsWritten, len(mockTransition.failReceiptsWritten))
 			assert.Equal(t, test.params.expectedIncludedTxnsCount, len(included))
-			for _, recoverable := range mockTransition.recoverableTransactions {
-				assert.False(t, mockTxPool.nonceDecreased[recoverable])
-			}
-			for _, unrecoverable := range mockTransition.unrecoverableTransactions {
-				assert.True(t, mockTxPool.nonceDecreased[unrecoverable])
-			}
+			assert.Equal(t, test.params.expectedFailReceiptsWritten, len(mockTransition.failReceiptsWritten))
+			assert.Equal(t, test.params.expectedDropTxnsCount, len(shouldDropTxs))
+			assert.Equal(t, test.params.expectedDemoteTxnsCount, len(shouldDemoteTxs))
 		})
 	}
 }
@@ -832,10 +869,9 @@ func TestRunSyncState_NewHeadReceivedFromPeer_CallsTxPoolResetWithHeaders(t *tes
 	m.setState(currentstate.SyncState)
 
 	expectedNewBlockToSync := &types.Block{Header: &types.Header{Number: 1}}
-	mockSyncer := &mockSyncer{}
-	mockSyncer.receivedNewHeadFromPeer = expectedNewBlockToSync
+	mockSyncer := newMockSyncer(nil, expectedNewBlockToSync, nil, false, nil)
 	m.syncer = mockSyncer
-	mockTxPool := &mockTxPool{}
+	mockTxPool := newMockTxPool(nil)
 	m.txpool = mockTxPool
 
 	// we need to change state from Sync in order to break from the loop inside runSyncState
@@ -863,10 +899,8 @@ func TestRunSyncState_BulkSyncWithPeer_CallsTxPoolResetWithHeaders(t *testing.T)
 		{Header: &types.Header{Number: 2}},
 		{Header: &types.Header{Number: 3}},
 	}
-	mockSyncer := &mockSyncer{}
-	mockSyncer.bulkSyncBlocksFromPeer = expectedNewBlocksToSync
-	m.syncer = mockSyncer
-	mockTxPool := &mockTxPool{}
+	m.syncer = newMockSyncer(expectedNewBlocksToSync, nil, nil, false, nil)
+	mockTxPool := newMockTxPool(nil)
 	m.txpool = mockTxPool
 
 	// we need to change state from Sync in order to break from the loop inside runSyncState
@@ -908,11 +942,8 @@ func TestRunSyncState_Unlock_After_Sync(t *testing.T) {
 		{Header: &types.Header{Number: 3}},
 	}
 
-	m.syncer = &mockSyncer{
-		bulkSyncBlocksFromPeer: expectedNewBlocksToSync,
-		blockchain:             blockchain,
-	}
-	m.txpool = &mockTxPool{}
+	m.syncer = newMockSyncer(expectedNewBlocksToSync, nil, nil, false, blockchain)
+	m.txpool = newMockTxPool(nil)
 
 	// we need to change state from Sync in order to break from the loop inside runSyncState
 	stateChangeDelay := time.NewTimer(100 * time.Millisecond)
@@ -938,6 +969,22 @@ type mockSyncer struct {
 	broadcastedBlock        *types.Block
 	broadcastCalled         bool
 	blockchain              blockchainInterface
+}
+
+func newMockSyncer(
+	bulkSyncBlocksFromPeer []*types.Block,
+	receivedNewHeadFromPeer *types.Block,
+	broadcastedBlock *types.Block,
+	broadcastCalled bool,
+	blockchain blockchainInterface,
+) *mockSyncer {
+	return &mockSyncer{
+		bulkSyncBlocksFromPeer:  bulkSyncBlocksFromPeer,
+		receivedNewHeadFromPeer: receivedNewHeadFromPeer,
+		broadcastedBlock:        broadcastedBlock,
+		broadcastCalled:         broadcastCalled,
+		blockchain:              blockchain,
+	}
 }
 
 func (s *mockSyncer) Start() {}
@@ -993,25 +1040,14 @@ type mockTxPool struct {
 	resetWithHeadersParam []*types.Header
 }
 
-func (p *mockTxPool) Prepare() {
-
-}
-
-func (p *mockTxPool) Length() uint64 {
-	return uint64(len(p.transactions) + len(p.demoted))
-}
-
-// simulated the same logic of txpool
-func (p *mockTxPool) Pop() *types.Transaction {
-	if len(p.transactions) == 0 {
-		return nil
+func newMockTxPool(txs []*types.Transaction) *mockTxPool {
+	return &mockTxPool{
+		transactions: txs,
 	}
-
-	tx := p.transactions[0]
-	p.transactions = p.transactions[1:]
-
-	return tx
 }
+
+// interface check
+var _ txPoolInterface = (*mockTxPool)(nil)
 
 func (p *mockTxPool) RemoveExecuted(tx *types.Transaction) {
 	// do nothing
@@ -1036,11 +1072,20 @@ func (p *mockTxPool) ResetWithHeaders(headers ...*types.Header) {
 	p.resetWithHeadersParam = headers
 }
 
+func (p *mockTxPool) Pending() map[types.Address][]*types.Transaction {
+	txs := make(map[types.Address][]*types.Transaction)
+
+	for _, tx := range p.transactions {
+		txs[tx.From] = append(txs[tx.From], tx)
+	}
+
+	return txs
+}
+
 type mockTransition struct {
 	failReceiptsWritten        []*types.Transaction
+	shouldDroppedTransactions  []*types.Transaction
 	successReceiptsWritten     []*types.Transaction
-	recoverableTransactions    []*types.Transaction
-	unrecoverableTransactions  []*types.Transaction
 	gasLimitReachedTransaction *types.Transaction
 }
 
@@ -1055,15 +1100,9 @@ func (t *mockTransition) Write(txn *types.Transaction) error {
 		return state.NewGasLimitReachedTransitionApplicationError(nil)
 	}
 
-	for _, recoverable := range t.recoverableTransactions {
-		if txn == recoverable {
-			return state.NewTransitionApplicationError(nil, true)
-		}
-	}
-
-	for _, unrecoverable := range t.unrecoverableTransactions {
-		if txn == unrecoverable {
-			return state.NewTransitionApplicationError(nil, false)
+	for _, droppedTx := range t.shouldDroppedTransactions {
+		if txn == droppedTx {
+			return errors.New("mock not executable tx")
 		}
 	}
 
@@ -1150,7 +1189,7 @@ func (m *mockIbft) CalculateGasLimit(number uint64) (uint64, error) {
 	return m.blockchain.CalculateGasLimit(number)
 }
 
-func newMockIbft(t *testing.T, accounts []string, account string) *mockIbft {
+func newMockIbft(t *testing.T, accounts []string, validatorAccount string) *mockIbft {
 	t.Helper()
 
 	pool := newTesterAccountPool()
@@ -1165,13 +1204,13 @@ func newMockIbft(t *testing.T, accounts []string, account string) *mockIbft {
 
 	var addr *testerAccount
 
-	if account == "" {
+	if validatorAccount == "" {
 		// account not in validator set, create a new one that is not part
 		// of the genesis
 		pool.add("xx")
 		addr = pool.get("xx")
 	} else {
-		addr = pool.get(account)
+		addr = pool.get(validatorAccount)
 	}
 
 	ibft := &Ibft{
