@@ -1,6 +1,7 @@
 package jsonrpc
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -8,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dogechain-lab/dogechain/versioning"
 	"github.com/gorilla/websocket"
 	"github.com/hashicorp/go-hclog"
 )
@@ -32,6 +34,10 @@ func (s serverType) String() string {
 		panic("BUG: Not expected")
 	}
 }
+
+const (
+	_authoritativeChainName = "Dogechain"
+)
 
 // JSONRPC is an API backend
 type JSONRPC struct {
@@ -286,29 +292,24 @@ func (j *JSONRPC) handle(w http.ResponseWriter, req *http.Request) {
 		"Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization",
 	)
 
-	if (*req).Method == "OPTIONS" {
-		return
-	}
-
-	if req.Method == "GET" {
-		w.Write([]byte("Dogechain-Lab Dogechain JSON-RPC"))
+	switch req.Method {
+	case http.MethodPost:
+		j.handleJSONRPCRequest(w, req)
+	case http.MethodGet:
+		j.handleGetRequest(w)
+	case http.MethodOptions:
+		// nothing to return
+	default:
 		j.metrics.Errors.Add(1.0)
-
-		return
-	}
-
-	if req.Method != "POST" {
 		w.Write([]byte("method " + req.Method + " not allowed"))
-		j.metrics.Errors.Add(1.0)
-
-		return
 	}
+}
 
+func (j *JSONRPC) handleJSONRPCRequest(w http.ResponseWriter, req *http.Request) {
 	data, err := io.ReadAll(req.Body)
-
 	if err != nil {
-		w.Write([]byte(err.Error()))
 		j.metrics.Errors.Add(1.0)
+		w.Write([]byte(err.Error()))
 
 		return
 	}
@@ -321,15 +322,39 @@ func (j *JSONRPC) handle(w http.ResponseWriter, req *http.Request) {
 	// handle request
 	resp, err := j.dispatcher.Handle(data)
 
-	endT := time.Now()
-	j.metrics.ResponseTime.Observe(endT.Sub(startT).Seconds())
+	j.metrics.ResponseTime.Observe(time.Since(startT).Seconds())
 
 	if err != nil {
-		w.Write([]byte(err.Error()))
 		j.metrics.Errors.Add(1.0)
+		w.Write([]byte(err.Error()))
 	} else {
 		w.Write(resp)
 	}
 
 	j.logger.Debug("handle", "response", string(resp))
+}
+
+type GetResponse struct {
+	Name    string `json:"name"`
+	ChainID uint64 `json:"chain_id"`
+	Version string `json:"version"`
+}
+
+func (j *JSONRPC) handleGetRequest(writer io.Writer) {
+	data := &GetResponse{
+		Name:    _authoritativeChainName,
+		ChainID: j.config.ChainID,
+		Version: versioning.Version,
+	}
+
+	resp, err := json.Marshal(data)
+	if err != nil {
+		j.metrics.Errors.Add(1.0)
+		writer.Write([]byte(err.Error()))
+	}
+
+	if _, err = writer.Write(resp); err != nil {
+		j.metrics.Errors.Add(1.0)
+		writer.Write([]byte(err.Error()))
+	}
 }
