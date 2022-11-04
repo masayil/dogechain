@@ -640,7 +640,7 @@ func (i *Ibft) buildBlock(snap *Snapshot, parent *types.Header) (*types.Block, e
 	// If the mechanism is PoA -> always build a regular block, regardless of epoch
 	txns := []*types.Transaction{}
 	if i.shouldWriteTransactions(header.Number) {
-		txns = i.writeTransactions(gasLimit, transition, headerTime)
+		txns = i.writeTransactions(gasLimit, transition, headerTime.Add(i.blockTime))
 	}
 
 	if err := i.PreStateCommit(header, transition); err != nil {
@@ -706,14 +706,14 @@ func (i *Ibft) writeTransactions(
 	for {
 		// terminate transaction executing once timeout
 		if i.shouldTerminate(terminalTime) {
-			i.logger.Debug("block building time exceeds")
+			i.logger.Info("block building time exceeds")
 
 			break
 		}
 
 		tx := i.txpool.Pop()
 		if tx == nil {
-			i.logger.Debug("no more transactions")
+			i.logger.Info("no more transactions")
 
 			break
 		}
