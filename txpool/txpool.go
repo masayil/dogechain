@@ -309,7 +309,7 @@ func (p *TxPool) SetSigner(s signer) {
 // and broadcasts it to the network (if enabled).
 func (p *TxPool) AddTx(tx *types.Transaction) error {
 	if err := p.addTx(local, tx); err != nil {
-		p.logger.Error("failed to add tx", "err", err)
+		p.logger.Debug("failed to add tx", "err", err)
 
 		return err
 	}
@@ -845,7 +845,7 @@ func (p *TxPool) addGossipTx(obj interface{}) {
 			return
 		}
 
-		p.logger.Error("failed to add broadcast tx", "err", err, "hash", tx.Hash.String())
+		p.logger.Debug("failed to add broadcast tx", "err", err, "hash", tx.Hash.String())
 	}
 }
 
