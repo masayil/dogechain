@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"time"
 
 	"github.com/dogechain-lab/dogechain/chain"
 	"github.com/dogechain-lab/dogechain/contracts/bridge"
@@ -390,6 +391,8 @@ func (t *Transition) GetTxnHash() types.Hash {
 
 // Apply applies a new transaction
 func (t *Transition) Apply(msg *types.Transaction) (*runtime.ExecutionResult, error) {
+	begin := time.Now()
+
 	s := t.state.Snapshot() //nolint:ifshort
 	result, err := t.apply(msg)
 
@@ -399,6 +402,18 @@ func (t *Transition) Apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 
 	if t.r.PostHook != nil {
 		t.r.PostHook(t)
+	}
+
+	duration := time.Since(begin).Milliseconds()
+	if duration >= 1000 {
+		t.logger.Info("apply tx a long time",
+			"duration", duration,
+			"from", msg.From,
+			"to", msg.To,
+			"gasPrice", msg.GasPrice,
+			"gas", msg.Gas,
+			"len", len(msg.Input),
+		)
 	}
 
 	return result, err

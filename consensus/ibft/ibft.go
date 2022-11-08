@@ -1241,7 +1241,7 @@ func (i *Ibft) runRoundChangeState() {
 			if bestPeer != nil {
 				lastProposal := i.blockchain.Header()
 				if bestPeer.Number() > lastProposal.Number {
-					i.logger.Debug("it has found a better peer to connect", "local", lastProposal.Number, "remote", bestPeer.Number())
+					i.logger.Info("it has found a better peer to connect", "local", lastProposal.Number, "remote", bestPeer.Number())
 					// we need to catch up with the last sequence
 					i.setState(SyncState)
 

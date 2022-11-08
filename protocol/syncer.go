@@ -343,6 +343,8 @@ func (s *Syncer) BestPeer() *SyncPeer {
 		bestPeer = nil
 	}
 
+	s.logger.Info("got best peer", "peer", bestPeer.peer, "target", bestPeer.conn.Target())
+
 	return bestPeer
 }
 
@@ -485,6 +487,9 @@ func (s *Syncer) WatchSyncWithPeer(
 	newBlockHandler func(b *types.Block) bool,
 	blockTimeout time.Duration,
 ) {
+	s.logger.Info("enter WatchSyncWithPeer")
+	defer s.logger.Info("leave WatchSyncWithPeer")
+
 	// purge from the cache of broadcasted blocks all the ones we have written so far
 	header := s.blockchain.Header()
 	p.purgeBlocks(header.Hash)
@@ -506,13 +511,13 @@ func (s *Syncer) WatchSyncWithPeer(
 		}
 
 		if err := s.blockchain.VerifyFinalizedBlock(b); err != nil {
-			s.logger.Error("unable to verify block, %w", err)
+			s.logger.Error("WatchSyncWithPeer unable to verify block, %w", err)
 
 			return
 		}
 
 		if err := s.blockchain.WriteBlock(b); err != nil {
-			s.logger.Error("failed to write block", "err", err)
+			s.logger.Error("WatchSyncWithPeer failed to write block", "err", err)
 
 			break
 		}
@@ -529,10 +534,10 @@ func (s *Syncer) WatchSyncWithPeer(
 
 func (s *Syncer) logSyncPeerPopBlockError(err error, peer *SyncPeer) {
 	if errors.Is(err, ErrPopTimeout) {
-		msg := "failed to pop block within %ds from peer: id=%s, please check if all the validators are running"
-		s.logger.Warn(fmt.Sprintf(msg, int(popTimeout.Seconds()), peer.peer))
+		msg := "failed to pop block within %ds from peer: id=%s (target=%s), please check if all the validators are running"
+		s.logger.Warn(fmt.Sprintf(msg, int(popTimeout.Seconds()), peer.peer, peer.conn.Target()))
 	} else {
-		s.logger.Info("failed to pop block from peer", "id", peer.peer, "err", err)
+		s.logger.Info("failed to pop block from peer", "id", peer.peer, "target", peer.conn.Target(), "err", err)
 	}
 }
 
@@ -547,7 +552,7 @@ func (s *Syncer) BulkSyncWithPeer(p *SyncPeer, newBlockHandler func(block *types
 	}
 
 	// find in batches
-	s.logger.Debug("fork found", "ancestor", ancestor.Number)
+	s.logger.Info("fork found", "ancestor", ancestor.Number)
 
 	startBlock := fork
 
@@ -581,7 +586,7 @@ func (s *Syncer) BulkSyncWithPeer(p *SyncPeer, newBlockHandler func(block *types
 		}
 
 		for {
-			s.logger.Debug(
+			s.logger.Info(
 				"sync up to block",
 				"from",
 				currentSyncHeight,
@@ -612,6 +617,13 @@ func (s *Syncer) BulkSyncWithPeer(p *SyncPeer, newBlockHandler func(block *types
 			blockAmount++
 			if blockAmount > maxSkeletonHeadersAmount {
 				blockAmount = maxSkeletonHeadersAmount
+			}
+
+			if len(sk.blocks) > 0 {
+				s.logger.Info("write multi blocks",
+					"begin", sk.blocks[0].Number(),
+					"end", sk.blocks[len(sk.blocks)-1].Number(),
+				)
 			}
 
 			// Verify and write the data locally
