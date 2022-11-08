@@ -128,7 +128,8 @@ func (builder *leveldbBuilder) SetNoSync(noSync bool) Builder {
 }
 
 func (builder *leveldbBuilder) Build() (storage.Storage, error) {
-	db, err := leveldb.OpenFile(builder.path, builder.options)
+	db, err := leveldb.OpenFile(builder.path, nil)
+	// db, err := leveldb.OpenFile(builder.path, builder.options)
 	if err != nil {
 		return nil, err
 	}
