@@ -339,11 +339,17 @@ func (s *Syncer) BestPeer() *SyncPeer {
 		return true
 	})
 
+	if bestPeer != nil {
+		s.logger.Info("got best peer",
+			"peer", bestPeer.peer,
+			"target", bestPeer.conn.Target(),
+			"bestBlockNumber", bestBlockNumber,
+		)
+	}
+
 	if bestBlockNumber <= s.blockchain.Header().Number {
 		bestPeer = nil
 	}
-
-	s.logger.Info("got best peer", "peer", bestPeer.peer, "target", bestPeer.conn.Target())
 
 	return bestPeer
 }
