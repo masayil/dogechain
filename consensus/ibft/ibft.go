@@ -348,6 +348,12 @@ func (i *Ibft) setupMechanism() error {
 
 // setupTransport sets up the gossip transport protocol
 func (i *Ibft) setupTransport() error {
+	if !i.sealing {
+		i.logger.Info("we would not subscribe ibft events")
+
+		return nil
+	}
+
 	// Define a new topic
 	topic, err := i.network.NewTopic(ibftProto, &proto.MessageReq{})
 	if err != nil {
