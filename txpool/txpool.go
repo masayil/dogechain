@@ -240,9 +240,11 @@ func NewTxPool(
 			return nil, err
 		}
 
-		// subscribe txpool topic to make a full-message peerings
-		if subscribeErr := topic.Subscribe(pool.addGossipTx); subscribeErr != nil {
-			return nil, fmt.Errorf("unable to subscribe to gossip topic, %w", subscribeErr)
+		if pool.getSealing() {
+			// only some nodes are interested in it.
+			if subscribeErr := topic.Subscribe(pool.addGossipTx); subscribeErr != nil {
+				return nil, fmt.Errorf("unable to subscribe to gossip topic, %w", subscribeErr)
+			}
 		}
 
 		pool.topic = topic
