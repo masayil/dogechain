@@ -1422,7 +1422,7 @@ func (i *Ibft) runRoundChangeState() {
 			if bestPeer != nil {
 				lastProposal := i.blockchain.Header()
 				if bestPeer.Number() > lastProposal.Number {
-					i.logger.Debug("it has found a better peer to connect", "local", lastProposal.Number, "remote", bestPeer.Number())
+					i.logger.Info("it has found a better peer to connect", "local", lastProposal.Number, "remote", bestPeer.Number())
 					// we need to catch up with the last sequence
 					i.setState(currentstate.SyncState)
 
@@ -1454,8 +1454,9 @@ func (i *Ibft) runRoundChangeState() {
 	}
 
 	// create a timer for the round change
-	timeout := i.state.MessageTimeout()
 	for i.getState() == currentstate.RoundChangeState {
+		// timeout should update every time it enters a new round
+		timeout := i.state.MessageTimeout()
 		msg, ok := i.getNextMessage(timeout)
 		if !ok {
 			// closing
@@ -1463,7 +1464,7 @@ func (i *Ibft) runRoundChangeState() {
 		}
 
 		if msg == nil {
-			i.logger.Debug("round change timeout")
+			i.logger.Info("round change timeout")
 			checkTimeout()
 
 			continue
