@@ -4,6 +4,7 @@ import (
 	"crypto/ecdsa"
 	"errors"
 	"fmt"
+	"math/big"
 	"testing"
 	"time"
 
@@ -26,6 +27,9 @@ import (
 
 var (
 	defaultBlockGasLimit uint64 = 8000000
+
+	addr1 = types.StringToAddress("1")
+	addr2 = types.StringToAddress("2")
 )
 
 type MockBlockchain struct {
@@ -855,7 +859,8 @@ func TestIBFT_WriteTransactions(t *testing.T) {
 			m.txpool = mockTxPool
 			mockTransition := setupMockTransition(test, mockTxPool)
 
-			included, shouldDropTxs, shouldDemoteTxs := m.writeTransactions(1000, mockTransition)
+			endTime := time.Now().Add(time.Second)
+			included, shouldDropTxs, shouldDemoteTxs := m.writeTransactions(1000, mockTransition, endTime)
 
 			assert.Equal(t, test.params.expectedIncludedTxnsCount, len(included))
 			assert.Equal(t, test.params.expectedFailReceiptsWritten, len(mockTransition.failReceiptsWritten))
@@ -1222,16 +1227,17 @@ func newMockIbft(t *testing.T, accounts []string, validatorAccount string) *mock
 				ChainID: 100,
 			},
 		},
-		blockchain:       m,
-		validatorKey:     addr.priv,
-		validatorKeyAddr: addr.Address(),
-		closeCh:          make(chan struct{}),
-		isClosed:         atomic.NewBool(false),
-		updateCh:         make(chan struct{}),
-		operator:         &operator{},
-		state:            currentstate.NewState(),
-		epochSize:        DefaultEpochSize,
-		metrics:          consensus.NilMetrics(),
+		blockchain:          m,
+		validatorKey:        addr.priv,
+		validatorKeyAddr:    addr.Address(),
+		closeCh:             make(chan struct{}),
+		isClosed:            atomic.NewBool(false),
+		updateCh:            make(chan struct{}),
+		operator:            &operator{},
+		state:               currentstate.NewState(),
+		epochSize:           DefaultEpochSize,
+		metrics:             consensus.NilMetrics(),
+		exhaustingContracts: make(map[types.Address]struct{}),
 	}
 
 	initIbftMechanism(PoA, ibft)
@@ -1784,4 +1790,50 @@ func Test_increaseHeaderGasIfNeeded(t *testing.T) {
 
 	increaseHeaderGasIfNeeded(transition, header, tx2)
 	assert.Equal(t, uint64(155000), header.GasLimit)
+}
+
+func Test_shouldBanishTx(t *testing.T) {
+	mockTx := &types.Transaction{
+		Nonce:    0,
+		GasPrice: big.NewInt(1000),
+		Gas:      defaultBlockGasLimit,
+		To:       &addr2,
+		Value:    big.NewInt(10),
+		Input:    []byte{'m', 'o', 'k', 'e'},
+		From:     addr1,
+	}
+
+	i := newMockIbft(t, []string{"A", "B", "C", "D"}, "A")
+	i.Ibft.banishAbnormalContract = true
+	i.Ibft.exhaustingContracts[addr2] = struct{}{}
+
+	assert.True(t, i.shouldBanishTx(mockTx))
+}
+
+func Test_banishLongTimeConsumingTx(t *testing.T) {
+	mockTx := &types.Transaction{
+		Nonce:    0,
+		GasPrice: big.NewInt(1000),
+		Gas:      defaultBlockGasLimit,
+		To:       &addr2,
+		Value:    big.NewInt(10),
+		Input:    []byte{'m', 'o', 'k', 'e'},
+		From:     addr1,
+	}
+
+	i := newMockIbft(t, []string{"A", "B", "C", "D"}, "A")
+	i.Ibft.banishAbnormalContract = true
+
+	// make sure begin time out what we set
+	begin := time.Now().Add(-1*i.blockTime - 1)
+
+	i.banishLongTimeConsumingTx(mockTx, begin)
+
+	assert.Equal(
+		t,
+		map[types.Address]struct{}{
+			addr2: {},
+		},
+		i.exhaustingContracts,
+	)
 }
