@@ -641,6 +641,7 @@ func (i *Ibft) buildBlock(snap *Snapshot, parent *types.Header) (*types.Block, e
 		return nil, err
 	}
 
+	// update gas limit first
 	header.GasLimit = gasLimit
 
 	if hookErr := i.runHook(CandidateVoteHook, header.Number, &candidateVoteHookParams{
@@ -710,6 +711,9 @@ func (i *Ibft) buildBlock(snap *Snapshot, parent *types.Header) (*types.Block, e
 					return nil, err
 				}
 
+				// system transaction, increase gas limit if needed
+				increaseHeaderGasIfNeeded(transition, header, tx)
+
 				// execute slash tx
 				if err := transition.Write(tx); err != nil {
 					return nil, err
@@ -724,6 +728,9 @@ func (i *Ibft) buildBlock(snap *Snapshot, parent *types.Header) (*types.Block, e
 		if err != nil {
 			return nil, err
 		}
+
+		// system transaction, increase gas limit if needed
+		increaseHeaderGasIfNeeded(transition, header, tx)
 
 		// execute deposit tx
 		if err := transition.Write(tx); err != nil {
@@ -778,6 +785,18 @@ func (i *Ibft) buildBlock(snap *Snapshot, parent *types.Header) (*types.Block, e
 	)
 
 	return block, nil
+}
+
+func increaseHeaderGasIfNeeded(transition *state.Transition, header *types.Header, tx *types.Transaction) {
+	if transition.TotalGas()+tx.Gas <= header.GasLimit {
+		return
+	}
+
+	extractAmount := transition.TotalGas() + tx.Gas - header.GasLimit
+
+	// increase it
+	header.GasLimit += extractAmount
+	transition.IncreaseSystemTransactionGas(extractAmount)
 }
 
 func (i *Ibft) currentRound() uint64 {
