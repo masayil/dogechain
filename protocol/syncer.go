@@ -26,6 +26,11 @@ import (
 )
 
 const (
+	_syncerName = "syncer"
+	_syncerV1   = "/syncer/0.1"
+)
+
+const (
 	maxEnqueueSize = 50
 	popTimeout     = 10 * time.Second
 )
@@ -81,7 +86,7 @@ type Syncer struct {
 // NewSyncer creates a new Syncer instance
 func NewSyncer(logger hclog.Logger, server *network.Server, blockchain blockchainShim) *Syncer {
 	s := &Syncer{
-		logger:          logger.Named("syncer"),
+		logger:          logger.Named(_syncerName),
 		stopCh:          make(chan struct{}),
 		blockchain:      blockchain,
 		server:          server,
@@ -150,8 +155,6 @@ func (s *Syncer) updateStatus(status *Status) {
 
 	s.status = status
 }
-
-const syncerV1 = "/syncer/0.1"
 
 // enqueueBlock adds the specific block to the peerID queue
 func (s *Syncer) enqueueBlock(peerID peer.ID, b *types.Block) {
@@ -278,7 +281,7 @@ func (s *Syncer) Start() {
 	grpcStream := libp2pGrpc.NewGrpcStream()
 	proto.RegisterV1Server(grpcStream.GrpcServer(), s.serviceV1)
 	grpcStream.Serve()
-	s.server.RegisterProtocol(syncerV1, grpcStream)
+	s.server.RegisterProtocol(_syncerV1, grpcStream)
 
 	s.setupPeers()
 
@@ -338,6 +341,7 @@ func (s *Syncer) BestPeer() *SyncPeer {
 		}
 
 		peerBlockNumber := syncPeer.Number()
+		// compare block height
 		if bestPeer == nil || peerBlockNumber > bestBlockNumber {
 			bestPeer = syncPeer
 			bestBlockNumber = peerBlockNumber
@@ -360,7 +364,7 @@ func (s *Syncer) AddPeer(peerID peer.ID) error {
 		return nil
 	}
 
-	stream, err := s.server.NewStream(syncerV1, peerID)
+	stream, err := s.server.NewStream(_syncerV1, peerID)
 	if err != nil {
 		return fmt.Errorf("failed to open a stream, err %w", err)
 	}
@@ -548,6 +552,12 @@ func (s *Syncer) logSyncPeerPopBlockError(err error, peer *SyncPeer) {
 func (s *Syncer) BulkSyncWithPeer(p *SyncPeer, newBlockHandler func(block *types.Block)) error {
 	// find the common ancestor
 	ancestor, fork, err := s.findCommonAncestor(p.client, p.status)
+	// check whether peer network same with us
+	if isDifferentNetworkError(err) {
+		s.server.DisconnectFromPeer(p.peer, "Different network")
+	}
+
+	// return error
 	if err != nil {
 		// No need to sync with this peer
 		return err
@@ -624,6 +634,8 @@ func (s *Syncer) BulkSyncWithPeer(p *SyncPeer, newBlockHandler func(block *types
 			// Verify and write the data locally
 			for _, block := range sk.blocks {
 				if err := s.blockchain.VerifyFinalizedBlock(block); err != nil {
+					s.server.DisconnectFromPeer(p.peer, "Different network due to hard fork")
+
 					return fmt.Errorf("unable to verify block, %w", err)
 				}
 
@@ -647,6 +659,21 @@ func (s *Syncer) BulkSyncWithPeer(p *SyncPeer, newBlockHandler func(block *types
 	}
 
 	return nil
+}
+
+func isDifferentNetworkError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	switch {
+	case errors.Is(err, ErrMismatchGenesis), // genesis not right
+		errors.Is(err, ErrCommonAncestorNotFound), // might be data missing
+		errors.Is(err, ErrForkNotFound):           // starting block not found
+		return true
+	}
+
+	return false
 }
 
 func getHeader(clt proto.V1Client, num *uint64, hash *types.Hash) (*types.Header, error) {
