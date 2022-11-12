@@ -176,6 +176,26 @@ const ValidatorSetJSONABI = `[
                 "type": "uint256"
             }
         ],
+        "name": "MinValidatorChanged",
+        "type": "event"
+    },
+    {
+        "anonymous": false,
+        "inputs":
+        [
+            {
+                "indexed": true,
+                "internalType": "uint256",
+                "name": "prevValue",
+                "type": "uint256"
+            },
+            {
+                "indexed": true,
+                "internalType": "uint256",
+                "name": "newValue",
+                "type": "uint256"
+            }
+        ],
         "name": "MinValidatorStakeAmountChanged",
         "type": "event"
     },
@@ -863,6 +883,21 @@ const ValidatorSetJSONABI = `[
     {
         "inputs":
         [],
+        "name": "getMinValidatorLength",
+        "outputs":
+        [
+            {
+                "internalType": "uint256",
+                "name": "",
+                "type": "uint256"
+            }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs":
+        [],
         "name": "getMinValidatorStakeAmount",
         "outputs":
         [
@@ -1345,6 +1380,21 @@ const ValidatorSetJSONABI = `[
                 "type": "uint256"
             }
         ],
+        "name": "setMinValidatorLength",
+        "outputs":
+        [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
+        "inputs":
+        [
+            {
+                "internalType": "uint256",
+                "name": "newValue",
+                "type": "uint256"
+            }
+        ],
         "name": "setMinValidatorStakeAmount",
         "outputs":
         [],
@@ -1518,6 +1568,21 @@ const ValidatorSetJSONABI = `[
         "outputs":
         [],
         "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
+        "inputs":
+        [],
+        "name": "validatorLength",
+        "outputs":
+        [
+            {
+                "internalType": "uint256",
+                "name": "",
+                "type": "uint256"
+            }
+        ],
+        "stateMutability": "view",
         "type": "function"
     },
     {
