@@ -28,7 +28,7 @@ const (
 
 const (
 	// Gas limit used when querying the validator set
-	SystemTransactionGasLimit uint64 = 100_000
+	SystemTransactionGasLimit uint64 = 1_000_000
 )
 
 var (
