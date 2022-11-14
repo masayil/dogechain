@@ -32,7 +32,9 @@ type Forks struct {
 	EIP150         *Fork `json:"EIP150,omitempty"`
 	EIP158         *Fork `json:"EIP158,omitempty"`
 	EIP155         *Fork `json:"EIP155,omitempty"`
-	Portland       *Fork `json:"portland,omitempty"`
+	Preportland    *Fork `json:"pre-portland,omitempty"` // test hardfork only in some test networks
+	Portland       *Fork `json:"portland,omitempty"`     // bridge hardfork
+	Detroit        *Fork `json:"detroit,omitempty"`      // pos hardfork
 }
 
 func (f *Forks) on(ff *Fork, block uint64) bool {
@@ -83,6 +85,10 @@ func (f *Forks) IsPortland(block uint64) bool {
 	return f.active(f.Portland, block)
 }
 
+func (f *Forks) IsDetroit(block uint64) bool {
+	return f.active(f.Detroit, block)
+}
+
 func (f *Forks) At(block uint64) ForksInTime {
 	return ForksInTime{
 		Homestead:      f.active(f.Homestead, block),
@@ -93,12 +99,22 @@ func (f *Forks) At(block uint64) ForksInTime {
 		EIP150:         f.active(f.EIP150, block),
 		EIP158:         f.active(f.EIP158, block),
 		EIP155:         f.active(f.EIP155, block),
+		Preportland:    f.active(f.Preportland, block),
 		Portland:       f.active(f.Portland, block),
+		Detroit:        f.active(f.Detroit, block),
 	}
+}
+
+func (f *Forks) IsOnPreportland(block uint64) bool {
+	return f.on(f.Preportland, block)
 }
 
 func (f *Forks) IsOnPortland(block uint64) bool {
 	return f.on(f.Portland, block)
+}
+
+func (f *Forks) IsOnDetroit(block uint64) bool {
+	return f.on(f.Detroit, block)
 }
 
 type Fork uint64
@@ -130,7 +146,9 @@ type ForksInTime struct {
 	EIP150,
 	EIP158,
 	EIP155,
-	Portland bool
+	Preportland,
+	Portland,
+	Detroit bool
 }
 
 var AllForksEnabled = &Forks{
@@ -142,5 +160,7 @@ var AllForksEnabled = &Forks{
 	Constantinople: NewFork(0),
 	Petersburg:     NewFork(0),
 	Istanbul:       NewFork(0),
+	Preportland:    NewFork(10000),
 	Portland:       NewFork(10222),
+	Detroit:        NewFork(40562),
 }

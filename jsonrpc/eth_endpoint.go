@@ -219,13 +219,11 @@ func (e *Eth) SendRawTransaction(input string) (interface{}, error) {
 		return nil, err
 	}
 
-	tx.ComputeHash()
-
 	if err := e.store.AddTx(tx); err != nil {
 		return nil, err
 	}
 
-	return tx.Hash.String(), nil
+	return tx.Hash().String(), nil
 }
 
 // Reject eth_sendTransaction json-rpc call as we don't support wallet management
@@ -257,7 +255,7 @@ func (e *Eth) GetTransactionByHash(hash types.Hash) (interface{}, error) {
 
 		// Find the transaction within the block
 		for idx, txn := range block.Transactions {
-			if txn.Hash == hash {
+			if txn.Hash() == hash {
 				return toTransaction(
 					txn,
 					argUintPtr(block.Number()),
@@ -337,23 +335,23 @@ func (e *Eth) GetTransactionReceipt(hash types.Hash) (interface{}, error) {
 		return nil, nil
 	}
 	// find the transaction in the body
-	indx := -1
+	txIndex := -1
 
 	for i, txn := range block.Transactions {
-		if txn.Hash == hash {
-			indx = i
+		if txn.Hash() == hash {
+			txIndex = i
 
 			break
 		}
 	}
 
-	if indx == -1 {
+	if txIndex == -1 {
 		// txn not found
 		return nil, nil
 	}
 
-	txn := block.Transactions[indx]
-	raw := receipts[indx]
+	txn := block.Transactions[txIndex]
+	raw := receipts[txIndex]
 
 	logs := make([]*Log, len(raw.Logs))
 	for indx, elem := range raw.Logs {
@@ -363,8 +361,8 @@ func (e *Eth) GetTransactionReceipt(hash types.Hash) (interface{}, error) {
 			Data:        argBytes(elem.Data),
 			BlockHash:   block.Hash(),
 			BlockNumber: argUint64(block.Number()),
-			TxHash:      txn.Hash,
-			TxIndex:     argUint64(indx),
+			TxHash:      txn.Hash(),
+			TxIndex:     argUint64(txIndex),
 			LogIndex:    argUint64(indx),
 			Removed:     false,
 		}
@@ -375,8 +373,8 @@ func (e *Eth) GetTransactionReceipt(hash types.Hash) (interface{}, error) {
 		CumulativeGasUsed: argUint64(raw.CumulativeGasUsed),
 		LogsBloom:         raw.LogsBloom,
 		Status:            argUint64(*raw.Status),
-		TxHash:            txn.Hash,
-		TxIndex:           argUint64(indx),
+		TxHash:            txn.Hash(),
+		TxIndex:           argUint64(txIndex),
 		BlockHash:         block.Hash(),
 		BlockNumber:       argUint64(block.Number()),
 		GasUsed:           argUint64(raw.GasUsed),
@@ -421,8 +419,8 @@ func (e *Eth) GetStorageAt(
 	}
 	// Parse the RLP value
 	p := &fastrlp.Parser{}
-	v, err := p.Parse(result)
 
+	v, err := p.Parse(result)
 	if err != nil {
 		return argBytesPtr(types.ZeroHash[:]), nil
 	}
@@ -433,7 +431,8 @@ func (e *Eth) GetStorageAt(
 		return argBytesPtr(types.ZeroHash[:]), nil
 	}
 
-	return argBytesPtr(data), nil
+	// Pad to return 32 bytes data
+	return argBytesPtr(types.BytesToHash(data).Bytes()), nil
 }
 
 // GasPrice returns the average gas price based on the last x blocks
@@ -947,7 +946,7 @@ func (e *Eth) decodeTxn(arg *txnArgs) (*types.Transaction, error) {
 		txn.To = arg.To
 	}
 
-	txn.ComputeHash()
+	txn.Hash()
 
 	return txn, nil
 }

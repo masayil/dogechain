@@ -4,7 +4,6 @@ import (
 	"math/big"
 
 	iradix "github.com/hashicorp/go-immutable-radix"
-	lru "github.com/hashicorp/golang-lru"
 
 	"github.com/dogechain-lab/dogechain/chain"
 	"github.com/dogechain-lab/dogechain/crypto"
@@ -29,7 +28,6 @@ type Txn struct {
 	state     State
 	snapshots []*iradix.Tree
 	txn       *iradix.Txn
-	codeCache *lru.Cache
 	hash      *keccak.Keccak
 }
 
@@ -40,21 +38,18 @@ func NewTxn(state State, snapshot Snapshot) *Txn {
 func newTxn(state State, snapshot Snapshot) *Txn {
 	i := iradix.New()
 
-	codeCache, _ := lru.New(20)
-
 	return &Txn{
 		snapshot:  snapshot,
 		state:     state,
 		snapshots: []*iradix.Tree{},
 		txn:       i.Txn(),
-		codeCache: codeCache,
 		hash:      keccak.NewKeccak256(),
 	}
 }
 
 func (txn *Txn) hashit(src []byte) []byte {
 	txn.hash.Reset()
-	txn.hash.Write(src) //nolint
+	txn.hash.Write(src)
 	// hashit is used to make queries so we do not need to
 	// make copies of the result
 	return txn.hash.Read()
@@ -411,19 +406,9 @@ func (txn *Txn) GetCode(addr types.Address) []byte {
 	if object.DirtyCode {
 		return object.Code
 	}
-	// TODO; Should we move this to state?
-	v, ok := txn.codeCache.Get(addr)
 
-	if ok {
-		//nolint:forcetypeassert
-		return v.([]byte)
-	}
-
+	// TODO: handle error
 	code, _ := txn.state.GetCode(types.BytesToHash(object.Account.CodeHash))
-	if len(code) > 0 {
-		// code might be empty when closed
-		txn.codeCache.Add(addr, code)
-	}
 
 	return code
 }
@@ -597,7 +582,8 @@ func (txn *Txn) CleanDeleteObjects(deleteEmptyObjects bool) {
 	txn.txn.Delete(refundIndex)
 }
 
-func (txn *Txn) Commit(deleteEmptyObjects bool) (Snapshot, []byte) {
+// func (txn *Txn) Commit(deleteEmptyObjects bool) (Snapshot, []byte) {
+func (txn *Txn) Commit(deleteEmptyObjects bool) []*Object {
 	txn.CleanDeleteObjects(deleteEmptyObjects)
 
 	x := txn.txn.Commit()
@@ -644,7 +630,5 @@ func (txn *Txn) Commit(deleteEmptyObjects bool) (Snapshot, []byte) {
 		return false
 	})
 
-	t, hash := txn.snapshot.Commit(objs)
-
-	return t, hash
+	return objs
 }

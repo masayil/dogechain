@@ -96,8 +96,8 @@ var dirPaths = []string{
 func newFileLogger(config *Config) (hclog.Logger, error) {
 	logFileWriter, err := os.OpenFile(
 		config.LogFilePath,
-		os.O_CREATE|os.O_WRONLY|os.O_APPEND,
-		os.ModeAppend,
+		os.O_CREATE+os.O_RDWR+os.O_APPEND,
+		0640,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("could not create log file, %w", err)
@@ -141,7 +141,8 @@ func newLevelDBBuilder(logger hclog.Logger, config *Config, path string) kvdb.Le
 		path,
 	)
 
-	leveldbBuilder.SetCacheSize(config.LeveldbOptions.CacheSize).
+	// trie cache + blockchain cache = config.LeveldbOptions.CacheSize / 2
+	leveldbBuilder.SetCacheSize(config.LeveldbOptions.CacheSize / 2).
 		SetHandles(config.LeveldbOptions.Handles).
 		SetBloomKeyBits(config.LeveldbOptions.BloomKeyBits).
 		SetCompactionTableSize(config.LeveldbOptions.CompactionTableSize).
@@ -220,7 +221,7 @@ func NewServer(config *Config) (*Server, error) {
 
 	m.stateStorage = stateStorage
 
-	st := itrie.NewState(stateStorage)
+	st := itrie.NewState(stateStorage, m.serverMetrics.trie)
 	m.state = st
 
 	m.executor = state.NewExecutor(config.Chain.Params, st, logger)
@@ -251,6 +252,7 @@ func NewServer(config *Config) (*Server, error) {
 		return nil, err
 	}
 
+	// TODO: refactor the design. Executor and blockchain should not rely on each other.
 	m.executor.GetHash = m.blockchain.GetHashHelper
 
 	{
@@ -647,7 +649,7 @@ func (j *jsonRPCHub) StateAtTransaction(block *types.Block, txIndex int) (*state
 		}
 
 		if _, err := txn.Apply(tx); err != nil {
-			return nil, fmt.Errorf("transaction %s failed: %w", tx.Hash, err)
+			return nil, fmt.Errorf("transaction %s failed: %w", tx.Hash(), err)
 		}
 	}
 
@@ -684,6 +686,7 @@ func (s *Server) setupJSONRPC() error {
 		JSONNamespaces:           namespaces,
 		EnableWS:                 s.config.JSONRPC.EnableWS,
 		PriceLimit:               s.config.PriceLimit,
+		EnablePProf:              s.config.JSONRPC.EnablePprof,
 		Metrics:                  s.serverMetrics.jsonrpc,
 	}
 
@@ -719,6 +722,7 @@ func (s *Server) setupGraphQL() error {
 		ChainID:                  uint64(s.config.Chain.Params.ChainID),
 		AccessControlAllowOrigin: s.config.GraphQL.AccessControlAllowOrigin,
 		BlockRangeLimit:          s.config.GraphQL.BlockRangeLimit,
+		EnablePProf:              s.config.GraphQL.EnablePprof,
 	}
 
 	srv, err := graphql.NewGraphQLService(s.logger, conf)

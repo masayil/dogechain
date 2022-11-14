@@ -76,7 +76,8 @@ func (e *Executor) WriteGenesis(alloc map[types.Address]*chain.GenesisAccount) t
 		}
 	}
 
-	_, root := txn.Commit(false)
+	objs := txn.Commit(false)
+	_, root := snap.Commit(objs)
 
 	return types.BytesToHash(root)
 }
@@ -93,6 +94,34 @@ type BlockResult struct {
 }
 
 // ProcessBlock already does all the handling of the whole process
+func (e *Executor) ProcessTransactions(
+	txn *Transition,
+	gasLimit uint64,
+	transactions []*types.Transaction,
+) (*Transition, error) {
+	for _, tx := range transactions {
+		if e.IsStopped() {
+			// halt more elegantly
+			return nil, ErrExecutionStop
+		}
+
+		if tx.ExceedsBlockGasLimit(gasLimit) {
+			if err := txn.WriteFailedReceipt(tx); err != nil {
+				return nil, err
+			}
+
+			continue
+		}
+
+		if err := txn.Write(tx); err != nil {
+			return nil, err
+		}
+	}
+
+	return txn, nil
+}
+
+// ProcessBlock already does all the handling of the whole process
 func (e *Executor) ProcessBlock(
 	parentRoot types.Hash,
 	block *types.Block,
@@ -103,23 +132,21 @@ func (e *Executor) ProcessBlock(
 		return nil, err
 	}
 
-	txn.block = block
-
-	for _, t := range block.Transactions {
+	for _, tx := range block.Transactions {
 		if e.IsStopped() {
 			// halt more elegantly
 			return nil, ErrExecutionStop
 		}
 
-		if t.ExceedsBlockGasLimit(block.Header.GasLimit) {
-			if err := txn.WriteFailedReceipt(t); err != nil {
+		if tx.ExceedsBlockGasLimit(block.Header.GasLimit) {
+			if err := txn.WriteFailedReceipt(tx); err != nil {
 				return nil, err
 			}
 
 			continue
 		}
 
-		if err := txn.Write(t); err != nil {
+		if err := txn.Write(tx); err != nil {
 			return nil, err
 		}
 	}
@@ -150,6 +177,8 @@ func (e *Executor) GetForksInTime(blockNumber uint64) chain.ForksInTime {
 	return e.config.Forks.At(blockNumber)
 }
 
+// TODO: It knows too much knowledge of the blockchain. Should limit its knowledge range,
+// beginning from parameters.
 func (e *Executor) BeginTxn(
 	parentRoot types.Hash,
 	header *types.Header,
@@ -198,9 +227,6 @@ type Transition struct {
 	// dummy
 	auxState State
 
-	// the current block being processed
-	block *types.Block
-
 	r       *Executor
 	config  chain.ForksInTime
 	state   *Txn
@@ -209,8 +235,9 @@ type Transition struct {
 	gasPool uint64
 
 	// result
-	receipts []*types.Receipt
-	totalGas uint64
+	receipts     []*types.Receipt
+	totalGas     uint64
+	totalGasHook func() uint64 // for testing
 
 	// evmLogger for debugging, set a dummy logger to 'collect' tracing,
 	// then we wouldn't have to judge any tracing flag
@@ -236,7 +263,18 @@ func (t *Transition) GetEVMLogger() runtime.EVMLogger {
 	return t.evmLogger
 }
 
+// HookTotalGas uses hook to return total gas
+//
+// Use it for testing
+func (t *Transition) HookTotalGas(fn func() uint64) {
+	t.totalGasHook = fn
+}
+
 func (t *Transition) TotalGas() uint64 {
+	if t.totalGasHook != nil {
+		return t.totalGasHook()
+	}
+
 	return t.totalGas
 }
 
@@ -261,7 +299,7 @@ func (t *Transition) WriteFailedReceipt(txn *types.Transaction) error {
 
 	receipt := &types.Receipt{
 		CumulativeGasUsed: t.totalGas,
-		TxHash:            txn.Hash,
+		TxHash:            txn.Hash(),
 		Logs:              t.state.Logs(),
 	}
 
@@ -307,7 +345,7 @@ func (t *Transition) Write(txn *types.Transaction) error {
 
 	receipt := &types.Receipt{
 		CumulativeGasUsed: t.totalGas,
-		TxHash:            txn.Hash,
+		TxHash:            txn.Hash(),
 		GasUsed:           result.GasUsed,
 	}
 
@@ -321,7 +359,8 @@ func (t *Transition) Write(txn *types.Transaction) error {
 			receipt.SetStatus(types.ReceiptSuccess)
 		}
 	} else {
-		ss, aux := t.state.Commit(t.config.EIP155)
+		objs := t.state.Commit(t.config.EIP155)
+		ss, aux := t.state.snapshot.Commit(objs)
 		t.state = NewTxn(t.auxState, ss)
 		root = aux
 		receipt.Root = types.BytesToHash(root)
@@ -399,7 +438,8 @@ func (t *Transition) handleBridgeLogs(msg *types.Transaction, logs []*types.Log)
 
 // Commit commits the final result
 func (t *Transition) Commit() (Snapshot, types.Hash) {
-	s2, root := t.state.Commit(t.config.EIP155)
+	objs := t.state.Commit(t.config.EIP155)
+	s2, root := t.state.snapshot.Commit(objs)
 
 	return s2, types.BytesToHash(root)
 }
@@ -414,6 +454,13 @@ func (t *Transition) subGasPool(amount uint64) error {
 	return nil
 }
 
+// IncreaseSystemTransactionGas updates gas pool so that system contract transactions can be sealed.
+func (t *Transition) IncreaseSystemTransactionGas(amount uint64) {
+	t.addGasPool(amount)
+	// don't forget to increase current context
+	t.ctx.GasLimit += int64(amount)
+}
+
 func (t *Transition) addGasPool(amount uint64) {
 	t.gasPool += amount
 }
@@ -424,10 +471,6 @@ func (t *Transition) SetTxn(txn *Txn) {
 
 func (t *Transition) Txn() *Txn {
 	return t.state
-}
-
-func (t *Transition) GetTxnHash() types.Hash {
-	return t.block.Hash()
 }
 
 // Apply applies a new transaction
@@ -568,7 +611,7 @@ func (t *Transition) apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 	txn := t.state
 
 	t.logger.Debug("try to apply transaction",
-		"hash", msg.Hash, "from", msg.From, "nonce", msg.Nonce, "price", msg.GasPrice.String(),
+		"hash", msg.Hash(), "from", msg.From, "nonce", msg.Nonce, "price", msg.GasPrice.String(),
 		"remainingGas", t.gasPool, "wantGas", msg.Gas)
 
 	// 0. the basic amount of gas is required
@@ -598,7 +641,7 @@ func (t *Transition) apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 		return nil, NewTransitionApplicationError(err, false)
 	}
 
-	t.logger.Debug("apply transaction would uses gas", "hash", msg.Hash, "gas", intrinsicGasCost)
+	t.logger.Debug("apply transaction would uses gas", "hash", msg.Hash(), "gas", intrinsicGasCost)
 
 	// 5. the purchased gas is enough to cover intrinsic usage
 	gasLeft := msg.Gas - intrinsicGasCost

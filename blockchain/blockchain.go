@@ -11,6 +11,7 @@ import (
 	"github.com/dogechain-lab/dogechain/blockchain/storage"
 	"github.com/dogechain-lab/dogechain/chain"
 	"github.com/dogechain-lab/dogechain/contracts/upgrader"
+	"github.com/dogechain-lab/dogechain/contracts/validatorset"
 	"github.com/dogechain-lab/dogechain/helper/common"
 	"github.com/dogechain-lab/dogechain/state"
 	"github.com/dogechain-lab/dogechain/types"
@@ -90,10 +91,13 @@ type Verifier interface {
 	ProcessHeaders(headers []*types.Header) error
 	GetBlockCreator(header *types.Header) (types.Address, error)
 	PreStateCommit(header *types.Header, txn *state.Transition) error
+	IsSystemTransaction(height uint64, coinbase types.Address, tx *types.Transaction) bool
 }
 
 type Executor interface {
-	ProcessBlock(parentRoot types.Hash, block *types.Block, blockCreator types.Address) (*state.Transition, error)
+	BeginTxn(parentRoot types.Hash, header *types.Header, coinbase types.Address) (*state.Transition, error)
+	//nolint:lll
+	ProcessTransactions(transition *state.Transition, gasLimit uint64, transactions []*types.Transaction) (*state.Transition, error)
 	Stop()
 }
 
@@ -841,21 +845,20 @@ func (b *Blockchain) executeBlockTransactions(block *types.Block) (*BlockResult,
 		return nil, ErrParentNotFound
 	}
 
+	height := header.Number
+
 	blockCreator, err := b.consensus.GetBlockCreator(header)
 	if err != nil {
 		return nil, err
 	}
 
-	txn, err := b.executor.ProcessBlock(parent.StateRoot, block, blockCreator)
+	// prepare execution
+	txn, err := b.executor.BeginTxn(parent.StateRoot, block.Header, blockCreator)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := b.consensus.PreStateCommit(header, txn); err != nil {
-		return nil, err
-	}
-
-	// upgrade system if needed
+	// upgrade system contract first if needed
 	upgrader.UpgradeSystem(
 		b.Config().ChainID,
 		b.Config().Forks,
@@ -863,6 +866,31 @@ func (b *Blockchain) executeBlockTransactions(block *types.Block) (*BlockResult,
 		txn.Txn(),
 		b.logger,
 	)
+
+	// there might be 2 system transactions, slash or deposit
+	systemTxs := make([]*types.Transaction, 0, 2)
+	// normal transactions which is not consensus associated
+	normalTxs := make([]*types.Transaction, 0, len(block.Transactions))
+
+	// the include sequence should be same as execution, otherwise it failed on state root comparison
+	for _, tx := range block.Transactions {
+		if b.consensus.IsSystemTransaction(height, blockCreator, tx) {
+			systemTxs = append(systemTxs, tx)
+
+			continue
+		}
+
+		normalTxs = append(normalTxs, tx)
+	}
+
+	// execute normal transaction first
+	if _, err := b.executor.ProcessTransactions(txn, header.GasLimit, normalTxs); err != nil {
+		return nil, err
+	}
+
+	if _, err := b.executor.ProcessTransactions(txn, header.GasLimit, systemTxs); err != nil {
+		return nil, err
+	}
 
 	if b.isStopped() {
 		// execute stop, should not commit
@@ -1015,8 +1043,9 @@ func (b *Blockchain) writeBody(block *types.Block) error {
 	}
 
 	// Write txn lookups (txHash -> block)
-	for _, txn := range block.Transactions {
-		if err := b.db.WriteTxLookup(txn.Hash, block.Hash()); err != nil {
+	for _, tx := range block.Transactions {
+		// write hash lookup
+		if err := b.db.WriteTxLookup(tx.Hash(), block.Hash()); err != nil {
 			return err
 		}
 	}
@@ -1052,10 +1081,17 @@ func (b *Blockchain) verifyGasLimit(header, parentHeader *types.Header) error {
 		diff *= -1
 	}
 
+	// gas limit should not count system transactions
 	limit := parentHeader.GasLimit / BlockGasTargetDivisor
+	// system transactions after detroit fork
+	if b.Config().Forks.IsDetroit(header.Number) {
+		// might be 2 txs.
+		limit += 2 * validatorset.SystemTransactionGasLimit
+	}
+
 	if uint64(diff) > limit {
 		return fmt.Errorf(
-			"invalid gas limit, limit = %d, want %d +- %d",
+			"limit = %d, want %d +- %d",
 			header.GasLimit,
 			parentHeader.GasLimit,
 			limit-1,

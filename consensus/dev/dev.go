@@ -145,21 +145,20 @@ func (d *Dev) writeTransactions(gasLimit uint64, transition transitionInterface)
 			} else if nonceErr, ok := err.(*state.NonceTooLowError); ok {
 				// low nonce tx, should reset accounts once done
 				d.logger.Warn("write transaction nonce too low",
-					"hash", tx.Hash, "from", tx.From, "nonce", tx.Nonce)
+					"hash", tx.Hash(), "from", tx.From, "nonce", tx.Nonce)
 				// skip the address, whose txs should be reset first.
 				d.txpool.DemoteAllPromoted(tx, nonceErr.CorrectNonce)
 				priceTxs.Pop()
 			} else if nonceErr, ok := err.(*state.NonceTooHighError); ok {
 				// high nonce tx, should reset accounts once done
 				d.logger.Error("write miss some transactions with higher nonce",
-					tx.Hash, "from", tx.From, "nonce", tx.Nonce)
+					"hash", tx.Hash(), "from", tx.From, "nonce", tx.Nonce)
 				d.txpool.DemoteAllPromoted(tx, nonceErr.CorrectNonce)
 				priceTxs.Pop()
 			} else {
 				// no matter what kind of failure, drop is reasonable for not executed it yet
 				d.logger.Debug("write not executed transaction failed",
-					"hash", tx.Hash, "from", tx.From,
-					"nonce", tx.Nonce, "err", err)
+					"hash", tx.Hash(), "from", tx.From, "nonce", tx.Nonce, "err", err)
 				d.txpool.Drop(tx)
 				priceTxs.Pop()
 			}
@@ -209,8 +208,6 @@ func (d *Dev) writeNewBlock(parent *types.Header) error {
 		return err
 	}
 
-	txns := d.writeTransactions(gasLimit, transition)
-
 	// upgrade system if needed
 	upgrader.UpgradeSystem(
 		d.blockchain.Config().ChainID,
@@ -219,6 +216,8 @@ func (d *Dev) writeNewBlock(parent *types.Header) error {
 		transition.Txn(),
 		d.logger,
 	)
+
+	txns := d.writeTransactions(gasLimit, transition)
 
 	// Commit the changes
 	_, root := transition.Commit()
@@ -269,6 +268,10 @@ func (d *Dev) GetBlockCreator(header *types.Header) (types.Address, error) {
 // PreStateCommit a hook to be called before finalizing state transition on inserting block
 func (d *Dev) PreStateCommit(_header *types.Header, _txn *state.Transition) error {
 	return nil
+}
+
+func (d *Dev) IsSystemTransaction(height uint64, coinbase types.Address, tx *types.Transaction) bool {
+	return false
 }
 
 func (d *Dev) GetSyncProgression() *progress.Progression {

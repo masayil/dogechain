@@ -19,13 +19,17 @@ protoc:
 .PHONY: build
 build:
 	$(eval LATEST_VERSION = $(shell git describe --tags --abbrev=0))
-	$(eval COMMIT_HASH = $(shell git rev-parse --short HEAD))
-	$(eval DATE = $(shell date +'%Y-%m-%d_%T'))
-	go build -o dogechain -ldflags="-X 'github.com/dogechain-lab/dogechain/versioning.Version=$(LATEST_VERSION)+$(COMMIT_HASH)+$(DATE)'" main.go
+	$(eval COMMIT_HASH = $(shell git rev-parse HEAD))
+	$(eval DATE = $(shell date -u +'%Y-%m-%dT%TZ'))
+	go build -o dogechain -ldflags="\
+		-X 'github.com/dogechain-lab/dogechain/versioning.Version=$(LATEST_VERSION)'\
+		-X 'github.com/dogechain-lab/dogechain/versioning.Commit=$(COMMIT_HASH)'\
+		-X 'github.com/dogechain-lab/dogechain/versioning.BuildTime=$(DATE)'" \
+	main.go
 
 .PHONY: lint
 lint:
-	golangci-lint run -c .golangci.yml --timeout=3m
+	golangci-lint run -c .golangci.yml
 
 .PHONY: test
 test: build

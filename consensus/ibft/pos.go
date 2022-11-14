@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/dogechain-lab/dogechain/consensus/ibft/validator"
 	"github.com/dogechain-lab/dogechain/contracts/systemcontracts"
 	"github.com/dogechain-lab/dogechain/contracts/validatorset"
 	validatorsetHelper "github.com/dogechain-lab/dogechain/helper/validatorset"
@@ -127,7 +128,15 @@ func (pos *PoSMechanism) verifyBlockHook(blockParam interface{}) error {
 	}
 
 	if pos.ibft.IsLastOfEpoch(block.Number()) && len(block.Transactions) > 0 {
-		return errBlockVerificationFailed
+		number := block.Number()
+		coinbase := block.Header.Miner // it must be a the real miner
+
+		// it could only include system transactions
+		for _, tx := range block.Transactions {
+			if !pos.ibft.IsSystemTransaction(number, coinbase, tx) {
+				return errBlockVerificationFailed
+			}
+		}
 	}
 
 	return nil
@@ -192,13 +201,13 @@ func (pos *PoSMechanism) ShouldWriteTransactions(blockNumber uint64) bool {
 
 // getNextValidators is a helper function for fetching the validator set
 // from the ValidatorSet SC
-func (pos *PoSMechanism) getNextValidators(header *types.Header) (ValidatorSet, error) {
+func (pos *PoSMechanism) getNextValidators(header *types.Header) (validator.Validators, error) {
 	transition, err := pos.ibft.executor.BeginTxn(header.StateRoot, header, types.ZeroAddress)
 	if err != nil {
 		return nil, err
 	}
 
-	return validatorset.QueryValidators(transition, pos.ibft.validatorKeyAddr)
+	return validatorset.QueryValidators(transition, pos.ibft.validatorKeyAddr, header.GasLimit)
 }
 
 // updateSnapshotValidators updates validators in snapshot at given height

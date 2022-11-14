@@ -1,6 +1,7 @@
 package jsonrpc
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -8,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dogechain-lab/dogechain/versioning"
 	"github.com/gorilla/websocket"
 	"github.com/hashicorp/go-hclog"
 )
@@ -32,6 +34,10 @@ func (s serverType) String() string {
 		panic("BUG: Not expected")
 	}
 }
+
+const (
+	_authoritativeChainName = "Dogechain"
+)
 
 // JSONRPC is an API backend
 type JSONRPC struct {
@@ -66,7 +72,9 @@ type Config struct {
 	JSONNamespaces           []Namespace
 	EnableWS                 bool
 	PriceLimit               uint64
-	Metrics                  *Metrics
+	EnablePProf              bool // whether pprof enable or not
+
+	Metrics *Metrics
 }
 
 // NewJSONRPC returns the JSONRPC http server
@@ -102,7 +110,16 @@ func (j *JSONRPC) setupHTTP() error {
 		return err
 	}
 
-	mux := http.DefaultServeMux
+	var mux *http.ServeMux
+	if j.config.EnablePProf {
+		// debug feature enabled
+		mux = http.DefaultServeMux
+	} else {
+		// NewServeMux must be used, as it disables all debug features.
+		// For some strange reason, with DefaultServeMux debug/vars is always enabled (but not debug/pprof).
+		// If pprof need to be enabled, this should be DefaultServeMux
+		mux = http.NewServeMux()
+	}
 
 	// The middleware factory returns a handler, so we need to wrap the handler function properly.
 	jsonRPCHandler := http.HandlerFunc(j.handle)
@@ -275,32 +292,24 @@ func (j *JSONRPC) handle(w http.ResponseWriter, req *http.Request) {
 		"Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization",
 	)
 
-	if (*req).Method == "OPTIONS" {
-		return
-	}
-
-	if req.Method == "GET" {
-		//nolint
-		w.Write([]byte("Dogechain-Lab Dogechain JSON-RPC"))
+	switch req.Method {
+	case http.MethodPost:
+		j.handleJSONRPCRequest(w, req)
+	case http.MethodGet:
+		j.handleGetRequest(w)
+	case http.MethodOptions:
+		// nothing to return
+	default:
 		j.metrics.Errors.Add(1.0)
-
-		return
-	}
-
-	if req.Method != "POST" {
-		//nolint
 		w.Write([]byte("method " + req.Method + " not allowed"))
-		j.metrics.Errors.Add(1.0)
-
-		return
 	}
+}
 
+func (j *JSONRPC) handleJSONRPCRequest(w http.ResponseWriter, req *http.Request) {
 	data, err := io.ReadAll(req.Body)
-
 	if err != nil {
-		//nolint
-		w.Write([]byte(err.Error()))
 		j.metrics.Errors.Add(1.0)
+		w.Write([]byte(err.Error()))
 
 		return
 	}
@@ -313,17 +322,39 @@ func (j *JSONRPC) handle(w http.ResponseWriter, req *http.Request) {
 	// handle request
 	resp, err := j.dispatcher.Handle(data)
 
-	endT := time.Now()
-	j.metrics.ResponseTime.Observe(endT.Sub(startT).Seconds())
+	j.metrics.ResponseTime.Observe(time.Since(startT).Seconds())
 
 	if err != nil {
-		//nolint
-		w.Write([]byte(err.Error()))
 		j.metrics.Errors.Add(1.0)
+		w.Write([]byte(err.Error()))
 	} else {
-		//nolint
 		w.Write(resp)
 	}
 
 	j.logger.Debug("handle", "response", string(resp))
+}
+
+type GetResponse struct {
+	Name    string `json:"name"`
+	ChainID uint64 `json:"chain_id"`
+	Version string `json:"version"`
+}
+
+func (j *JSONRPC) handleGetRequest(writer io.Writer) {
+	data := &GetResponse{
+		Name:    _authoritativeChainName,
+		ChainID: j.config.ChainID,
+		Version: versioning.Version,
+	}
+
+	resp, err := json.Marshal(data)
+	if err != nil {
+		j.metrics.Errors.Add(1.0)
+		writer.Write([]byte(err.Error()))
+	}
+
+	if _, err = writer.Write(resp); err != nil {
+		j.metrics.Errors.Add(1.0)
+		writer.Write([]byte(err.Error()))
+	}
 }

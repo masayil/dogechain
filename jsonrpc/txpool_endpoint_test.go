@@ -219,7 +219,6 @@ func newMockTxPoolStore() *mockTxPoolStore {
 	}
 }
 
-//nolint:lll
 func (s *mockTxPoolStore) GetTxs(inclQueued bool) (map[types.Address][]*types.Transaction, map[types.Address][]*types.Transaction) {
 	s.includeQueued = inclQueued
 
@@ -244,7 +243,7 @@ func newTestTransaction(nonce uint64, from types.Address) *types.Transaction {
 		S:        big.NewInt(1),
 	}
 
-	txn.ComputeHash()
+	txn.Hash()
 
 	return txn
 }
