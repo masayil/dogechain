@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"sync"
 	"time"
 
 	"github.com/dogechain-lab/dogechain/blockchain"
@@ -24,6 +25,12 @@ const (
 	topicNameV1 = "txpool/0.1"
 )
 
+const (
+	_ddosThreshold      = 3               // >= 3/minute is a ddos attack
+	_ddosReduceCount    = 5               // contract ddos count reduction
+	_ddosReduceDuration = 1 * time.Minute // trigger for ddos count reduction
+)
+
 // errors
 var (
 	ErrIntrinsicGas        = errors.New("intrinsic gas too low")
@@ -40,6 +47,7 @@ var (
 	ErrOversizedData       = errors.New("oversized data")
 	ErrReplaceUnderpriced  = errors.New("replacement transaction underpriced")
 	ErrBlackList           = errors.New("address in blacklist")
+	ErrContractDDOSList    = errors.New("contract in ddos list")
 )
 
 // indicates origin of a transaction
@@ -83,6 +91,7 @@ type Config struct {
 	PruneTickSeconds      uint64
 	PromoteOutdateSeconds uint64
 	BlackList             []types.Address
+	DDOSPretection        bool
 }
 
 /* All requests are passed to the main loop
@@ -184,6 +193,10 @@ type TxPool struct {
 
 	// some very bad guys whose txs should never be included
 	blacklist map[types.Address]struct{}
+	// ddos protection fields
+	ddosPretection      bool         // enable ddos protection
+	ddosReductionTicker *time.Ticker // ddos reduction ticker for releasing from imprisonment
+	ddosContracts       sync.Map     // ddos contract caching
 }
 
 // NewTxPool returns a new pool for processing incoming transactions.
@@ -226,6 +239,7 @@ func NewTxPool(
 		priceLimit:             config.PriceLimit,
 		pruneTick:              time.Second * time.Duration(pruneTickSeconds),
 		promoteOutdateDuration: time.Second * time.Duration(promoteOutdateSeconds),
+		ddosPretection:         config.DDOSPretection,
 	}
 
 	pool.SetSealing(config.Sealing) // sealing flag
@@ -284,6 +298,7 @@ func (p *TxPool) Start() {
 	p.metrics.SetDefaultValue(0)
 
 	p.pruneAccountTicker = time.NewTicker(p.pruneTick)
+	p.ddosReductionTicker = time.NewTicker(_ddosReduceDuration)
 
 	go func() {
 		for {
@@ -302,6 +317,10 @@ func (p *TxPool) Start() {
 				if ok { // readable
 					go p.pruneStaleAccounts()
 				}
+			case _, ok := <-p.ddosReductionTicker.C:
+				if ok {
+					go p.reduceDDOSCounts()
+				}
 			}
 		}
 	}()
@@ -309,6 +328,7 @@ func (p *TxPool) Start() {
 
 // Close shuts down the pool's main loop.
 func (p *TxPool) Close() {
+	p.ddosReductionTicker.Stop()
 	p.pruneAccountTicker.Stop()
 	p.eventManager.Close()
 	// stop
@@ -666,11 +686,72 @@ func (p *TxPool) validateTx(tx *types.Transaction) error {
 	return nil
 }
 
+// IsDDOSTx returns whether a contract transaction marks as ddos attack
+func (p *TxPool) IsDDOSTx(tx *types.Transaction) bool {
+	if !p.ddosPretection || tx.To == nil {
+		return false
+	}
+
+	count, exists := p.ddosContracts.Load(*tx.To)
+	//nolint:forcetypeassert
+	if exists && count.(int) > _ddosThreshold {
+		return true
+	}
+
+	return false
+}
+
+// MarkDDOSTx marks resource consuming transaction as a might-be attack
+func (p *TxPool) MarkDDOSTx(tx *types.Transaction) {
+	if !p.ddosPretection || tx.To == nil {
+		return
+	}
+
+	// update its ddos count
+	v, _ := p.ddosContracts.Load(*tx.To)
+	count, _ := v.(int)
+	count++
+	p.ddosContracts.Store(*tx.To, count)
+
+	p.logger.Debug("increase ddos contract transaction count",
+		"address", tx.To,
+		"count", count,
+	)
+}
+
+// reduceDDOSCounts reduces might-be misunderstanding of ddos attack
+func (p *TxPool) reduceDDOSCounts() {
+	p.ddosContracts.Range(func(key, value interface{}) bool {
+		count, _ := value.(int)
+		if count <= 0 {
+			return true
+		}
+
+		count -= _ddosReduceCount
+		if count < 0 {
+			count = 0
+		}
+
+		p.ddosContracts.Store(key, count)
+
+		p.logger.Debug("decrease ddos contract transaction count",
+			"address", key,
+			"count", count,
+		)
+
+		return true
+	})
+}
+
 // addTx is the main entry point to the pool
 // for all new transactions. If the call is
 // successful, an account is created for this address
 // (only once) and an enqueueRequest is signaled.
 func (p *TxPool) addTx(origin txOrigin, tx *types.Transaction) error {
+	if p.IsDDOSTx(tx) {
+		return ErrContractDDOSList
+	}
+
 	// get the hash already from the very beginning
 	p.logger.Debug("add tx",
 		"origin", origin.String(),

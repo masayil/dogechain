@@ -7,9 +7,8 @@ import (
 )
 
 const (
-	KeyType                   = "type"
-	KeyEpochSize              = "epochSize"
-	KeyBanishAbnormalContract = "banishAbnormalContract"
+	KeyType      = "type"
+	KeyEpochSize = "epochSize"
 )
 
 // Define the type of the IBFT consensus
