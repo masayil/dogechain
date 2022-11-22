@@ -45,6 +45,7 @@ var (
 	ErrInvalidUncleHash      = errors.New("invalid uncle hash")
 	ErrWrongDifficulty       = errors.New("wrong difficulty")
 	ErrInvalidBlockTimestamp = errors.New("invalid block timestamp")
+	ErrInvalidCommittedSeal  = errors.New("invalid committed seal")
 )
 
 type blockchainInterface interface {
@@ -1364,21 +1365,46 @@ func (i *Ibft) isSlashTx(height uint64, coinbase types.Address, tx *types.Transa
 // The Validate state is rather simple - all nodes do in this state is read messages
 // and add them to their local snapshot state
 func (i *Ibft) runValidateState() {
+	logger := i.logger.Named("validateState")
+
+	// for all validators commit checking
 	hasCommitted := false
 	sendCommit := func() {
+		if hasCommitted {
+			return
+		}
 		// at this point either we have enough prepare messages
 		// or commit messages so we can lock the block
 		i.state.Lock()
+		// send the commit message
+		i.sendCommitMsg()
 
-		if !hasCommitted {
-			// send the commit message
-			i.sendCommitMsg()
+		hasCommitted = true
+	}
+	// change round logic
+	changeRound := func() {
+		i.state.Unlock()
+		i.setState(currentstate.RoundChangeState)
+	}
+	// for proposer post commit checking
+	hasPostCommitted := false
+	// send post commit logic to check without
+	sendPostCommit := func() {
+		if hasPostCommitted {
+			return
+		}
 
-			hasCommitted = true
+		// update flag for repeating skip
+		hasPostCommitted = true
+		// only proposer need to send post commit
+		signer, _ := ecrecoverFromHeader(i.state.Block().Header)
+		if signer == i.validatorKeyAddr {
+			i.sendPostCommitMsg()
 		}
 	}
 
 	timeout := i.state.MessageTimeout()
+
 	for i.getState() == currentstate.ValidateState {
 		msg, ok := i.getNextMessage(timeout)
 		if !ok {
@@ -1387,17 +1413,16 @@ func (i *Ibft) runValidateState() {
 		}
 
 		if msg == nil {
-			i.logger.Debug("ValidateState got message timeout, should change round",
+			logger.Info("ValidateState got message timeout, should change round",
 				"sequence", i.state.Sequence(), "round", i.state.Round()+1)
-			i.state.Unlock()
-			i.setState(currentstate.RoundChangeState)
+			changeRound()
 
-			continue
+			return
 		}
 
 		if msg.View == nil {
 			// A malicious node conducted a DoS attack
-			i.logger.Error("view data in msg is nil")
+			logger.Error("view data in msg is nil")
 
 			continue
 		}
@@ -1405,22 +1430,54 @@ func (i *Ibft) runValidateState() {
 		// check msg number and round, might from some faulty nodes
 		if i.state.Sequence() != msg.View.GetSequence() ||
 			i.state.Round() != msg.View.GetRound() {
-			i.logger.Debug("ValidateState got message not matching sequence and round",
+			logger.Info("ValidateState got message not matching sequence and round",
 				"my-sequence", i.state.Sequence(), "my-round", i.state.Round()+1,
 				"other-sequence", msg.View.GetSequence(), "other-round", msg.View.GetRound())
 
 			continue
 		}
 
+		currentBlockHash := i.state.Block().Hash()
+
 		switch msg.Type {
 		case proto.MessageReq_Prepare:
 			i.state.AddPrepared(msg)
 
 		case proto.MessageReq_Commit:
+			// check seal before execute any of it
+			_, addr, err := committedSealFromHex(msg.Seal, currentBlockHash)
+			if err != nil ||
+				addr != msg.FromAddr() {
+				logger.Warn("invalid seal",
+					"blockHash", currentBlockHash,
+					"msg", msg,
+					"signer", addr,
+					"err", err,
+				)
+
+				break // current switch
+			}
+
 			i.state.AddCommitted(msg)
 
+		case proto.MessageReq_PostCommit:
+			// not valid canonical seals
+			if msg.Canonical == nil ||
+				msg.Canonical.Hash != currentBlockHash.String() ||
+				len(msg.Canonical.Seals) < i.state.NumValid() {
+				logger.Error("invalid canonical seal",
+					"blockHash", i.state.Block().Hash(),
+					"msg", msg,
+				)
+				changeRound()
+
+				return
+			}
+
+			i.state.AddPostCommitted(msg)
+
 		default:
-			i.logger.Error("BUG: %s, validate state don't not handle type.msg: %d",
+			logger.Error("BUG: %s, validate state do not handle type.msg: %d",
 				reflect.TypeOf(msg.Type), msg.Type)
 		}
 
@@ -1430,11 +1487,16 @@ func (i *Ibft) runValidateState() {
 		}
 
 		if i.state.NumCommitted() > i.state.NumValid() {
-			// we have received enough commit messages
-			sendCommit()
+			// send post commit message
+			sendPostCommit()
+		}
 
-			// try to commit the block (TODO: just to get out of the loop)
+		if i.state.CanonicalSeal() != nil {
+			logger.Info("got canonical seal and move on")
+			// switch to commit state
 			i.setState(currentstate.CommitState)
+			// get out of loop
+			break
 		}
 	}
 
@@ -1446,7 +1508,7 @@ func (i *Ibft) runValidateState() {
 		if err := i.insertBlock(block); err != nil {
 			// start a new round with the state unlocked since we need to
 			// be able to propose/validate a different block
-			i.logger.Error("failed to insert block", "err", err)
+			i.logger.Named("commitState").Error("failed to insert block", "err", err)
 			i.handleStateErr(errFailedToInsertBlock)
 		} else {
 			// update metrics
@@ -1480,24 +1542,40 @@ func (i *Ibft) updateMetrics(block *types.Block) {
 	i.metrics.NumTxs.Set(float64(len(block.Body().Transactions)))
 }
 
-func (i *Ibft) insertBlock(block *types.Block) error {
-	// Gather the committed seals for the block
-	committedSeals := make([][]byte, 0)
+func gatherCanonicalCommittedSeals(
+	canonicalSeals []string,
+	validators validator.Validators,
+	block *types.Block,
+) ([][]byte, error) {
+	committedSeals := make([][]byte, 0, len(canonicalSeals))
 
-	for _, commit := range i.state.Committed() {
+	for _, commit := range canonicalSeals {
 		// no need to check the format of seal here because writeCommittedSeals will check
-		seal, err := hex.DecodeHex(commit.Seal)
+		seal, addr, err := committedSealFromHex(commit, block.Hash())
 		if err != nil {
-			i.logger.Error(
-				fmt.Sprintf(
-					"unable to decode committed seal from %s: %v",
-					commit.From, err,
-				))
+			return nil, err
+		}
 
-			continue
+		// check whether seals from validators
+		if !validators.Includes(addr) {
+			return nil, ErrInvalidCommittedSeal
 		}
 
 		committedSeals = append(committedSeals, seal)
+	}
+
+	return committedSeals, nil
+}
+
+func (i *Ibft) insertBlock(block *types.Block) error {
+	// Gather the committed seals for the block
+	committedSeals, err := gatherCanonicalCommittedSeals(
+		i.state.CanonicalSeal().Canonical.Seals,
+		i.currentValidators,
+		block,
+	)
+	if err != nil {
+		return err
 	}
 
 	// Push the committed seals to the header
@@ -1636,7 +1714,7 @@ func (i *Ibft) runRoundChangeState() {
 		// we only expect RoundChange messages right now
 		num := i.state.AddRoundMessage(msg)
 
-		if num == i.state.NumValid() {
+		if num >= i.state.NumValid() {
 			// start a new round immediately
 			i.startNewRound(msg.View.Round)
 			i.setState(currentstate.AcceptState)
@@ -1667,13 +1745,15 @@ func (i *Ibft) sendCommitMsg() {
 	i.gossip(proto.MessageReq_Commit)
 }
 
+func (i *Ibft) sendPostCommitMsg() {
+	i.gossip(proto.MessageReq_PostCommit)
+}
+
 func (i *Ibft) gossip(typ proto.MessageReq_Type) {
 	msg := &proto.MessageReq{
 		Type: typ,
+		View: i.state.View().Copy(), // add View, all state needs
 	}
-
-	// add View
-	msg.View = i.state.View().Copy()
 
 	// if we are sending a preprepare message we need to include the proposed block
 	if msg.Type == proto.MessageReq_Preprepare {
@@ -1692,6 +1772,20 @@ func (i *Ibft) gossip(typ proto.MessageReq_Type) {
 		}
 
 		msg.Seal = hex.EncodeToHex(seal)
+	}
+
+	if msg.Type == proto.MessageReq_PostCommit {
+		committeds := i.state.Committed()
+		seals := make([]string, 0, len(committeds))
+
+		for _, committed := range committeds {
+			seals = append(seals, committed.Seal)
+		}
+
+		msg.Canonical = &proto.CanonicalSeal{
+			Hash:  i.state.Block().Hash().String(),
+			Seals: seals,
+		}
 	}
 
 	if msg.Type != proto.MessageReq_Preprepare {

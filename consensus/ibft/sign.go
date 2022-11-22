@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/dogechain-lab/dogechain/consensus/ibft/proto"
+	"github.com/dogechain-lab/dogechain/consensus/ibft/validator"
 	"github.com/dogechain-lab/dogechain/crypto"
 	"github.com/dogechain-lab/dogechain/helper/hex"
 	"github.com/dogechain-lab/dogechain/helper/keccak"
@@ -82,6 +83,18 @@ func writeSeal(prv *ecdsa.PrivateKey, h *types.Header) (*types.Header, error) {
 	}
 
 	return h, nil
+}
+
+func committedSealFromHex(hexSeal string, rawHash types.Hash) (seal []byte, addr types.Address, err error) {
+	seal, err = hex.DecodeHex(hexSeal)
+	if err != nil {
+		return
+	}
+
+	// check whether seals from validators
+	addr, err = ecrecoverImpl(seal, commitMsg(rawHash[:]))
+
+	return
 }
 
 func writeCommittedSeal(prv *ecdsa.PrivateKey, h *types.Header) ([]byte, error) {
@@ -207,7 +220,7 @@ func verifyCommittedFields(snap *Snapshot, header *types.Header) error {
 	// Valid committed seals must be at least 2F+1
 	// 	2F 	is the required number of honest validators who provided the committed seals
 	// 	+1	is the proposer
-	if validSeals := len(visited); validSeals <= 2*snap.Set.MaxFaultyNodes() {
+	if validSeals := len(visited); validSeals <= 2*validator.CalcMaxFaultyNodes(snap.Set) {
 		return fmt.Errorf("not enough seals to seal block")
 	}
 
