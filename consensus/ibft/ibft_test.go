@@ -1,6 +1,7 @@
 package ibft
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"errors"
 	"fmt"
@@ -16,8 +17,6 @@ import (
 	"github.com/dogechain-lab/dogechain/consensus/ibft/validator"
 	"github.com/dogechain-lab/dogechain/helper/common"
 	"github.com/dogechain-lab/dogechain/helper/hex"
-	"github.com/dogechain-lab/dogechain/helper/progress"
-	"github.com/dogechain-lab/dogechain/protocol"
 	"github.com/dogechain-lab/dogechain/state"
 	"github.com/dogechain-lab/dogechain/types"
 	"github.com/hashicorp/go-hclog"
@@ -46,6 +45,7 @@ type MockBlockchain struct {
 	WriteBlockHandler           func(*types.Block) error
 	VerifyPotentialBlockHandler func(block *types.Block) error
 	CalculateGasLimitHandler    func(number uint64) (uint64, error)
+	subscription                blockchain.Subscription
 }
 
 func (m *MockBlockchain) Header() *types.Header {
@@ -68,7 +68,7 @@ func (m *MockBlockchain) GetHeaderByNumber(i uint64) (*types.Header, bool) {
 	return m.GetHeaderByNumberHandler(i)
 }
 
-func (m *MockBlockchain) WriteBlock(block *types.Block) error {
+func (m *MockBlockchain) WriteBlock(block *types.Block, source string) error {
 	m.t.Helper()
 
 	if m.WriteBlockHandler == nil {
@@ -204,6 +204,10 @@ func (m *MockBlockchain) calculateGasLimit(number uint64) (uint64, error) {
 	return defaultBlockGasLimit, nil
 }
 
+func (m *MockBlockchain) SubscribeEvents() blockchain.Subscription {
+	return m.subscription
+}
+
 // interface check
 var _ blockchainInterface = (*MockBlockchain)(nil)
 
@@ -215,6 +219,7 @@ func NewMockBlockchain(t *testing.T) *MockBlockchain {
 		latestBlockNumber: nil,
 		headers:           make(map[uint64]*types.Header),
 		blocks:            make(map[uint64]*types.Block),
+		subscription:      &blockchain.MockSubscription{},
 	}
 
 	m.HeaderHandler = m.header
@@ -258,7 +263,7 @@ func TestTransition_ValidateState_Prepare(t *testing.T) {
 		i.Close()
 	})
 
-	i.runCycle()
+	i.runCycle(context.Background())
 
 	i.expect(expectResult{
 		sequence:    1,
@@ -309,31 +314,13 @@ func TestTransition_ValidateState_CommitFastTrack(t *testing.T) {
 		Seal: seal,
 	})
 
-	i.runCycle()
+	i.runCycle(context.Background())
 
 	i.expect(expectResult{
 		sequence:   1,
 		commitMsgs: 3,
 		outgoing:   1,
 		locked:     false, // unlock after commit
-	})
-}
-
-func TestTransition_AcceptState_ToSync(t *testing.T) {
-	// we are in AcceptState and we are not in the validators list
-	// means that we have been removed as validator, move to sync state
-	i := newMockIbft(t, []string{"A", "B", "C", "D"}, "")
-	i.setState(currentstate.AcceptState)
-	t.Cleanup(func() {
-		i.Close()
-	})
-
-	// we are the proposer and we need to build a block
-	i.runCycle()
-
-	i.expect(expectResult{
-		sequence: 1,
-		state:    currentstate.SyncState,
 	})
 }
 
@@ -349,7 +336,7 @@ func TestTransition_AcceptState_Proposer_Locked(t *testing.T) {
 		},
 	})
 
-	i.runCycle()
+	i.runCycle(context.Background())
 
 	i.expect(expectResult{
 		sequence: 1,
@@ -385,7 +372,7 @@ func TestTransition_AcceptState_Validator_VerifyCorrect(t *testing.T) {
 		View: proto.ViewMsg(1, 0),
 	})
 
-	i.runCycle()
+	i.runCycle(context.Background())
 
 	i.expect(expectResult{
 		sequence: 1,
@@ -418,7 +405,7 @@ func TestTransition_AcceptState_Validator_VerifyFails(t *testing.T) {
 		View: proto.ViewMsg(1, 0),
 	})
 
-	i.runCycle()
+	i.runCycle(context.Background())
 
 	i.expect(expectResult{
 		sequence: 1,
@@ -444,7 +431,7 @@ func TestTransition_AcceptState_Validator_ProposerInvalid(t *testing.T) {
 	})
 	i.forceTimeout()
 
-	i.runCycle()
+	i.runCycle(context.Background())
 
 	i.expect(expectResult{
 		sequence: 1,
@@ -479,7 +466,7 @@ func TestTransition_AcceptState_Validator_LockWrong(t *testing.T) {
 		View: proto.ViewMsg(1, 0),
 	})
 
-	i.runCycle()
+	i.runCycle(context.Background())
 
 	i.expect(expectResult{
 		sequence: 1,
@@ -511,7 +498,7 @@ func TestTransition_AcceptState_Validator_LockCorrect(t *testing.T) {
 		View: proto.ViewMsg(1, 0),
 	})
 
-	i.runCycle()
+	i.runCycle(context.Background())
 
 	i.expect(expectResult{
 		sequence: 1,
@@ -563,7 +550,7 @@ func TestTransition_AcceptState_Reject_WrongHeight_Block(t *testing.T) {
 		View: proto.ViewMsg(nextSequence, 0),
 	})
 
-	i.runCycle()
+	i.runCycle(context.Background())
 
 	i.expect(expectResult{
 		sequence: nextSequence,
@@ -600,7 +587,7 @@ func TestTransition_RoundChangeState_CatchupRound(t *testing.T) {
 	// not processed all the messages yet.
 	// After it receives 3 Round change messages higher than his own
 	// round it will change round again and move to accept
-	m.runCycle()
+	m.runCycle(context.Background())
 
 	m.expect(expectResult{
 		sequence: 1,
@@ -621,7 +608,7 @@ func TestTransition_RoundChangeState_Timeout(t *testing.T) {
 	// one RoundChange message.
 	// After the timeout, it increases to round 2 and sends another
 	/// RoundChange message.
-	m.runCycle()
+	m.runCycle(context.Background())
 
 	m.expect(expectResult{
 		sequence: 1,
@@ -654,7 +641,7 @@ func TestTransition_RoundChangeState_WeakCertificate(t *testing.T) {
 	})
 	m.Close()
 
-	m.runCycle()
+	m.runCycle(context.Background())
 
 	m.expect(expectResult{
 		sequence: 1,
@@ -674,7 +661,7 @@ func TestTransition_RoundChangeState_ErrStartNewRound(t *testing.T) {
 	m.state.HandleErr(errBlockVerificationFailed)
 
 	m.setState(currentstate.RoundChangeState)
-	m.runCycle()
+	m.runCycle(context.Background())
 
 	// not enough round change message, so we should be in round change state
 	m.expect(expectResult{
@@ -694,7 +681,7 @@ func TestTransition_RoundChangeState_StartNewRound(t *testing.T) {
 	m.state.SetView(proto.ViewMsg(1, 0))
 
 	m.setState(currentstate.RoundChangeState)
-	m.runCycle()
+	m.runCycle(context.Background())
 
 	// not enough round change message, so we should be in round change state
 	m.expect(expectResult{
@@ -730,7 +717,7 @@ func TestTransition_RoundChangeState_MaxRound(t *testing.T) {
 	})
 
 	m.setState(currentstate.RoundChangeState)
-	m.runCycle()
+	m.runCycle(context.Background())
 
 	m.expect(expectResult{
 		sequence: 1,
@@ -887,174 +874,6 @@ func TestIBFT_WriteTransactions(t *testing.T) {
 	}
 }
 
-func TestRunSyncState_NewHeadReceivedFromPeer_CallsTxPoolResetWithHeaders(t *testing.T) {
-	m := newMockIbft(t, []string{"A", "B", "C"}, "A")
-	m.setState(currentstate.SyncState)
-
-	expectedNewBlockToSync := &types.Block{Header: &types.Header{Number: 1}}
-	mockSyncer := newMockSyncer(nil, expectedNewBlockToSync, nil, false, nil)
-	m.syncer = mockSyncer
-	mockTxPool := newMockTxPool(nil)
-	m.txpool = mockTxPool
-
-	// we need to change state from Sync in order to break from the loop inside runSyncState
-	stateChangeDelay := time.NewTimer(100 * time.Millisecond)
-
-	go func() {
-		<-stateChangeDelay.C
-		m.setState(currentstate.AcceptState)
-	}()
-
-	m.runSyncState()
-
-	assert.True(t, mockTxPool.resetWithHeaderCalled)
-	assert.Equal(t, expectedNewBlockToSync.Header, mockTxPool.resetWithHeadersParam[0])
-	assert.True(t, mockSyncer.broadcastCalled)
-	assert.Equal(t, expectedNewBlockToSync, mockSyncer.broadcastedBlock)
-}
-
-func TestRunSyncState_BulkSyncWithPeer_CallsTxPoolResetWithHeaders(t *testing.T) {
-	m := newMockIbft(t, []string{"A", "B", "C"}, "A")
-	m.setState(currentstate.SyncState)
-
-	expectedNewBlocksToSync := []*types.Block{
-		{Header: &types.Header{Number: 1}},
-		{Header: &types.Header{Number: 2}},
-		{Header: &types.Header{Number: 3}},
-	}
-	m.syncer = newMockSyncer(expectedNewBlocksToSync, nil, nil, false, nil)
-	mockTxPool := newMockTxPool(nil)
-	m.txpool = mockTxPool
-
-	// we need to change state from Sync in order to break from the loop inside runSyncState
-	stateChangeDelay := time.NewTimer(100 * time.Millisecond)
-
-	go func() {
-		<-stateChangeDelay.C
-		m.setState(currentstate.AcceptState)
-	}()
-
-	m.runSyncState()
-
-	assert.True(t, mockTxPool.resetWithHeaderCalled)
-	assert.Equal(t,
-		expectedNewBlocksToSync[len(expectedNewBlocksToSync)-1].Header,
-		mockTxPool.resetWithHeadersParam[0],
-	)
-}
-
-// Tests whether validator unlock block if it syncs blocks during sync process
-func TestRunSyncState_Unlock_After_Sync(t *testing.T) {
-	pool := newTesterAccountPool()
-	pool.add("A", "B", "C", "D")
-
-	blockchain := NewMockBlockchain(t)
-	blockchain.SetGenesis(pool.ValidatorSet())
-
-	m := newMockIBFTWithMockBlockchain(t, pool, blockchain, "A")
-	m.sealing = true
-	m.setState(currentstate.SyncState)
-
-	// Locking block #1
-	m.state.Lock()
-
-	// Sync blocks to #3
-	expectedNewBlocksToSync := []*types.Block{
-		{Header: &types.Header{Number: 1}},
-		{Header: &types.Header{Number: 2}},
-		{Header: &types.Header{Number: 3}},
-	}
-
-	m.syncer = newMockSyncer(expectedNewBlocksToSync, nil, nil, false, blockchain)
-	m.txpool = newMockTxPool(nil)
-
-	// we need to change state from Sync in order to break from the loop inside runSyncState
-	stateChangeDelay := time.NewTimer(100 * time.Millisecond)
-
-	go func() {
-		<-stateChangeDelay.C
-		m.setState(currentstate.AcceptState)
-	}()
-
-	m.runSyncState()
-
-	// Validator should start new sequence from the next of the latest block and unlock block in state
-	m.expect(expectResult{
-		sequence: 4,
-		state:    currentstate.AcceptState,
-		locked:   false,
-	})
-}
-
-type mockSyncer struct {
-	bulkSyncBlocksFromPeer  []*types.Block
-	receivedNewHeadFromPeer *types.Block
-	broadcastedBlock        *types.Block
-	broadcastCalled         bool
-	blockchain              blockchainInterface
-}
-
-func newMockSyncer(
-	bulkSyncBlocksFromPeer []*types.Block,
-	receivedNewHeadFromPeer *types.Block,
-	broadcastedBlock *types.Block,
-	broadcastCalled bool,
-	blockchain blockchainInterface,
-) *mockSyncer {
-	return &mockSyncer{
-		bulkSyncBlocksFromPeer:  bulkSyncBlocksFromPeer,
-		receivedNewHeadFromPeer: receivedNewHeadFromPeer,
-		broadcastedBlock:        broadcastedBlock,
-		broadcastCalled:         broadcastCalled,
-		blockchain:              blockchain,
-	}
-}
-
-func (s *mockSyncer) Start() {}
-
-func (s *mockSyncer) BestPeer() *protocol.SyncPeer {
-	return &protocol.SyncPeer{}
-}
-
-func (s *mockSyncer) BulkSyncWithPeer(p *protocol.SyncPeer, handler func(block *types.Block)) error {
-	for _, block := range s.bulkSyncBlocksFromPeer {
-		if s.blockchain != nil {
-			if err := s.blockchain.WriteBlock(block); err != nil {
-				return err
-			}
-		}
-
-		handler(block)
-	}
-
-	return nil
-}
-
-func (s *mockSyncer) WatchSyncWithPeer(
-	p *protocol.SyncPeer,
-	newBlockHandler func(b *types.Block) bool,
-	blockTimeout time.Duration,
-) {
-	if s.receivedNewHeadFromPeer != nil {
-		if s.blockchain != nil {
-			if err := s.blockchain.WriteBlock(s.receivedNewHeadFromPeer); err != nil {
-				return
-			}
-		}
-
-		newBlockHandler(s.receivedNewHeadFromPeer)
-	}
-}
-
-func (s *mockSyncer) GetSyncProgression() *progress.Progression {
-	return nil
-}
-
-func (s *mockSyncer) Broadcast(b *types.Block) {
-	s.broadcastCalled = true
-	s.broadcastedBlock = b
-}
-
 type mockTxPool struct {
 	transactions          []*types.Transaction
 	demoted               []*types.Transaction
@@ -1193,12 +1012,16 @@ func (m *mockIbft) GetHeaderByNumber(i uint64) (*types.Header, bool) {
 	return m.blockchain.GetHeaderByNumber(i)
 }
 
-func (m *mockIbft) WriteBlock(block *types.Block) error {
+func (m *mockIbft) WriteBlock(block *types.Block, source string) error {
 	return nil
 }
 
 func (m *mockIbft) VerifyPotentialBlock(block *types.Block) error {
 	return nil
+}
+
+func (m *mockIbft) SubscribeEvents() blockchain.Subscription {
+	return m.blockchain.SubscribeEvents()
 }
 
 func (m *mockIbft) emitMsg(msg *proto.MessageReq) {

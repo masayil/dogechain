@@ -78,7 +78,8 @@ type Blockchain struct {
 
 	metrics *Metrics
 
-	wg sync.WaitGroup // for shutdown sync
+	wg        sync.WaitGroup // for shutdown sync
+	writeLock sync.Mutex     // for disabling concurrent write
 }
 
 // gasPriceAverage keeps track of the average gas price (rolling average)
@@ -228,6 +229,8 @@ func NewBlockchain(
 	if err := b.initCaches(defaultCacheSize); err != nil {
 		return nil, err
 	}
+
+	b.logger.Debug("NewBlockchain try to update new chain event", "event", &Event{})
 
 	// Push the initial event to the stream
 	b.stream.push(&Event{})
@@ -441,6 +444,9 @@ func (b *Blockchain) writeGenesisImpl(header *types.Header) error {
 	// Create an event and send it to the stream
 	event := &Event{}
 	event.AddNewHeader(header)
+
+	b.logger.Debug("writeGenesisImpl try to update new chain event", "event", event)
+
 	b.stream.push(event)
 
 	return nil
@@ -954,13 +960,22 @@ func (b *Blockchain) executeBlockTransactions(block *types.Block) (*BlockResult,
 }
 
 // WriteBlock writes a single block
-func (b *Blockchain) WriteBlock(block *types.Block) error {
+func (b *Blockchain) WriteBlock(block *types.Block, source string) error {
 	if b.isStopped() {
 		return ErrClosed
 	}
 
+	b.writeLock.Lock()
+	defer b.writeLock.Unlock()
+
 	b.wg.Add(1)
 	defer b.wg.Done()
+
+	if block.Number() <= b.Header().Number {
+		b.logger.Info("block already inserted", "block", block.Number(), "source", source)
+
+		return nil
+	}
 
 	// Log the information
 	b.logger.Info(
@@ -997,7 +1012,7 @@ func (b *Blockchain) WriteBlock(block *types.Block) error {
 	}
 
 	// Write the header to the chain
-	evnt := &Event{}
+	evnt := &Event{Source: source}
 	if err := b.writeHeaderImpl(evnt, header); err != nil {
 		return err
 	}
@@ -1200,6 +1215,8 @@ func (b *Blockchain) GetHashByNumber(blockNumber uint64) types.Hash {
 
 // dispatchEvent pushes a new event to the stream
 func (b *Blockchain) dispatchEvent(evnt *Event) {
+	b.logger.Debug("dispatchEvent try to update new chain event", "event", evnt)
+
 	b.stream.push(evnt)
 }
 

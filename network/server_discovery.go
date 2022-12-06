@@ -1,6 +1,7 @@
 package network
 
 import (
+	"context"
 	"crypto/rand"
 	"fmt"
 	"math/big"
@@ -42,9 +43,9 @@ func (s *Server) GetBootnodeConnCount() int64 {
 	return s.bootnodes.getBootnodeConnCount()
 }
 
-// getProtoStream returns an active protocol stream if present, otherwise
+// GetProtoStream returns an active protocol stream if present, otherwise
 // it returns nil
-func (s *Server) getProtoStream(protocol string, peerID peer.ID) *rawGrpc.ClientConn {
+func (s *Server) GetProtoStream(protocol string, peerID peer.ID) *rawGrpc.ClientConn {
 	s.peersLock.Lock()
 	defer s.peersLock.Unlock()
 
@@ -70,7 +71,7 @@ func (s *Server) NewDiscoveryClient(peerID peer.ID) (proto.DiscoveryClient, erro
 	}
 
 	// Check if there is an active stream connection already
-	if protoStream := s.getProtoStream(common.DiscProto, peerID); protoStream != nil {
+	if protoStream := s.GetProtoStream(common.DiscProto, peerID); protoStream != nil {
 		return proto.NewDiscoveryClient(protoStream), nil
 	}
 
@@ -226,7 +227,7 @@ func (s *Server) setupDiscovery() error {
 	)
 
 	// Register a network event handler
-	if subscribeErr := s.SubscribeFn(discoveryService.HandleNetworkEvent); subscribeErr != nil {
+	if subscribeErr := s.SubscribeFn(context.Background(), discoveryService.HandleNetworkEvent); subscribeErr != nil {
 		return fmt.Errorf("unable to subscribe to network events, %w", subscribeErr)
 	}
 

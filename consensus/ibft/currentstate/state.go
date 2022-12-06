@@ -18,8 +18,8 @@ const (
 	AcceptState IbftState = iota
 	RoundChangeState
 	ValidateState // including prepare, commit, and post commit state stage
-	CommitState
-	SyncState
+	CommitState   // committed
+	FinState      // finish current sequence
 )
 
 // String returns the string representation of the passed in state
@@ -37,14 +37,16 @@ func (i IbftState) String() string {
 	case CommitState:
 		return "CommitState"
 
-	case SyncState:
-		return "SyncState"
+	case FinState:
+		return "FinState"
 	}
 
 	panic(fmt.Sprintf("BUG: Ibft state not found %d", i))
 }
 
 // CurrentState defines the current state object in IBFT
+//
+// NOTE: not thread safe, better to wrap it in mutext for concurrent use case
 type CurrentState struct {
 	// validators represent the current validator set
 	validators validator.Validators
@@ -60,6 +62,9 @@ type CurrentState struct {
 
 	// Current view
 	view *proto.View
+
+	// additionalTimeout is for block building, which might consumes longer than we thought
+	additionalTimeout time.Duration
 
 	// List of prepared messages
 	prepared map[types.Address]*proto.MessageReq
@@ -86,6 +91,22 @@ func NewState() *CurrentState {
 	c.ResetRoundMsgs()
 
 	return c
+}
+
+func (c *CurrentState) Clear(height uint64) {
+	c.SetState(AcceptState)
+	c.block = nil
+	c.proposer = types.ZeroAddress
+	c.view = &proto.View{
+		Sequence: height,
+		Round:    0,
+	}
+	c.err = nil
+	c.prepared = map[types.Address]*proto.MessageReq{}
+	c.committed = map[types.Address]*proto.MessageReq{}
+	c.canonicalSeal = nil // reset canonical seal when round change
+	c.roundMessages = map[uint64]map[types.Address]*proto.MessageReq{}
+	c.locked = false
 }
 
 // GetState returns the current state
@@ -203,7 +224,8 @@ func (c *CurrentState) MessageTimeout() time.Duration {
 		timeout += time.Duration(int64(math.Pow(2, float64(c.Round())))) * time.Second
 	}
 
-	return timeout
+	// add more time for long time block production
+	return timeout + c.additionalTimeout
 }
 
 // ResetRoundMsgs resets the prepared, committed and round messages in the current state
@@ -245,6 +267,11 @@ func (c *CurrentState) SetView(view *proto.View) {
 
 func (c *CurrentState) View() *proto.View {
 	return c.view
+}
+
+// SetAdditionalTimeout sets an additional timeout for potentially long builds
+func (c *CurrentState) SetAdditionalTimeout(d time.Duration) {
+	c.additionalTimeout = d
 }
 
 func (c *CurrentState) IsLocked() bool {

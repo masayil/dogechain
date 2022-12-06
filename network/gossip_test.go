@@ -12,6 +12,7 @@ import (
 	"go.uber.org/atomic"
 
 	testproto "github.com/dogechain-lab/dogechain/network/proto"
+	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -30,6 +31,7 @@ func WaitForSubscribers(ctx context.Context, srv *Server, topic string, expected
 		}
 
 		delay := time.NewTimer(100 * time.Millisecond)
+		defer delay.Stop()
 
 		select {
 		case <-ctx.Done():
@@ -72,7 +74,7 @@ func TestSimpleGossip(t *testing.T) {
 
 		serverTopics[i] = topic
 
-		if subscribeErr := topic.Subscribe(func(obj interface{}) {
+		if subscribeErr := topic.Subscribe(func(obj interface{}, _ peer.ID) {
 			// Everyone should relay they got the message
 			genericMessage, ok := obj.(*testproto.GenericMessage)
 			if !ok {
@@ -106,6 +108,7 @@ func TestSimpleGossip(t *testing.T) {
 
 	for {
 		delay := time.NewTimer(15 * time.Second)
+		defer delay.Stop()
 
 		select {
 		case <-delay.C:
@@ -154,7 +157,7 @@ func TestTopicBackpressure(t *testing.T) {
 
 		serverTopics[i] = topic
 
-		if subscribeErr := topic.Subscribe(func(obj interface{}) {
+		if subscribeErr := topic.Subscribe(func(obj interface{}, _ peer.ID) {
 			subscribeGoroutineCount.Add(1)
 
 			// wait for the channel to close
@@ -219,7 +222,7 @@ func TestTopicClose(t *testing.T) {
 
 		serverTopics[i] = topic
 
-		if subscribeErr := topic.Subscribe(func(obj interface{}) {
+		if subscribeErr := topic.Subscribe(func(obj interface{}, _ peer.ID) {
 			count.Add(1)
 
 			// wait for the channel to close

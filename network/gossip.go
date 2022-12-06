@@ -10,6 +10,7 @@ import (
 	"github.com/dogechain-lab/dogechain/helper/common"
 
 	"github.com/hashicorp/go-hclog"
+	"github.com/libp2p/go-libp2p-core/peer"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"google.golang.org/protobuf/proto"
 )
@@ -19,10 +20,12 @@ const (
 	// we should have enough capacity of the queue
 	// because when queue is full, if the consumer does not read fast enough, new messages are dropped
 	subscribeOutputBufferSize = 1024
+
+	_unsubscriptionTimeout = 10 * time.Second
 )
 
 // max worker number (min 2 and max 64)
-var workerNum = int(common.Min(common.Max(uint64(runtime.NumCPU()), 2), 64))
+var _workerNum = int(common.Min(common.Max(uint64(runtime.NumCPU()), 2), 64))
 
 type Topic struct {
 	logger hclog.Logger
@@ -52,7 +55,7 @@ func (t *Topic) Publish(obj proto.Message) error {
 	return t.topic.Publish(context.Background(), data)
 }
 
-func (t *Topic) Subscribe(handler func(obj interface{})) error {
+func (t *Topic) Subscribe(handler func(obj interface{}, from peer.ID)) error {
 	sub, err := t.topic.Subscribe(pubsub.WithBufferSize(subscribeOutputBufferSize))
 	if err != nil {
 		return err
@@ -70,47 +73,59 @@ func (t *Topic) Close() error {
 	return t.topic.Close()
 }
 
-func (t *Topic) readLoop(sub *pubsub.Subscription, handler func(obj interface{})) {
-	ctx, cancelFn := context.WithCancel(context.Background())
-	defer cancelFn()
+func (t *Topic) readLoop(sub *pubsub.Subscription, handler func(obj interface{}, from peer.ID)) {
+	type task struct {
+		Message proto.Message
+		From    peer.ID
+	}
 
-	workqueue := make(chan proto.Message, workerNum*4)
-	defer close(workqueue)
-
+	// wait group for better close?
 	t.wg.Add(1)
-	defer t.wg.Done()
+	// work queue for less goroutine allocation
+	workqueue := make(chan *task, _workerNum*4)
+	// cancel context
+	ctx, cancel := context.WithCancel(context.Background())
 
-	for i := 0; i < workerNum; i++ {
+	// wait for the event
+	go func() {
+		<-t.unsubscribeCh
+
+		// send cancel timeout
+		timeoutCtx, timeoutCancel := context.WithTimeout(ctx, _unsubscriptionTimeout)
+
+		go func() {
+			sub.Cancel()
+			// cancelTimeoutFn() is idempotent, so it's safe to call it multiple times
+			// https://stackoverflow.com/questions/59858033/is-cancel-so-mandatory-for-context
+			timeoutCancel()
+		}()
+
+		// wait for completion or timeout
+		<-timeoutCtx.Done()
+		timeoutCancel()
+
+		cancel()
+		close(workqueue)
+		t.wg.Done()
+	}()
+
+	for i := 0; i < _workerNum; i++ {
 		go func() {
 			for {
-				obj, ok := <-workqueue
+				task, ok := <-workqueue
 				if !ok {
 					return
 				}
 
-				handler(obj)
+				handler(task.Message, task.From)
 			}
 		}()
 	}
 
 	for {
 		select {
-		case <-t.unsubscribeCh:
-			// send cancel timeout
-			timeoutCtx, cancelTimeoutFn := context.WithTimeout(ctx, 30*time.Second)
-			defer cancelTimeoutFn()
-
-			go func() {
-				sub.Cancel()
-
-				// cancelTimeoutFn() is idempotent, so it's safe to call it multiple times
-				// https://stackoverflow.com/questions/59858033/is-cancel-so-mandatory-for-context
-				cancelTimeoutFn()
-			}()
-
-			// wait for completion or timeout
-			<-timeoutCtx.Done()
-
+		case <-ctx.Done():
+			// return when context cancel
 			return
 
 		default:
@@ -123,13 +138,15 @@ func (t *Topic) readLoop(sub *pubsub.Subscription, handler func(obj interface{})
 
 			obj := t.createObj()
 			if err := proto.Unmarshal(msg.Data, obj); err != nil {
-				t.logger.Error("failed to unmarshal topic", "err", err)
-				t.logger.Error("unmarshal message from", "peer", msg.GetFrom())
+				t.logger.Error("failed to unmarshal topic", "err", err, "peer", msg.GetFrom())
 
 				continue
 			}
 
-			workqueue <- obj
+			workqueue <- &task{
+				Message: obj,
+				From:    msg.GetFrom(),
+			}
 		}
 	}
 }

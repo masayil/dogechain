@@ -111,10 +111,15 @@ func TestEventManager_SignalEvent(t *testing.T) {
 	supportedEventsProcessed := 0
 
 	completed := false
-	delay := time.NewTimer(5 * time.Second)
+
+	const duration = 5 * time.Second
+
+	delay := time.NewTimer(duration)
+	defer delay.Stop()
 
 	for !completed {
-		delay.Reset(5 * time.Second)
+		// TODO: not safe use case
+		delay.Reset(duration)
 
 		select {
 		case event := <-subscription.subscriptionChannel:
@@ -161,9 +166,10 @@ func TestEventManager_SignalEventOrder(t *testing.T) {
 
 	wg.Add(totalEvents)
 
-	timeoutDelay := time.NewTimer(5 * time.Second)
-
 	go func() {
+		timeoutDelay := time.NewTimer(5 * time.Second)
+		defer timeoutDelay.Stop()
+
 		for {
 			select {
 			case event, more := <-subscription.subscriptionChannel:

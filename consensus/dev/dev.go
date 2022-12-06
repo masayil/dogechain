@@ -15,6 +15,10 @@ import (
 	"github.com/hashicorp/go-hclog"
 )
 
+const (
+	WriteBlockSource = "dev"
+)
+
 // Dev consensus protocol seals any new transaction immediately
 type Dev struct {
 	logger hclog.Logger
@@ -74,10 +78,8 @@ func (d *Dev) nextNotify() chan struct{} {
 		d.interval = 1
 	}
 
-	delay := time.NewTimer(time.Duration(d.interval) * time.Second)
-
 	go func() {
-		<-delay.C
+		<-time.After(time.Duration(d.interval) * time.Second)
 		d.notifyCh <- struct{}{}
 	}()
 
@@ -239,7 +241,7 @@ func (d *Dev) writeNewBlock(parent *types.Header) error {
 	}
 
 	// Write the block to the blockchain
-	if err := d.blockchain.WriteBlock(block); err != nil {
+	if err := d.blockchain.WriteBlock(block, WriteBlockSource); err != nil {
 		return err
 	}
 

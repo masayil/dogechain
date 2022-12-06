@@ -1,13 +1,15 @@
 package ibft
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"reflect"
+	"sync"
 	"time"
 
+	"github.com/dogechain-lab/dogechain/blockchain"
 	"github.com/dogechain-lab/dogechain/consensus"
 	"github.com/dogechain-lab/dogechain/consensus/ibft/currentstate"
 	"github.com/dogechain-lab/dogechain/consensus/ibft/proto"
@@ -25,6 +27,7 @@ import (
 	"github.com/dogechain-lab/dogechain/state"
 	"github.com/dogechain-lab/dogechain/types"
 	"github.com/hashicorp/go-hclog"
+	"github.com/libp2p/go-libp2p-core/peer"
 	"go.uber.org/atomic"
 	"google.golang.org/grpc"
 	anypb "google.golang.org/protobuf/types/known/anypb"
@@ -34,6 +37,8 @@ const (
 	DefaultEpochSize = 100000
 	// When threshold reached, we mark it as a really annoying contract
 	_annoyingContractThrshold = 3
+
+	WriteBlockSource = "ibft"
 )
 
 var (
@@ -51,9 +56,10 @@ var (
 type blockchainInterface interface {
 	Header() *types.Header
 	GetHeaderByNumber(i uint64) (*types.Header, bool)
-	WriteBlock(block *types.Block) error
+	WriteBlock(block *types.Block, source string) error
 	VerifyPotentialBlock(block *types.Block) error
 	CalculateGasLimit(number uint64) (uint64, error)
+	SubscribeEvents() blockchain.Subscription
 }
 
 type ddosProtectionInterface interface {
@@ -67,15 +73,6 @@ type txPoolInterface interface {
 	DemoteAllPromoted(tx *types.Transaction, correctNonce uint64)
 	ResetWithHeaders(headers ...*types.Header)
 	Pending() map[types.Address][]*types.Transaction
-}
-
-type syncerInterface interface {
-	Start()
-	BestPeer() *protocol.SyncPeer
-	BulkSyncWithPeer(p *protocol.SyncPeer, newBlockHandler func(block *types.Block)) error
-	WatchSyncWithPeer(p *protocol.SyncPeer, newBlockHandler func(b *types.Block) bool, blockTimeout time.Duration)
-	GetSyncProgression() *progress.Progression
-	Broadcast(b *types.Block)
 }
 
 // Ibft represents the IBFT consensus mechanism object
@@ -103,7 +100,7 @@ type Ibft struct {
 	msgQueue *msgQueue     // Structure containing different message queues
 	updateCh chan struct{} // Update channel
 
-	syncer syncerInterface // Reference to the sync protocol
+	syncer protocol.Syncer // Reference to the sync protocol
 
 	network   *network.Server // Reference to the networking layer
 	transport transport       // Reference to the transport protocol
@@ -128,6 +125,10 @@ type Ibft struct {
 	// but would not banish it until it became a real ddos attack
 	// not thread safe, but can be used sequentially
 	exhaustingContracts map[types.Address]uint64
+
+	// consensus associated
+	cancelSequence context.CancelFunc
+	wg             sync.WaitGroup
 }
 
 // runHook runs a specified hook if it is present in the hook map
@@ -198,6 +199,9 @@ func Factory(
 		exhaustingContracts: make(map[types.Address]uint64),
 	}
 
+	// set up additional timeout for building block
+	p.state.SetAdditionalTimeout(p.blockTime)
+
 	// Initialize the mechanism
 	if err := p.setupMechanism(); err != nil {
 		return nil, err
@@ -206,28 +210,18 @@ func Factory(
 	// Istanbul requires a different header hash function
 	types.HeaderHash = istanbulHeaderHash
 
-	p.syncer = protocol.NewSyncer(params.Logger, params.Network, params.Blockchain)
+	p.syncer = protocol.NewSyncer(
+		params.Logger,
+		params.Network,
+		params.Blockchain,
+		params.BlockBroadcast,
+	)
 
 	return p, nil
 }
 
 // Start starts the IBFT consensus
 func (i *Ibft) Initialize() error {
-	// Set up the snapshots
-	if err := i.setupSnapshot(); err != nil {
-		return err
-	}
-
-	// set up current module cache
-	if err := i.updateCurrentModules(i.blockchain.Header().Number + 1); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// Start starts the IBFT consensus
-func (i *Ibft) Start() error {
 	// register the grpc operator
 	if i.Grpc != nil {
 		i.operator = &operator{ibft: i}
@@ -246,13 +240,68 @@ func (i *Ibft) Start() error {
 		return err
 	}
 
-	// Start the syncer
-	i.syncer.Start()
+	// // initialize fork manager
+	// if err := i.forkManager.Initialize(); err != nil {
+	// 	return err
+	// }
 
-	// Start the actual IBFT protocol
-	go i.start()
+	// Set up the snapshots
+	if err := i.setupSnapshot(); err != nil {
+		return err
+	}
+
+	// set up current module cache
+	if err := i.updateCurrentModules(i.blockchain.Header().Number + 1); err != nil {
+		return err
+	}
 
 	return nil
+}
+
+// Start starts the IBFT consensus
+func (i *Ibft) Start() error {
+	// Start the syncer
+	if err := i.syncer.Start(); err != nil {
+		return err
+	}
+
+	// Start syncing blocks from other peers
+	go i.startSyncing()
+
+	// Start the actual IBFT protocol
+	go i.startConsensus()
+
+	return nil
+}
+
+// sync runs the syncer in the background to receive blocks from advanced peers
+func (i *Ibft) startSyncing() {
+	logger := i.logger.Named("syncing")
+
+	callInsertBlockHook := func(block *types.Block) bool {
+		blockNumber := block.Number()
+
+		// insert block
+		if hookErr := i.runHook(InsertBlockHook, blockNumber, blockNumber); hookErr != nil {
+			logger.Error(fmt.Sprintf("Unable to run hook %s, %v", InsertBlockHook, hookErr))
+		}
+
+		// update module cache
+		if err := i.updateCurrentModules(blockNumber + 1); err != nil {
+			logger.Error("failed to update sub modules", "height", blockNumber+1, "err", err)
+		}
+
+		// reset headers of txpool
+		i.txpool.ResetWithHeaders(block.Header)
+
+		return false
+	}
+
+	if err := i.syncer.Sync(
+		callInsertBlockHook,
+	); err != nil {
+		logger.Error("watch sync failed", "err", err)
+	}
 }
 
 // GetSyncProgression gets the latest sync progression, if any
@@ -351,7 +400,7 @@ func (i *Ibft) setupTransport() error {
 	}
 
 	// Subscribe to the newly created topic
-	err = topic.Subscribe(func(obj interface{}) {
+	err = topic.Subscribe(func(obj interface{}, _ peer.ID) {
 		if !i.isActiveValidator(i.validatorKeyAddr) {
 			// we're not active validator, don't ever care about any ibft messages
 			return
@@ -438,50 +487,75 @@ func (i *Ibft) createKey() error {
 
 const IbftKeyName = "validator.key"
 
-// start starts the IBFT consensus state machine
-func (i *Ibft) start() {
-	// consensus always starts in SyncState mode in case it needs
-	// to sync with other nodes.
-	i.setState(currentstate.SyncState)
-
-	// Grab the latest header
-	header := i.blockchain.Header()
-	i.logger.Debug("current sequence", "sequence", header.Number+1)
-
-	for {
-		select {
-		case <-i.closeCh:
-			return
-		default: // Default is here because we would block until we receive something in the closeCh
-		}
-
-		// Start the state machine loop
-		i.runCycle()
-	}
-}
-
-// runCycle represents the IBFT state machine loop
-func (i *Ibft) runCycle() {
-	// Log to the console
-	i.logger.Debug("cycle",
-		"state", i.getState(),
-		"sequence", i.state.Sequence(),
-		"round", i.state.Round()+1,
+// startConsensus starts the IBFT consensus state machine
+func (i *Ibft) startConsensus() {
+	var (
+		newBlockSub   = i.blockchain.SubscribeEvents()
+		syncerBlockCh = make(chan struct{})
 	)
 
-	// Based on the current state, execute the corresponding section
-	switch i.getState() {
-	case currentstate.AcceptState:
-		i.runAcceptState()
+	defer newBlockSub.Close()
 
-	case currentstate.ValidateState:
-		i.runValidateState()
+	// Receive a notification every time syncer manages
+	// to insert a valid block. Used for cancelling active consensus
+	// rounds for a specific height
+	go func() {
+		eventCh := newBlockSub.GetEventCh()
 
-	case currentstate.RoundChangeState:
-		i.runRoundChangeState()
+		for {
+			if ev := <-eventCh; ev.Source == protocol.WriteBlockSource {
+				if ev.NewChain[0].Number < i.blockchain.Header().Number {
+					// The blockchain notification system can eventually deliver
+					// stale block notifications. These should be ignored
+					continue
+				}
 
-	case currentstate.SyncState:
-		i.runSyncState()
+				syncerBlockCh <- struct{}{}
+			}
+		}
+	}()
+
+	var (
+		sequenceCh  = make(<-chan struct{})
+		isValidator bool
+	)
+
+	for {
+		var (
+			latest  = i.blockchain.Header().Number
+			pending = latest + 1
+		)
+
+		if err := i.updateCurrentModules(pending); err != nil {
+			i.logger.Error(
+				"failed to update submodules",
+				"height", pending,
+				"err", err,
+			)
+		}
+
+		isValidator = i.isValidSnapshot()
+
+		if isValidator {
+			// i.startNewSequence()
+			sequenceCh = i.runSequence(pending)
+		}
+
+		select {
+		case <-syncerBlockCh:
+			if isValidator {
+				i.stopSequence()
+				i.logger.Info("canceled sequence", "sequence", pending)
+			}
+		case <-sequenceCh:
+		case <-i.closeCh:
+			if isValidator {
+				i.stopSequence()
+				i.logger.Info("ibft close", "sequence", pending)
+			}
+
+			return
+		}
 	}
 }
 
@@ -504,109 +578,6 @@ func (i *Ibft) isValidSnapshot() bool {
 	}
 
 	return false
-}
-
-// runSyncState implements the Sync state loop.
-//
-// It fetches fresh data from the blockchain. Checks if the current node is a validator and resolves any pending blocks
-func (i *Ibft) runSyncState() {
-	// updateSnapshotCallback keeps the snapshot store in sync with the updated
-	// chain data, by calling the SyncStateHook
-	callInsertBlockHook := func(block *types.Block) {
-		blockNumber := block.Number()
-
-		// insert block
-		if hookErr := i.runHook(InsertBlockHook, blockNumber, blockNumber); hookErr != nil {
-			i.logger.Error(fmt.Sprintf("Unable to run hook %s, %v", InsertBlockHook, hookErr))
-		}
-
-		// update module cache
-		if err := i.updateCurrentModules(blockNumber + 1); err != nil {
-			i.logger.Error("failed to update sub modules", "height", blockNumber+1, "err", err)
-		}
-
-		// reset headers of txpool
-		i.txpool.ResetWithHeaders(block.Header)
-	}
-
-	// save current height to check whether new blocks are added or not during syncing
-	beginningHeight := uint64(0)
-	if header := i.blockchain.Header(); header != nil {
-		beginningHeight = header.Number
-	}
-
-	for i.isState(currentstate.SyncState) {
-		// try to sync with the best-suited peer
-		p := i.syncer.BestPeer()
-		if p == nil {
-			// if we do not have any peers, and we have been a validator
-			// we can start now. In case we start on another fork this will be
-			// reverted later
-			if i.isValidSnapshot() {
-				// initialize the round and sequence
-				i.startNewSequence()
-
-				//Set the round metric
-				i.metrics.Rounds.Set(float64(i.state.Round()))
-
-				i.setState(currentstate.AcceptState)
-			} else {
-				time.Sleep(1 * time.Second)
-			}
-
-			continue
-		}
-
-		if err := i.syncer.BulkSyncWithPeer(p, func(newBlock *types.Block) {
-			callInsertBlockHook(newBlock)
-		}); err != nil {
-			i.logger.Error("failed to bulk sync", "err", err)
-
-			continue
-		}
-
-		// if we are a validator we do not even want to wait here
-		// we can just move ahead
-		if i.isValidSnapshot() {
-			i.startNewSequence()
-			i.setState(currentstate.AcceptState)
-
-			continue
-		}
-
-		// start watch mode
-		var isValidator bool
-
-		i.syncer.WatchSyncWithPeer(p, func(newBlock *types.Block) bool {
-			// After each written block, update the snapshot store for PoS.
-			// The snapshot store is currently updated for PoA inside the ProcessHeadersHook
-			callInsertBlockHook(newBlock)
-
-			i.syncer.Broadcast(newBlock)
-			isValidator = i.isValidSnapshot()
-
-			return isValidator
-		}, i.blockTime)
-
-		if isValidator {
-			// at this point, we are in sync with the latest chain we know of
-			// and we are a validator of that chain so we need to change to AcceptState
-			// so that we can start to do some stuff there
-			i.startNewSequence()
-			i.setState(currentstate.AcceptState)
-		}
-	}
-
-	// new height added during syncing
-	endingHeight := uint64(0)
-	if header := i.blockchain.Header(); header != nil {
-		endingHeight = header.Number
-	}
-
-	// unlock current block if new blocks are added
-	if endingHeight > beginningHeight {
-		i.state.Unlock()
-	}
 }
 
 // shouldWriteSystemTransactions checks whether system contract transaction should write at given height
@@ -1110,213 +1081,6 @@ func (i *Ibft) markLongTimeConsumingContract(tx *types.Transaction, begin time.T
 	)
 }
 
-// runAcceptState runs the Accept state loop
-//
-// The Accept state always checks the snapshot, and the validator set. If the current node is not in the validators set,
-// it moves back to the Sync state. On the other hand, if the node is a validator, it calculates the proposer.
-// If it turns out that the current node is the proposer, it builds a block,
-// and sends preprepare and then prepare messages.
-func (i *Ibft) runAcceptState() { // start new round
-	if i.isClosed.Load() {
-		return
-	}
-
-	// set log output
-	logger := i.logger.Named("acceptState")
-	logger.Info("Accept state", "sequence", i.state.Sequence(), "round", i.state.Round()+1)
-	// set consensus_rounds metric output
-	i.metrics.Rounds.Set(float64(i.state.Round() + 1))
-
-	// This is the state in which we either propose a block or wait for the pre-prepare message
-	parent := i.blockchain.Header()
-	number := parent.Number + 1
-
-	if number != i.state.Sequence() {
-		i.logger.Error("sequence not correct", "parent", parent.Number, "sequence", i.state.Sequence())
-		i.setState(currentstate.SyncState)
-
-		return
-	}
-
-	// update current module cache
-	if err := i.updateCurrentModules(number); err != nil {
-		i.logger.Error(
-			"failed to update submodules",
-			"height", number,
-			"err", err,
-		)
-	}
-
-	snap, err := i.getSnapshot(parent.Number)
-
-	if err != nil {
-		i.logger.Error("cannot find snapshot", "num", parent.Number)
-		i.setState(currentstate.SyncState)
-
-		return
-	}
-
-	if !snap.Set.Includes(i.validatorKeyAddr) {
-		// we are not a validator anymore, move back to sync state
-		i.logger.Info("we are not a validator anymore")
-		i.setState(currentstate.SyncState)
-
-		return
-	}
-
-	if hookErr := i.runHook(AcceptStateLogHook, i.state.Sequence(), snap); hookErr != nil {
-		i.logger.Error(fmt.Sprintf("Unable to run hook %s, %v", AcceptStateLogHook, hookErr))
-	}
-
-	i.state.SetValidators(snap.Set)
-
-	//Update the No.of validator metric
-	i.metrics.Validators.Set(float64(len(snap.Set)))
-	// reset round messages
-	i.state.ResetRoundMsgs()
-
-	// select the proposer of the block
-	var lastProposer types.Address
-	if parent.Number != 0 {
-		lastProposer, _ = ecrecoverFromHeader(parent)
-	}
-
-	if hookErr := i.runHook(CalculateProposerHook, i.state.Sequence(), lastProposer); hookErr != nil {
-		i.logger.Error(fmt.Sprintf("Unable to run hook %s, %v", CalculateProposerHook, hookErr))
-	}
-
-	if i.state.Proposer() == i.validatorKeyAddr {
-		logger.Info("we are the proposer", "block", number)
-
-		if !i.state.IsLocked() {
-			// since the state is not locked, we need to build a new block
-			block, err := i.buildBlock(snap, parent)
-			if err != nil {
-				i.logger.Error("failed to build block", "err", err)
-				i.setState(currentstate.RoundChangeState)
-
-				return
-			}
-
-			i.state.SetBlock(block)
-
-			// calculate how much time do we have to wait to mine the block
-			delay := time.Until(time.Unix(int64(block.Header.Timestamp), 0))
-
-			delayTimer := time.NewTimer(delay)
-
-			select {
-			case <-delayTimer.C:
-			case <-i.closeCh:
-				return
-			}
-		}
-
-		// send the preprepare message as an RLP encoded block
-		i.sendPreprepareMsg()
-
-		// send the prepare message since we are ready to move the state
-		i.sendPrepareMsg()
-
-		// move to validation state for new prepare messages
-		i.setState(currentstate.ValidateState)
-
-		return
-	}
-
-	i.logger.Info("proposer calculated", "proposer", i.state.Proposer(), "block", number)
-
-	// we are NOT a proposer for the block. Then, we have to wait
-	// for a pre-prepare message from the proposer
-
-	timeout := i.state.MessageTimeout()
-	for i.getState() == currentstate.AcceptState {
-		msg, ok := i.getNextMessage(timeout)
-		if !ok {
-			return
-		}
-
-		if msg == nil {
-			i.setState(currentstate.RoundChangeState)
-
-			continue
-		}
-
-		if msg.From != i.state.Proposer().String() {
-			i.logger.Error("msg received from wrong proposer")
-
-			continue
-		}
-
-		if msg.Proposal == nil {
-			// A malicious node conducted a DoS attack
-			i.logger.Error("proposal data in msg is nil")
-
-			continue
-		}
-
-		// retrieve the block proposal
-		block := &types.Block{}
-		if err := block.UnmarshalRLP(msg.Proposal.Value); err != nil {
-			i.logger.Error("failed to unmarshal block", "err", err)
-			i.setState(currentstate.RoundChangeState)
-
-			return
-		}
-
-		// Make sure the proposing block height match the current sequence
-		if block.Number() != i.state.Sequence() {
-			i.logger.Error("sequence not correct", "block", block.Number, "sequence", i.state.Sequence())
-			i.handleStateErr(errIncorrectBlockHeight)
-
-			return
-		}
-
-		if i.state.IsLocked() {
-			// the state is locked, we need to receive the same block
-			if block.Hash() == i.state.Block().Hash() {
-				// fast-track and send a commit message and wait for validations
-				i.sendCommitMsg()
-				i.setState(currentstate.ValidateState)
-			} else {
-				i.handleStateErr(errIncorrectBlockLocked)
-			}
-		} else {
-			// since it's a new block, we have to verify it first
-			if err := i.verifyHeaderImpl(snap, parent, block.Header); err != nil {
-				i.logger.Error("block header verification failed", "err", err)
-				i.handleStateErr(errBlockVerificationFailed)
-
-				continue
-			}
-
-			// Verify other block params
-			if err := i.blockchain.VerifyPotentialBlock(block); err != nil {
-				i.logger.Error("block verification failed", "err", err)
-				i.handleStateErr(errBlockVerificationFailed)
-
-				continue
-			}
-
-			if hookErr := i.runHook(VerifyBlockHook, block.Number(), block); hookErr != nil {
-				if errors.Is(hookErr, errBlockVerificationFailed) {
-					i.logger.Error("block verification failed, block at the end of epoch has transactions")
-					i.handleStateErr(errBlockVerificationFailed)
-				} else {
-					i.logger.Error(fmt.Sprintf("Unable to run hook %s, %v", VerifyBlockHook, hookErr))
-				}
-
-				continue
-			}
-
-			i.state.SetBlock(block)
-			// send prepare message and wait for validations
-			i.sendPrepareMsg()
-			i.setState(currentstate.ValidateState)
-		}
-	}
-}
-
 func (i *Ibft) isDepositTx(height uint64, coinbase types.Address, tx *types.Transaction) bool {
 	if tx.To == nil || *tx.To != systemcontracts.AddrValidatorSetContract {
 		return false
@@ -1359,169 +1123,6 @@ func (i *Ibft) isSlashTx(height uint64, coinbase types.Address, tx *types.Transa
 	}
 
 	return from == coinbase
-}
-
-// runValidateState implements the Validate state loop.
-//
-// The Validate state is rather simple - all nodes do in this state is read messages
-// and add them to their local snapshot state
-func (i *Ibft) runValidateState() {
-	logger := i.logger.Named("validateState")
-
-	// for all validators commit checking
-	hasCommitted := false
-	sendCommit := func() {
-		if hasCommitted {
-			return
-		}
-		// at this point either we have enough prepare messages
-		// or commit messages so we can lock the block
-		i.state.Lock()
-		// send the commit message
-		i.sendCommitMsg()
-
-		hasCommitted = true
-	}
-	// change round logic
-	changeRound := func() {
-		i.state.Unlock()
-		i.setState(currentstate.RoundChangeState)
-	}
-	// for proposer post commit checking
-	hasPostCommitted := false
-	// send post commit logic to check without
-	sendPostCommit := func() {
-		if hasPostCommitted {
-			return
-		}
-
-		// update flag for repeating skip
-		hasPostCommitted = true
-		// only proposer need to send post commit
-		signer, _ := ecrecoverFromHeader(i.state.Block().Header)
-		if signer == i.validatorKeyAddr {
-			i.sendPostCommitMsg()
-		}
-	}
-
-	timeout := i.state.MessageTimeout()
-
-	for i.getState() == currentstate.ValidateState {
-		msg, ok := i.getNextMessage(timeout)
-		if !ok {
-			// closing
-			return
-		}
-
-		if msg == nil {
-			logger.Info("ValidateState got message timeout, should change round",
-				"sequence", i.state.Sequence(), "round", i.state.Round()+1)
-			changeRound()
-
-			return
-		}
-
-		if msg.View == nil {
-			// A malicious node conducted a DoS attack
-			logger.Error("view data in msg is nil")
-
-			continue
-		}
-
-		// check msg number and round, might from some faulty nodes
-		if i.state.Sequence() != msg.View.GetSequence() ||
-			i.state.Round() != msg.View.GetRound() {
-			logger.Info("ValidateState got message not matching sequence and round",
-				"my-sequence", i.state.Sequence(), "my-round", i.state.Round()+1,
-				"other-sequence", msg.View.GetSequence(), "other-round", msg.View.GetRound())
-
-			continue
-		}
-
-		currentBlockHash := i.state.Block().Hash()
-
-		switch msg.Type {
-		case proto.MessageReq_Prepare:
-			i.state.AddPrepared(msg)
-
-		case proto.MessageReq_Commit:
-			// check seal before execute any of it
-			_, addr, err := committedSealFromHex(msg.Seal, currentBlockHash)
-			if err != nil ||
-				addr != msg.FromAddr() {
-				logger.Warn("invalid seal",
-					"blockHash", currentBlockHash,
-					"msg", msg,
-					"signer", addr,
-					"err", err,
-				)
-
-				break // current switch
-			}
-
-			i.state.AddCommitted(msg)
-
-		case proto.MessageReq_PostCommit:
-			// not valid canonical seals
-			if msg.Canonical == nil ||
-				msg.Canonical.Hash != currentBlockHash.String() ||
-				len(msg.Canonical.Seals) < i.state.NumValid() {
-				logger.Error("invalid canonical seal",
-					"blockHash", i.state.Block().Hash(),
-					"msg", msg,
-				)
-				changeRound()
-
-				return
-			}
-
-			i.state.AddPostCommitted(msg)
-
-		default:
-			logger.Error("BUG: %s, validate state do not handle type.msg: %d",
-				reflect.TypeOf(msg.Type), msg.Type)
-		}
-
-		if i.state.NumPrepared() > i.state.NumValid() {
-			// we have received enough pre-prepare messages
-			sendCommit()
-		}
-
-		if i.state.NumCommitted() > i.state.NumValid() {
-			// send post commit message
-			sendPostCommit()
-		}
-
-		if i.state.CanonicalSeal() != nil {
-			logger.Info("got canonical seal and move on")
-			// switch to commit state
-			i.setState(currentstate.CommitState)
-			// get out of loop
-			break
-		}
-	}
-
-	if i.getState() == currentstate.CommitState {
-		// at this point either if it works or not we need to unlock
-		block := i.state.Block()
-		i.state.Unlock()
-
-		if err := i.insertBlock(block); err != nil {
-			// start a new round with the state unlocked since we need to
-			// be able to propose/validate a different block
-			i.logger.Named("commitState").Error("failed to insert block", "err", err)
-			i.handleStateErr(errFailedToInsertBlock)
-		} else {
-			// update metrics
-			i.updateMetrics(block)
-
-			// increase the sequence number and reset the round if any
-			i.startNewSequence()
-
-			// move ahead to the next block
-			i.setState(currentstate.AcceptState)
-		}
-	}
 }
 
 // updateMetrics will update various metrics based on the given block
@@ -1595,7 +1196,7 @@ func (i *Ibft) insertBlock(block *types.Block) error {
 	}
 
 	// Save the block locally
-	if err := i.blockchain.WriteBlock(block); err != nil {
+	if err := i.blockchain.WriteBlock(block, WriteBlockSource); err != nil {
 		return err
 	}
 
@@ -1611,9 +1212,6 @@ func (i *Ibft) insertBlock(block *types.Block) error {
 		"rounds", i.state.Round()+1,
 		"committed", i.state.NumCommitted(),
 	)
-
-	// broadcast the new block
-	i.syncer.Broadcast(block)
 
 	// after the block has been written we reset the txpool so that
 	// the old transactions are removed
@@ -1632,100 +1230,6 @@ var (
 func (i *Ibft) handleStateErr(err error) {
 	i.state.HandleErr(err)
 	i.setState(currentstate.RoundChangeState)
-}
-
-func (i *Ibft) runRoundChangeState() {
-	sendRoundChange := func(round uint64) {
-		i.logger.Debug("local round change", "round", round+1)
-		// set the new round and update the round metric
-		i.startNewRound(round)
-		i.metrics.Rounds.Set(float64(round))
-		// clean the round
-		i.state.CleanRound(round)
-		// send the round change message
-		i.sendRoundChange()
-	}
-	sendNextRoundChange := func() {
-		sendRoundChange(i.state.NextRound())
-	}
-
-	checkTimeout := func() {
-		// check if there is any peer that is really advanced and we might need to sync with it first
-		if i.syncer != nil {
-			bestPeer := i.syncer.BestPeer()
-			if bestPeer != nil {
-				lastProposal := i.blockchain.Header()
-				if bestPeer.Number() > lastProposal.Number {
-					i.logger.Info("it has found a better peer to connect", "local", lastProposal.Number, "remote", bestPeer.Number())
-					// we need to catch up with the last sequence
-					i.setState(currentstate.SyncState)
-
-					return
-				}
-			}
-		}
-
-		// otherwise, it seems that we are in sync
-		// and we should start a new round
-		sendNextRoundChange()
-	}
-
-	// if the round was triggered due to an error, we send our own
-	// next round change
-	if err := i.state.ConsumeErr(); err != nil {
-		i.logger.Debug("round change handle err", "err", err)
-		sendNextRoundChange()
-	} else {
-		// otherwise, it is due to a timeout in any stage
-		// First, we try to sync up with any max round already available
-		if maxRound, ok := i.state.MaxRound(); ok {
-			i.logger.Debug("round change set max round", "round", maxRound)
-			sendRoundChange(maxRound)
-		} else {
-			// otherwise, do your best to sync up
-			checkTimeout()
-		}
-	}
-
-	// create a timer for the round change
-	for i.getState() == currentstate.RoundChangeState {
-		// timeout should update every time it enters a new round
-		timeout := i.state.MessageTimeout()
-
-		msg, ok := i.getNextMessage(timeout)
-		if !ok {
-			// closing
-			return
-		}
-
-		if msg == nil {
-			i.logger.Info("round change timeout")
-			checkTimeout()
-
-			continue
-		}
-
-		if msg.View == nil {
-			// A malicious node conducted a DoS attack
-			i.logger.Error("view data in msg is nil")
-
-			continue
-		}
-
-		// we only expect RoundChange messages right now
-		num := i.state.AddRoundMessage(msg)
-
-		if num >= i.state.NumValid() {
-			// start a new round immediately
-			i.startNewRound(msg.View.Round)
-			i.setState(currentstate.AcceptState)
-		} else if num == i.state.MaxFaultyNodes()+1 {
-			// weak certificate, try to catch up if our round number is smaller
-			if i.state.Round() < msg.View.Round {
-				sendRoundChange(msg.View.Round)
-			}
-		}
-	}
 }
 
 // --- com wrappers ---
@@ -1805,22 +1309,6 @@ func (i *Ibft) gossip(typ proto.MessageReq_Type) {
 	if err := i.transport.Gossip(msg); err != nil {
 		i.logger.Error("failed to gossip", "err", err)
 	}
-}
-
-// getState returns the current IBFT state
-func (i *Ibft) getState() currentstate.IbftState {
-	return i.state.GetState()
-}
-
-// isState checks if the node is in the passed in state
-func (i *Ibft) isState(s currentstate.IbftState) bool {
-	return i.state.GetState() == s
-}
-
-// setState sets the IBFT state
-func (i *Ibft) setState(s currentstate.IbftState) {
-	i.logger.Info("state change", "new", s)
-	i.state.SetState(s)
 }
 
 // forceTimeout sets the forceTimeoutCh flag to true
@@ -2003,8 +1491,11 @@ func (i *Ibft) Close() error {
 }
 
 // getNextMessage reads a new message from the message queue
-func (i *Ibft) getNextMessage(timeout time.Duration) (*proto.MessageReq, bool) {
+//
+// continuable indicates whether it can continue to obtain data from the message channel
+func (i *Ibft) getNextMessage(ctx context.Context, timeout time.Duration) (req *proto.MessageReq, continuable bool) {
 	timeoutCh := time.NewTimer(timeout)
+	defer timeoutCh.Stop()
 
 	for {
 		msg := i.msgQueue.readMessage(i.getState(), i.state.View())
@@ -2025,6 +1516,8 @@ func (i *Ibft) getNextMessage(timeout time.Duration) (*proto.MessageReq, bool) {
 			i.logger.Info("unable to read new message from the message queue", "timeout expired", timeout)
 
 			return nil, true
+		case <-ctx.Done():
+			return nil, false
 		case <-i.closeCh:
 			return nil, false
 		case <-i.updateCh:

@@ -1,218 +1,11 @@
 package protocol
 
 import (
-	"context"
-	"crypto/rand"
-	"math"
 	"math/big"
-	"testing"
-	"time"
 
 	"github.com/dogechain-lab/dogechain/blockchain"
-	"github.com/dogechain-lab/dogechain/helper/tests"
-	"github.com/dogechain-lab/dogechain/network"
 	"github.com/dogechain-lab/dogechain/types"
-	"github.com/hashicorp/go-hclog"
-	"github.com/libp2p/go-libp2p-core/peer"
-	"github.com/stretchr/testify/assert"
 )
-
-const (
-	maxSeed = math.MaxInt32
-)
-
-var (
-	defaultNetworkConfig = func(c *network.Config) {
-		c.NoDiscover = true
-	}
-)
-
-// getPeer returns a peer with given ID in syncer's map
-func getPeer(syncer *Syncer, id peer.ID) *SyncPeer {
-	rawPeer, ok := syncer.peers.Load(id)
-	if !ok {
-		return nil
-	}
-
-	syncPeer, ok := rawPeer.(*SyncPeer)
-	if !ok {
-		return nil
-	}
-
-	return syncPeer
-}
-
-// CreateSyncer initialize syncer with server
-func CreateSyncer(t *testing.T, blockchain blockchainShim, serverCfg *func(c *network.Config)) *Syncer {
-	t.Helper()
-
-	if serverCfg == nil {
-		serverCfg = &defaultNetworkConfig
-	}
-
-	srv, createErr := network.CreateServer(&network.CreateServerParams{
-		ConfigCallback: func(c *network.Config) {
-			c.DataDir = t.TempDir()
-			(*serverCfg)(c)
-		},
-	})
-	if createErr != nil {
-		t.Fatalf("Unable to create networking server, %v", createErr)
-	}
-
-	syncer := NewSyncer(hclog.NewNullLogger(), srv, blockchain)
-	syncer.Start()
-
-	return syncer
-}
-
-// WaitUntilPeerConnected waits until syncer connects to given number of peers
-func WaitUntilPeerConnected(t *testing.T, syncer *Syncer, numPeer int, timeout time.Duration) {
-	t.Helper()
-
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-
-	t.Cleanup(func() {
-		cancel()
-	})
-
-	_, err := tests.RetryUntilTimeout(ctx, func() (interface{}, bool) {
-		num := syncer.peers.Len()
-		if num == numPeer {
-			return nil, false
-		}
-
-		return nil, true
-	})
-	assert.NoError(t, err)
-}
-
-// WaitUntilProcessedAllEvents waits until syncer finish to process all blockchain events
-func WaitUntilProcessedAllEvents(t *testing.T, syncer *Syncer, timeout time.Duration) {
-	t.Helper()
-
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-
-	t.Cleanup(func() {
-		cancel()
-	})
-
-	_, err := tests.RetryUntilTimeout(ctx, func() (interface{}, bool) {
-		return nil, len(syncer.blockchain.SubscribeEvents().GetEventCh()) > 0
-	})
-	assert.NoError(t, err)
-}
-
-// WaitUntilProgressionUpdated waits until the syncer's progression current block reaches a target
-func WaitUntilProgressionUpdated(t *testing.T, syncer *Syncer, timeout time.Duration, target uint64) {
-	t.Helper()
-
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-
-	t.Cleanup(func() {
-		cancel()
-	})
-
-	_, err := tests.RetryUntilTimeout(ctx, func() (interface{}, bool) {
-		return nil, syncer.syncProgression.GetProgression().CurrentBlock < target
-	})
-	assert.NoError(t, err)
-}
-
-// NewRandomChain returns new blockchain with random seed
-func NewRandomChain(t *testing.T, height int) blockchainShim {
-	t.Helper()
-
-	randNum, _ := rand.Int(rand.Reader, big.NewInt(int64(maxSeed)))
-
-	return blockchain.NewTestBlockchain(
-		t,
-		blockchain.NewTestHeadersWithSeed(
-			nil,
-			height,
-			randNum.Uint64(),
-		),
-	)
-}
-
-// SetupSyncerNetwork connects syncers
-func SetupSyncerNetwork(
-	t *testing.T,
-	chain blockchainShim,
-	peerChains []blockchainShim,
-) (syncer *Syncer, peerSyncers []*Syncer) {
-	t.Helper()
-
-	syncer = CreateSyncer(t, chain, nil)
-	peerSyncers = make([]*Syncer, len(peerChains))
-
-	for idx, peerChain := range peerChains {
-		peerSyncers[idx] = CreateSyncer(t, peerChain, nil)
-
-		if joinErr := network.JoinAndWait(
-			syncer.server,
-			peerSyncers[idx].server,
-			network.DefaultBufferTimeout,
-			network.DefaultJoinTimeout,
-		); joinErr != nil {
-			t.Fatalf("Unable to join servers, %v", joinErr)
-		}
-	}
-
-	return syncer, peerSyncers
-}
-
-// GenerateNewBlocks returns new blocks from latest block of given chain
-func GenerateNewBlocks(t *testing.T, chain blockchainShim, num int) []*types.Block {
-	t.Helper()
-
-	currentHeight := chain.Header().Number
-	oldHeaders := make([]*types.Header, currentHeight+1)
-
-	for i := uint64(1); i <= currentHeight; i++ {
-		var ok bool
-		oldHeaders[i], ok = chain.GetHeaderByNumber(i)
-		assert.Truef(t, ok, "chain should have header at %d, but empty", i)
-	}
-
-	headers := blockchain.AppendNewTestHeaders(oldHeaders, num)
-
-	return blockchain.HeadersToBlocks(headers[currentHeight+1:])
-}
-
-// TryPopBlock tries to take block from peer's queue in syncer within timeout
-func TryPopBlock(t *testing.T, syncer *Syncer, peerID peer.ID, timeout time.Duration) (*types.Block, bool) {
-	t.Helper()
-
-	peer := getPeer(syncer, peerID)
-	assert.NotNil(t, peer, "syncer doesn't have peer %s", peerID.String())
-
-	blockCh := make(chan *types.Block, 1)
-
-	go func() {
-		if block, _ := peer.popBlock(popTimeout); block != nil {
-			blockCh <- block
-		}
-	}()
-
-	delay := time.NewTimer(timeout)
-
-	select {
-	case block := <-blockCh:
-		return block, true
-	case <-delay.C:
-		return nil, false
-	}
-}
-
-// GetCurrentStatus return status by latest block in blockchain
-func GetCurrentStatus(b blockchainShim) *Status {
-	return &Status{
-		Hash:       b.Header().Hash,
-		Number:     b.Header().Number,
-		Difficulty: b.CurrentTD(),
-	}
-}
 
 // HeaderToStatus converts given header to Status
 func HeaderToStatus(h *types.Header) *Status {
@@ -230,8 +23,15 @@ func HeaderToStatus(h *types.Header) *Status {
 
 // mockBlockchain is a mock of blockhain for syncer tests
 type mockBlockchain struct {
-	blocks        []*types.Block
-	subscriptions []*mockSubscription
+	blocks []*types.Block
+
+	// fields for new version protocol tests
+
+	subscription                blockchain.Subscription
+	headerHandler               func() *types.Header
+	getBlockByNumberHandler     func(uint64, bool) (*types.Block, bool)
+	verifyFinalizedBlockHandler func(*types.Block) error
+	writeBlockHandler           func(*types.Block) error
 }
 
 func (b *mockBlockchain) CalculateGasLimit(number uint64) (uint64, error) {
@@ -240,19 +40,19 @@ func (b *mockBlockchain) CalculateGasLimit(number uint64) (uint64, error) {
 
 func NewMockBlockchain(headers []*types.Header) *mockBlockchain {
 	return &mockBlockchain{
-		blocks:        blockchain.HeadersToBlocks(headers),
-		subscriptions: make([]*mockSubscription, 0),
+		blocks: blockchain.HeadersToBlocks(headers),
 	}
 }
 
 func (b *mockBlockchain) SubscribeEvents() blockchain.Subscription {
-	subscription := NewMockSubscription()
-	b.subscriptions = append(b.subscriptions, subscription)
-
-	return subscription
+	return b.subscription
 }
 
 func (b *mockBlockchain) Header() *types.Header {
+	if b.headerHandler != nil {
+		return b.headerHandler()
+	}
+
 	l := len(b.blocks)
 	if l == 0 {
 		return nil
@@ -313,22 +113,49 @@ func (b *mockBlockchain) GetHeaderByNumber(n uint64) (*types.Header, bool) {
 	return nil, false
 }
 
-func (b *mockBlockchain) WriteBlock(block *types.Block) error {
+func (b *mockBlockchain) GetBlockByNumber(n uint64, full bool) (*types.Block, bool) {
+	if b.getBlockByNumberHandler != nil {
+		return b.getBlockByNumberHandler(n, full)
+	}
+
+	for _, b := range b.blocks {
+		if b.Number() == n {
+			return b, true
+		}
+	}
+
+	return nil, false
+}
+
+func newSimpleHeaderHandler(num uint64) func() *types.Header {
+	return func() *types.Header {
+		return &types.Header{
+			Number: num,
+		}
+	}
+}
+
+func (b *mockBlockchain) WriteBlock(block *types.Block, source string) error {
 	b.blocks = append(b.blocks, block)
-	for _, subscription := range b.subscriptions {
-		subscription.AppendBlock(block)
+
+	if b.writeBlockHandler != nil {
+		return b.writeBlockHandler(block)
 	}
 
 	return nil
 }
 
 func (b *mockBlockchain) VerifyFinalizedBlock(block *types.Block) error {
+	if b.verifyFinalizedBlockHandler != nil {
+		return b.verifyFinalizedBlockHandler(block)
+	}
+
 	return nil
 }
 
 func (b *mockBlockchain) WriteBlocks(blocks []*types.Block) error {
 	for _, block := range blocks {
-		if writeErr := b.WriteBlock(block); writeErr != nil {
+		if writeErr := b.WriteBlock(block, WriteBlockSource); writeErr != nil {
 			return writeErr
 		}
 	}
