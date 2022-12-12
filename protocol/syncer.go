@@ -78,7 +78,9 @@ type noForkSyncer struct {
 
 	// Channel to notify Sync that a new status arrived
 	newStatusCh chan struct{}
+	// syncing state
 	syncing     *atomic.Bool
+	syncingPeer string
 
 	// stop chan
 	stopCh chan struct{}
@@ -309,8 +311,11 @@ func (s *noForkSyncer) syncWithSkipList(
 		return
 	}
 
+	// set up a peer to receive its status updates for progress updates
+	s.syncingPeer = bestPeer.ID.String()
+
 	// use subscription for updating progression
-	s.syncProgression.StartProgression(localLatest, s.blockchain.SubscribeEvents())
+	s.syncProgression.StartProgression(s.syncingPeer, localLatest, s.blockchain.SubscribeEvents())
 	s.syncProgression.UpdateHighestProgression(bestPeer.Number)
 
 	// fetch block from the peer
@@ -490,29 +495,36 @@ func (s *noForkSyncer) startPeerConnectionEventProcess() {
 
 // initNewPeerStatus fetches status of the peer and put to peer map
 func (s *noForkSyncer) initNewPeerStatus(peerID peer.ID) {
+	s.logger.Info("peer connected", "id", peerID)
+
 	status, err := s.syncPeerClient.GetPeerStatus(peerID)
 	if err != nil {
 		s.logger.Warn("failed to get peer status, skip", "id", peerID, "err", err)
 
-		return
+		status = &NoForkPeer{
+			ID: peerID,
+		}
 	}
 
+	// update its status
 	s.putToPeerMap(status)
 }
 
 // putToPeerMap puts given status to peer map
 func (s *noForkSyncer) putToPeerMap(status *NoForkPeer) {
-	// update progression if OK
-	if p := s.syncProgression; p != nil && status != nil {
-		p.UpdateHighestProgression(status.Number)
+	if status == nil {
+		// it should not be
+		return
 	}
 
-	if status != nil {
-		if _, exists := s.peerMap.Load(status.ID); !exists {
-			s.logger.Info("new connected peer", "id", status.ID, "number", status.Number)
-		} else {
-			s.logger.Debug("connected peer update status", "id", status.ID, "number", status.Number)
-		}
+	if !s.peerMap.Exists(status.ID) {
+		s.logger.Info("new connected peer", "id", status.ID, "number", status.Number)
+	}
+
+	// update progression if needed
+	if status.ID.String() == s.syncingPeer && status.Number > 0 {
+		s.logger.Debug("connected peer update status", "id", status.ID, "number", status.Number)
+		s.syncProgression.UpdateHighestProgression(status.Number)
 	}
 
 	s.peerMap.Put(status)

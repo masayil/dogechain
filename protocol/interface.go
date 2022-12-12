@@ -74,11 +74,13 @@ type Network interface {
 	SaveProtocolStream(protocol string, stream *rawGrpc.ClientConn, peerID peer.ID)
 	// CloseProtocolStream closes stream
 	CloseProtocolStream(protocol string, peerID peer.ID) error
+	// ForgetPeer disconnects, remove and forget peer to prevent broadcast discovery to other peers
+	ForgetPeer(peer peer.ID, reason string)
 }
 
 type Progression interface {
 	// StartProgression starts progression
-	StartProgression(startingBlock uint64, subscription blockchain.Subscription)
+	StartProgression(syncingPeer string, startingBlock uint64, subscription blockchain.Subscription)
 	// UpdateHighestProgression updates highest block number
 	UpdateHighestProgression(highestBlock uint64)
 	// GetProgression returns Progression
