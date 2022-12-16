@@ -31,6 +31,7 @@ import (
 	"github.com/dogechain-lab/dogechain/state/runtime"
 	"github.com/dogechain-lab/dogechain/state/runtime/evm"
 	"github.com/dogechain-lab/dogechain/state/runtime/precompiled"
+	"github.com/dogechain-lab/dogechain/state/stypes"
 	"github.com/dogechain-lab/dogechain/txpool"
 	"github.com/dogechain-lab/dogechain/types"
 	"github.com/hashicorp/go-hclog"
@@ -379,7 +380,7 @@ func (t *txpoolHub) GetNonce(root types.Hash, addr types.Address) uint64 {
 		return 0
 	}
 
-	var account state.Account
+	var account stypes.Account
 
 	if err := account.UnmarshalRlp(result); err != nil {
 		return 0
@@ -399,7 +400,7 @@ func (t *txpoolHub) GetBalance(root types.Hash, addr types.Address) (*big.Int, e
 		return big.NewInt(0), nil
 	}
 
-	var account state.Account
+	var account stypes.Account
 	if err = account.UnmarshalRlp(result); err != nil {
 		return nil, fmt.Errorf("unable to unmarshal account from snapshot, %w", err)
 	}
@@ -539,13 +540,13 @@ func (j *jsonRPCHub) getState(root types.Hash, slot []byte) ([]byte, error) {
 	return result, nil
 }
 
-func (j *jsonRPCHub) GetAccount(root types.Hash, addr types.Address) (*state.Account, error) {
+func (j *jsonRPCHub) GetAccount(root types.Hash, addr types.Address) (*stypes.Account, error) {
 	obj, err := j.getState(root, addr.Bytes())
 	if err != nil {
 		return nil, err
 	}
 
-	var account state.Account
+	var account stypes.Account
 	if err := account.UnmarshalRlp(obj); err != nil {
 		return nil, err
 	}

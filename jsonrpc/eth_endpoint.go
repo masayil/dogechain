@@ -10,6 +10,7 @@ import (
 	"github.com/dogechain-lab/dogechain/helper/progress"
 	"github.com/dogechain-lab/dogechain/state"
 	"github.com/dogechain-lab/dogechain/state/runtime"
+	"github.com/dogechain-lab/dogechain/state/stypes"
 	"github.com/dogechain-lab/dogechain/types"
 	"github.com/dogechain-lab/fastrlp"
 	"github.com/hashicorp/go-hclog"
@@ -31,7 +32,7 @@ type ethTxPoolStore interface {
 }
 
 type ethStateStore interface {
-	GetAccount(root types.Hash, addr types.Address) (*state.Account, error)
+	GetAccount(root types.Hash, addr types.Address) (*stypes.Account, error)
 	GetStorage(root types.Hash, addr types.Address, slot types.Hash) ([]byte, error)
 	GetForksInTime(blockNumber uint64) chain.ForksInTime
 	GetCode(hash types.Hash) ([]byte, error)

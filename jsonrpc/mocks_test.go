@@ -5,14 +5,14 @@ import (
 	"sync"
 
 	"github.com/dogechain-lab/dogechain/blockchain"
-	"github.com/dogechain-lab/dogechain/state"
+	"github.com/dogechain-lab/dogechain/state/stypes"
 	"github.com/dogechain-lab/dogechain/types"
 )
 
 type mockAccount struct {
 	address types.Address
 	code    []byte
-	account *state.Account
+	account *stypes.Account
 	storage map[types.Hash][]byte
 }
 
@@ -51,14 +51,14 @@ type mockStore struct {
 	subscription *blockchain.MockSubscription
 	receiptsLock sync.Mutex
 	receipts     map[types.Hash][]*types.Receipt
-	accounts     map[types.Address]*state.Account
+	accounts     map[types.Address]*stypes.Account
 }
 
 func newMockStore() *mockStore {
 	return &mockStore{
 		header:       &types.Header{Number: 0},
 		subscription: blockchain.NewMockSubscription(),
-		accounts:     map[types.Address]*state.Account{},
+		accounts:     map[types.Address]*stypes.Account{},
 	}
 }
 
@@ -88,7 +88,7 @@ func (m *mockStore) emitEvent(evnt *mockEvent) {
 	m.subscription.Push(bEvnt)
 }
 
-func (m *mockStore) GetAccount(root types.Hash, addr types.Address) (*state.Account, error) {
+func (m *mockStore) GetAccount(root types.Hash, addr types.Address) (*stypes.Account, error) {
 	if acc, ok := m.accounts[addr]; ok {
 		return acc, nil
 	}
@@ -96,7 +96,7 @@ func (m *mockStore) GetAccount(root types.Hash, addr types.Address) (*state.Acco
 	return nil, ErrStateNotFound
 }
 
-func (m *mockStore) SetAccount(addr types.Address, account *state.Account) {
+func (m *mockStore) SetAccount(addr types.Address, account *stypes.Account) {
 	m.accounts[addr] = account
 }
 

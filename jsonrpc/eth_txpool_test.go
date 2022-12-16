@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/dogechain-lab/dogechain/helper/hex"
-	"github.com/dogechain-lab/dogechain/state"
+	"github.com/dogechain-lab/dogechain/state/stypes"
 	"github.com/dogechain-lab/dogechain/types"
 	"github.com/stretchr/testify/assert"
 )
@@ -70,7 +70,7 @@ func (m *mockStoreTxn) AddAccount(addr types.Address) *mockAccount {
 
 	acct := &mockAccount{
 		address: addr,
-		account: &state.Account{},
+		account: &stypes.Account{},
 		storage: make(map[types.Hash][]byte),
 	}
 	m.accounts[addr] = acct
@@ -82,7 +82,7 @@ func (m *mockStoreTxn) Header() *types.Header {
 	return &types.Header{}
 }
 
-func (m *mockStoreTxn) GetAccount(root types.Hash, addr types.Address) (*state.Account, error) {
+func (m *mockStoreTxn) GetAccount(root types.Hash, addr types.Address) (*stypes.Account, error) {
 	acct, ok := m.accounts[addr]
 	if !ok {
 		return nil, ErrStateNotFound

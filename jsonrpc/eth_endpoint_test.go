@@ -5,7 +5,7 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/dogechain-lab/dogechain/state"
+	"github.com/dogechain-lab/dogechain/state/stypes"
 	"github.com/dogechain-lab/dogechain/types"
 	"github.com/hashicorp/go-hclog"
 	"github.com/stretchr/testify/assert"
@@ -14,7 +14,7 @@ import (
 func TestEth_DecodeTxn(t *testing.T) {
 	tests := []struct {
 		name     string
-		accounts map[types.Address]*state.Account
+		accounts map[types.Address]*stypes.Account
 		arg      *txnArgs
 		res      *types.Transaction
 		err      error
@@ -75,7 +75,7 @@ func TestEth_DecodeTxn(t *testing.T) {
 		},
 		{
 			name: "should set latest nonce as default",
-			accounts: map[types.Address]*state.Account{
+			accounts: map[types.Address]*stypes.Account{
 				addr1: {
 					Nonce: 10,
 				},
@@ -164,11 +164,11 @@ func TestEth_GetNextNonce(t *testing.T) {
 	// Set up the mock accounts
 	accounts := []struct {
 		address types.Address
-		account *state.Account
+		account *stypes.Account
 	}{
 		{
 			types.StringToAddress("123"),
-			&state.Account{
+			&stypes.Account{
 				Nonce: 5,
 			},
 		},

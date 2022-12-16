@@ -11,6 +11,7 @@ import (
 	"github.com/dogechain-lab/dogechain/helper/hex"
 	"github.com/dogechain-lab/dogechain/state"
 	"github.com/dogechain-lab/dogechain/state/runtime"
+	"github.com/dogechain-lab/dogechain/state/stypes"
 	"github.com/dogechain-lab/dogechain/types"
 	"github.com/dogechain-lab/fastrlp"
 	"github.com/stretchr/testify/assert"
@@ -26,7 +27,7 @@ func TestEth_State_GetBalance(t *testing.T) {
 	store := &mockSpecialStore{
 		account: &mockAccount{
 			address: addr0,
-			account: &state.Account{
+			account: &stypes.Account{
 				Balance: big.NewInt(100),
 			},
 			storage: make(map[types.Hash][]byte),
@@ -158,7 +159,7 @@ func TestEth_State_GetTransactionCount(t *testing.T) {
 	store := &mockSpecialStore{
 		account: &mockAccount{
 			address: addr0,
-			account: &state.Account{
+			account: &stypes.Account{
 				Balance: big.NewInt(100),
 				Nonce:   100,
 			},
@@ -276,7 +277,7 @@ func TestEth_State_GetCode(t *testing.T) {
 	store := &mockSpecialStore{
 		account: &mockAccount{
 			address: addr0,
-			account: &state.Account{
+			account: &stypes.Account{
 				Balance:  big.NewInt(100),
 				Nonce:    100,
 				CodeHash: types.BytesToHash(addr0.Bytes()).Bytes(),
@@ -401,7 +402,7 @@ func TestEth_State_GetStorageAt(t *testing.T) {
 	store := &mockSpecialStore{
 		account: &mockAccount{
 			address: addr0,
-			account: &state.Account{
+			account: &stypes.Account{
 				Balance: big.NewInt(100),
 				Nonce:   100,
 			},
@@ -550,7 +551,7 @@ func TestEth_State_GetStorageAt(t *testing.T) {
 			for addr, storage := range tt.initialStorage {
 				store.account = &mockAccount{
 					address: addr,
-					account: &state.Account{
+					account: &stypes.Account{
 						Balance: big.NewInt(100),
 						Nonce:   100,
 					},
@@ -598,7 +599,7 @@ func getExampleStore() *mockSpecialStore {
 	return &mockSpecialStore{
 		account: &mockAccount{
 			address: addr0,
-			account: &state.Account{
+			account: &stypes.Account{
 				Balance: big.NewInt(100),
 				Nonce:   0,
 			},
@@ -782,7 +783,7 @@ func (m *mockSpecialStore) GetBlockByHash(hash types.Hash, full bool) (*types.Bl
 	return m.block, true
 }
 
-func (m *mockSpecialStore) GetAccount(root types.Hash, addr types.Address) (*state.Account, error) {
+func (m *mockSpecialStore) GetAccount(root types.Hash, addr types.Address) (*stypes.Account, error) {
 	if m.account.address.String() != addr.String() {
 		return nil, ErrStateNotFound
 	}

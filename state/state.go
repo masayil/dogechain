@@ -2,15 +2,14 @@ package state
 
 import (
 	"bytes"
-	"fmt"
-	"math/big"
 
+	"github.com/dogechain-lab/dogechain/state/stypes"
+	"github.com/dogechain-lab/dogechain/types"
 	"github.com/dogechain-lab/fastrlp"
 	iradix "github.com/hashicorp/go-immutable-radix"
-
-	"github.com/dogechain-lab/dogechain/crypto"
-	"github.com/dogechain-lab/dogechain/types"
 )
+
+var emptyCodeHash = types.EmptyCodeHash.Bytes()
 
 type State interface {
 	NewSnapshotAt(types.Hash) (Snapshot, error)
@@ -20,100 +19,12 @@ type State interface {
 
 type Snapshot interface {
 	Get(k []byte) ([]byte, bool)
-	Commit(objs []*Object) (Snapshot, []byte, error)
+	Commit(objs []*stypes.Object) (Snapshot, []byte, error)
 }
-
-// account trie
-type accountTrie interface {
-	Get(k []byte) ([]byte, bool)
-}
-
-// Account is the account reference in the ethereum state
-type Account struct {
-	Nonce    uint64
-	Balance  *big.Int
-	Root     types.Hash
-	CodeHash []byte
-	Trie     accountTrie
-}
-
-func (a *Account) MarshalWith(ar *fastrlp.Arena) *fastrlp.Value {
-	v := ar.NewArray()
-	v.Set(ar.NewUint(a.Nonce))
-	v.Set(ar.NewBigInt(a.Balance))
-	v.Set(ar.NewBytes(a.Root.Bytes()))
-	v.Set(ar.NewBytes(a.CodeHash))
-
-	return v
-}
-
-var accountParserPool fastrlp.ParserPool
-
-func (a *Account) UnmarshalRlp(b []byte) error {
-	p := accountParserPool.Get()
-	defer accountParserPool.Put(p)
-
-	v, err := p.Parse(b)
-	if err != nil {
-		return err
-	}
-
-	elems, err := v.GetElems()
-
-	if err != nil {
-		return err
-	}
-
-	if len(elems) < 4 {
-		return fmt.Errorf("incorrect number of elements to decode account, expected at least 4 but found %d",
-			len(elems))
-	}
-
-	// nonce
-	if a.Nonce, err = elems[0].GetUint64(); err != nil {
-		return err
-	}
-	// balance
-	if a.Balance == nil {
-		a.Balance = new(big.Int)
-	}
-
-	if err = elems[1].GetBigInt(a.Balance); err != nil {
-		return err
-	}
-	// root
-	if err = elems[2].GetHash(a.Root[:]); err != nil {
-		return err
-	}
-	// codeHash
-	if a.CodeHash, err = elems[3].GetBytes(a.CodeHash[:0]); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (a *Account) String() string {
-	return fmt.Sprintf("%d %s", a.Nonce, a.Balance.String())
-}
-
-func (a *Account) Copy() *Account {
-	aa := new(Account)
-
-	aa.Balance = big.NewInt(1).SetBytes(a.Balance.Bytes())
-	aa.Nonce = a.Nonce
-	aa.CodeHash = a.CodeHash
-	aa.Root = a.Root
-	aa.Trie = a.Trie
-
-	return aa
-}
-
-var emptyCodeHash = crypto.Keccak256(nil)
 
 // StateObject is the internal representation of the account
 type StateObject struct {
-	Account   *Account
+	Account   *stypes.Account
 	Code      []byte
 	Suicide   bool
 	Deleted   bool
@@ -166,27 +77,4 @@ func (s *StateObject) Copy() *StateObject {
 	}
 
 	return ss
-}
-
-// Object is the serialization of the radix object (can be merged to StateObject?).
-type Object struct {
-	Address  types.Address
-	CodeHash types.Hash
-	Balance  *big.Int
-	Root     types.Hash
-	Nonce    uint64
-	Deleted  bool
-
-	// TODO: Move this to executor
-	DirtyCode bool
-	Code      []byte
-
-	Storage []*StorageObject
-}
-
-// StorageObject is an entry in the storage
-type StorageObject struct {
-	Deleted bool
-	Key     []byte
-	Val     []byte
 }

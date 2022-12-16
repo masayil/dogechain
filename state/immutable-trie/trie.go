@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/dogechain-lab/dogechain/state"
+	"github.com/dogechain-lab/dogechain/state/stypes"
 	"github.com/dogechain-lab/dogechain/types"
 	"github.com/dogechain-lab/fastrlp"
 	"golang.org/x/crypto/sha3"
@@ -44,17 +45,16 @@ var accountArenaPool fastrlp.ArenaPool
 
 var stateArenaPool fastrlp.ArenaPool // TODO, Remove once we do update in fastrlp
 
-func (t *Trie) Commit(objs []*state.Object) (state.Snapshot, []byte, error) {
-	var root []byte = nil
-
-	var nTrie *Trie = nil
-
-	metrics := t.stateDB.GetMetrics()
-
-	// metrics logger
-	insertCount := 0
-	deleteCount := 0
-	newSetCodeCount := 0
+func (t *Trie) Commit(objs []*stypes.Object) (state.Snapshot, []byte, error) {
+	var (
+		root    []byte
+		nTrie   *Trie
+		metrics = t.stateDB.GetMetrics()
+		// metrics logger
+		insertCount     = 0
+		deleteCount     = 0
+		newSetCodeCount = 0
+	)
 
 	// Create an insertion batch for all the entries
 	err := t.stateDB.Transaction(func(st StateDBTransaction) error {
@@ -78,7 +78,7 @@ func (t *Trie) Commit(objs []*state.Object) (state.Snapshot, []byte, error) {
 
 				deleteCount++
 			} else {
-				account := state.Account{
+				account := stypes.Account{
 					Balance:  obj.Balance,
 					Nonce:    obj.Nonce,
 					CodeHash: obj.CodeHash.Bytes(),

@@ -9,6 +9,7 @@ import (
 	"github.com/dogechain-lab/dogechain/crypto"
 	"github.com/dogechain-lab/dogechain/helper/keccak"
 	"github.com/dogechain-lab/dogechain/state/runtime"
+	"github.com/dogechain-lab/dogechain/state/stypes"
 	"github.com/dogechain-lab/dogechain/types"
 )
 
@@ -78,7 +79,7 @@ func (txn *Txn) RevertToSnapshot(id int) {
 }
 
 // GetAccount returns an account
-func (txn *Txn) GetAccount(addr types.Address) (*Account, bool) {
+func (txn *Txn) GetAccount(addr types.Address) (*stypes.Account, bool) {
 	object, exists := txn.getStateObject(addr)
 	if !exists {
 		return nil, false
@@ -106,7 +107,7 @@ func (txn *Txn) getStateObject(addr types.Address) (*StateObject, bool) {
 
 	var err error
 
-	var account Account
+	var account stypes.Account
 	if err = account.UnmarshalRlp(data); err != nil {
 		return nil, false
 	}
@@ -132,7 +133,7 @@ func (txn *Txn) upsertAccount(addr types.Address, create bool, f func(object *St
 	object, exists := txn.getStateObject(addr)
 	if !exists && create {
 		object = &StateObject{
-			Account: &Account{
+			Account: &stypes.Account{
 				Balance:  big.NewInt(0),
 				Trie:     txn.state.NewSnapshot(),
 				CodeHash: emptyCodeHash,
@@ -519,7 +520,7 @@ func (txn *Txn) Empty(addr types.Address) bool {
 
 func newStateObject(txn *Txn) *StateObject {
 	return &StateObject{
-		Account: &Account{
+		Account: &stypes.Account{
 			Balance:  big.NewInt(0),
 			Trie:     txn.state.NewSnapshot(),
 			CodeHash: emptyCodeHash,
@@ -530,7 +531,7 @@ func newStateObject(txn *Txn) *StateObject {
 
 func (txn *Txn) CreateAccount(addr types.Address) {
 	obj := &StateObject{
-		Account: &Account{
+		Account: &stypes.Account{
 			Balance:  big.NewInt(0),
 			Trie:     txn.state.NewSnapshot(),
 			CodeHash: emptyCodeHash,
@@ -583,13 +584,13 @@ func (txn *Txn) CleanDeleteObjects(deleteEmptyObjects bool) {
 }
 
 // func (txn *Txn) Commit(deleteEmptyObjects bool) (Snapshot, []byte) {
-func (txn *Txn) Commit(deleteEmptyObjects bool) []*Object {
+func (txn *Txn) Commit(deleteEmptyObjects bool) []*stypes.Object {
 	txn.CleanDeleteObjects(deleteEmptyObjects)
 
 	x := txn.txn.Commit()
 
 	// Do a more complex thing for now
-	objs := []*Object{}
+	objs := []*stypes.Object{}
 
 	x.Root().Walk(func(k []byte, v interface{}) bool {
 		a, ok := v.(*StateObject)
@@ -598,7 +599,7 @@ func (txn *Txn) Commit(deleteEmptyObjects bool) []*Object {
 			return false
 		}
 
-		obj := &Object{
+		obj := &stypes.Object{
 			Nonce:     a.Account.Nonce,
 			Address:   types.BytesToAddress(k),
 			Balance:   a.Account.Balance,
@@ -612,7 +613,7 @@ func (txn *Txn) Commit(deleteEmptyObjects bool) []*Object {
 		} else {
 			if a.Txn != nil {
 				a.Txn.Root().Walk(func(k []byte, v interface{}) bool {
-					store := &StorageObject{Key: k}
+					store := &stypes.StorageObject{Key: k}
 					if v == nil {
 						store.Deleted = true
 					} else {

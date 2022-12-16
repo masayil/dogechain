@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/dogechain-lab/dogechain/helper/hex"
+	"github.com/dogechain-lab/dogechain/state/stypes"
 	"github.com/dogechain-lab/dogechain/types"
 	"github.com/dogechain-lab/fastrlp"
 	"github.com/stretchr/testify/assert"
@@ -45,7 +46,7 @@ func (m *mockSnapshot) Get(k []byte) ([]byte, bool) {
 	return v, ok
 }
 
-func (m *mockSnapshot) Commit(objs []*Object) (Snapshot, []byte, error) {
+func (m *mockSnapshot) Commit(objs []*stypes.Object) (Snapshot, []byte, error) {
 	panic("Not implemented in tests")
 }
 
@@ -83,7 +84,7 @@ func newTestTxn(p map[types.Address]*PreState) *Txn {
 	return newTxn(newStateWithPreState(p))
 }
 
-func buildMockPreState(p *PreState) (*Account, *mockSnapshot) {
+func buildMockPreState(p *PreState) (*stypes.Account, *mockSnapshot) {
 	var snap *mockSnapshot
 
 	root := emptyStateHash
@@ -104,7 +105,7 @@ func buildMockPreState(p *PreState) (*Account, *mockSnapshot) {
 		}
 	}
 
-	account := &Account{
+	account := &stypes.Account{
 		Nonce:   p.Nonce,
 		Balance: big.NewInt(int64(p.Balance)),
 		Root:    root,
