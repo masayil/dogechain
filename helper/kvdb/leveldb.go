@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/syndtr/goleveldb/leveldb"
+	"github.com/syndtr/goleveldb/leveldb/util"
 )
 
 type levelBatch struct {
@@ -26,6 +27,17 @@ type levelDBKV struct {
 
 func (kv *levelDBKV) Batch() KVBatch {
 	return &levelBatch{db: kv.db, batch: &leveldb.Batch{}}
+}
+
+func (kv *levelDBKV) Iterator(Range *KVIteratorRange) KVIterator {
+	if Range == nil {
+		return kv.db.NewIterator(nil, nil)
+	}
+
+	return kv.db.NewIterator(&util.Range{
+		Start: Range.Start,
+		Limit: Range.Limit,
+	}, nil)
 }
 
 // Set sets the key-value pair in leveldb storage

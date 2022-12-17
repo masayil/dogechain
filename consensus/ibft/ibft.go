@@ -102,8 +102,8 @@ type Ibft struct {
 
 	syncer protocol.Syncer // Reference to the sync protocol
 
-	network   *network.Server // Reference to the networking layer
-	transport transport       // Reference to the transport protocol
+	network   network.Server // Reference to the networking layer
+	transport transport      // Reference to the transport protocol
 
 	operator *operator
 
@@ -318,7 +318,7 @@ type transport interface {
 var ibftProto = "/ibft/0.1"
 
 type gossipTransport struct {
-	topic *network.Topic
+	topic network.Topic
 }
 
 // Gossip publishes a new message to the topic

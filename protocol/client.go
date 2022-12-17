@@ -13,6 +13,7 @@ import (
 	"github.com/dogechain-lab/dogechain/types"
 	"github.com/hashicorp/go-hclog"
 	"github.com/libp2p/go-libp2p-core/peer"
+	"go.uber.org/atomic"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
@@ -24,23 +25,24 @@ const (
 )
 
 type syncPeerClient struct {
-	logger     hclog.Logger // logger used for console logging
-	network    Network      // reference to the network module
-	connLock   sync.Mutex   // mutext for getting client connection
-	blockchain Blockchain   // reference to the blockchain module
+	logger     hclog.Logger    // logger used for console logging
+	network    network.Network // reference to the network module
+	connLock   sync.Mutex      // mutext for getting client connection
+	blockchain Blockchain      // reference to the blockchain module
 
 	subscription           blockchain.Subscription // reference to the blockchain subscription
-	topic                  *network.Topic          // reference to the network topic
+	topic                  network.Topic           // reference to the network topic
 	id                     string                  // node id
 	peerStatusUpdateCh     chan *NoForkPeer        // peer status update channel
 	peerConnectionUpdateCh chan *event.PeerEvent   // peer connection update channel
 
 	shouldEmitBlocks bool // flag for emitting blocks in the topic
+	isClose          *atomic.Bool
 }
 
 func NewSyncPeerClient(
 	logger hclog.Logger,
-	network Network,
+	network network.Network,
 	blockchain Blockchain,
 ) SyncPeerClient {
 	return &syncPeerClient{
@@ -51,6 +53,7 @@ func NewSyncPeerClient(
 		peerStatusUpdateCh:     make(chan *NoForkPeer, 1),
 		peerConnectionUpdateCh: make(chan *event.PeerEvent, 1),
 		shouldEmitBlocks:       true,
+		isClose:                atomic.NewBool(false),
 	}
 }
 
@@ -68,6 +71,12 @@ func (client *syncPeerClient) Start() error {
 
 // Close terminates running processes for SyncPeerClient
 func (client *syncPeerClient) Close() {
+	if client.isClose.Load() {
+		return
+	}
+
+	client.isClose.Store(true)
+
 	if client.subscription != nil {
 		client.subscription.Close()
 
@@ -199,6 +208,12 @@ func (client *syncPeerClient) handleStatusUpdate(obj interface{}, from peer.ID) 
 
 	client.logger.Debug("get connected peer status update", "from", from, "status", status.Number)
 
+	if client.isClose.Load() {
+		client.logger.Debug("client is closed, ignore status update", "from", from, "status", status.Number)
+
+		return
+	}
+
 	client.peerStatusUpdateCh <- &NoForkPeer{
 		ID:     from,
 		Number: status.Number,
@@ -239,6 +254,12 @@ func (client *syncPeerClient) startPeerEventProcess() {
 
 	for e := range peerEventCh {
 		if e.Type == event.PeerConnected || e.Type == event.PeerDisconnected {
+			if client.isClose.Load() {
+				client.logger.Debug("client is closed, ignore peer connection update", "peer", e.PeerID, "type", e.Type)
+
+				return
+			}
+
 			client.peerConnectionUpdateCh <- e
 		}
 	}

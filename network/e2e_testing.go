@@ -20,6 +20,8 @@ import (
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/multiformats/go-multiaddr"
 	"github.com/stretchr/testify/assert"
+
+	netcommon "github.com/dogechain-lab/dogechain/network/common"
 )
 
 const (
@@ -30,7 +32,7 @@ const (
 // and waiting for the connection to be successful (destination node is a peer of source)
 func JoinAndWait(
 	source,
-	destination *Server,
+	destination Server,
 	connectTimeout time.Duration,
 	joinTimeout time.Duration,
 ) error {
@@ -44,7 +46,7 @@ func JoinAndWait(
 	}
 
 	// Mark the destination address as ready for dialing
-	source.joinPeer(destination.AddrInfo())
+	source.JoinPeer(netcommon.AddrInfoToString(destination.AddrInfo()))
 
 	connectCtx, cancelFn := context.WithTimeout(context.Background(), connectTimeout)
 	defer cancelFn()
@@ -57,7 +59,7 @@ func JoinAndWait(
 // JoinAndWait is a helper method to make multiple servers connect to corresponding peer
 func JoinAndWaitMultiple(
 	timeout time.Duration,
-	servers ...*Server,
+	servers ...Server,
 ) error {
 	if len(servers)%2 != 0 {
 		return errors.New("number of servers must be even")
@@ -96,7 +98,7 @@ func JoinAndWaitMultiple(
 }
 
 func DisconnectAndWait(
-	source *Server,
+	source Server,
 	target peer.ID,
 	leaveTimeout time.Duration,
 ) error {
@@ -116,13 +118,13 @@ func DisconnectAndWait(
 	return err
 }
 
-func WaitUntilPeerConnectsTo(ctx context.Context, srv *Server, ids ...peer.ID) (bool, error) {
+func WaitUntilPeerConnectsTo(ctx context.Context, srv Server, ids ...peer.ID) (bool, error) {
 	peersConnected := 0
 	targetPeers := len(ids)
 
 	res, err := tests.RetryUntilTimeout(ctx, func() (interface{}, bool) {
 		for _, v := range ids {
-			if srv.hasPeer(v) {
+			if srv.HasPeer(v) {
 				peersConnected++
 			}
 
@@ -145,13 +147,13 @@ func WaitUntilPeerConnectsTo(ctx context.Context, srv *Server, ids ...peer.ID) (
 	return resVal, nil
 }
 
-func WaitUntilPeerDisconnectsFrom(ctx context.Context, srv *Server, ids ...peer.ID) (bool, error) {
+func WaitUntilPeerDisconnectsFrom(ctx context.Context, srv Server, ids ...peer.ID) (bool, error) {
 	peersDisconnected := 0
 	targetPeers := len(ids)
 
 	res, err := tests.RetryUntilTimeout(ctx, func() (interface{}, bool) {
 		for _, v := range ids {
-			if !srv.hasPeer(v) {
+			if !srv.HasPeer(v) {
 				peersDisconnected++
 			}
 
@@ -175,7 +177,7 @@ func WaitUntilPeerDisconnectsFrom(ctx context.Context, srv *Server, ids ...peer.
 }
 
 // WaitUntilRoutingTableToBeAdded check routing table has given ids and retry by timeout
-func WaitUntilRoutingTableToBeFilled(ctx context.Context, srv *Server, size int) (bool, error) {
+func WaitUntilRoutingTableToBeFilled(ctx context.Context, srv *DefaultServer, size int) (bool, error) {
 	res, err := tests.RetryUntilTimeout(ctx, func() (interface{}, bool) {
 		if size == srv.discovery.RoutingTableSize() {
 			return true, false
@@ -214,8 +216,8 @@ func constructMultiAddrs(addresses []string) ([]multiaddr.Multiaddr, error) {
 func createServers(
 	count int,
 	paramsMap map[int]*CreateServerParams,
-) ([]*Server, error) {
-	servers := make([]*Server, count)
+) ([]*DefaultServer, error) {
+	servers := make([]*DefaultServer, count)
 
 	if paramsMap == nil {
 		paramsMap = map[int]*CreateServerParams{}
@@ -234,8 +236,8 @@ func createServers(
 }
 
 type CreateServerParams struct {
-	ConfigCallback func(c *Config)      // Additional logic that needs to be executed on the configuration
-	ServerCallback func(server *Server) // Additional logic that needs to be executed on the server before starting
+	ConfigCallback func(c *Config)             // Additional logic that needs to be executed on the configuration
+	ServerCallback func(server *DefaultServer) // Additional logic that needs to be executed on the server before starting
 	Logger         hclog.Logger
 }
 
@@ -244,7 +246,7 @@ var (
 )
 
 // initBootnodes is a helper method for specifying the server's bootnode configuration
-func initBootnodes(server *Server, bootnodes ...string) {
+func initBootnodes(server *DefaultServer, bootnodes ...string) {
 	savedBootnodes := bootnodes
 	if len(savedBootnodes) == 0 {
 		// Set the default bootnode to be the server itself
@@ -260,7 +262,7 @@ func initBootnodes(server *Server, bootnodes ...string) {
 	server.config.Chain.Bootnodes = savedBootnodes
 }
 
-func CreateServer(params *CreateServerParams) (*Server, error) {
+func CreateServer(params *CreateServerParams) (*DefaultServer, error) {
 	cfg := DefaultConfig()
 	port, portErr := tests.GetFreePort()
 
@@ -303,7 +305,7 @@ func CreateServer(params *CreateServerParams) (*Server, error) {
 	cfg.SecretsManager = secretsManager
 	cfg.Metrics = NilMetrics()
 
-	server, err := NewServer(params.Logger, cfg)
+	server, err := newServer(params.Logger, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -320,7 +322,7 @@ func CreateServer(params *CreateServerParams) (*Server, error) {
 }
 
 // MeshJoin is a helper method for joining all the passed in servers into a mesh
-func MeshJoin(servers ...*Server) []error {
+func MeshJoin(servers ...*DefaultServer) []error {
 	if len(servers) < 2 {
 		return nil
 	}
@@ -406,7 +408,7 @@ func GenerateTestLibp2pKey(t *testing.T) (crypto.PrivKey, string) {
 	return libp2pKey, dir
 }
 
-func closeTestServers(t *testing.T, servers []*Server) {
+func closeTestServers(t *testing.T, servers []*DefaultServer) {
 	t.Helper()
 
 	for _, server := range servers {

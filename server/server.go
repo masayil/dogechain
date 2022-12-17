@@ -65,7 +65,7 @@ type Server struct {
 	grpcServer *grpc.Server
 
 	// libp2p network
-	network *network.Server
+	network network.Server
 
 	// transaction pool
 	txpool *txpool.TxPool
@@ -433,7 +433,7 @@ func (s *Server) setupSecretsManager() error {
 	}
 
 	// Grab the factory method
-	secretsManagerFactory, ok := secretsManagerBackends[secretsManagerType]
+	secretsManagerFactory, ok := GetSecretsManager(secretsManagerType)
 	if !ok {
 		return fmt.Errorf("secrets manager type '%s' not found", secretsManagerType)
 	}
@@ -456,7 +456,7 @@ func (s *Server) setupSecretsManager() error {
 // setupConsensus sets up the consensus mechanism
 func (s *Server) setupConsensus() error {
 	engineName := s.config.Chain.Params.GetEngine()
-	engine, ok := consensusBackends[ConsensusType(engineName)]
+	engine, ok := GetConsensusBackend(engineName)
 
 	if !ok {
 		return fmt.Errorf("consensus engine '%s' not found", engineName)
@@ -507,7 +507,7 @@ type jsonRPCHub struct {
 	*blockchain.Blockchain
 	*txpool.TxPool
 	*state.Executor
-	*network.Server
+	network.Server
 	consensus.Consensus
 }
 

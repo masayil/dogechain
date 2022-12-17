@@ -15,6 +15,7 @@ import (
 	"github.com/hashicorp/go-hclog"
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/atomic"
 )
 
 var (
@@ -23,7 +24,7 @@ var (
 	}
 )
 
-func newTestNetwork(t *testing.T) *network.Server {
+func newTestNetwork(t *testing.T) network.Server {
 	t.Helper()
 
 	srv, err := network.CreateServer(&network.CreateServerParams{
@@ -35,7 +36,7 @@ func newTestNetwork(t *testing.T) *network.Server {
 	return srv
 }
 
-func newTestSyncPeerClient(network Network, blockchain Blockchain) *syncPeerClient {
+func newTestSyncPeerClient(network network.Network, blockchain Blockchain) *syncPeerClient {
 	client := &syncPeerClient{
 		logger:                 hclog.NewNullLogger(),
 		network:                network,
@@ -43,6 +44,7 @@ func newTestSyncPeerClient(network Network, blockchain Blockchain) *syncPeerClie
 		id:                     network.AddrInfo().ID.String(),
 		peerStatusUpdateCh:     make(chan *NoForkPeer, 1),
 		peerConnectionUpdateCh: make(chan *event.PeerEvent, 1),
+		isClose:                atomic.NewBool(false),
 	}
 
 	// need to register protocol
@@ -51,7 +53,7 @@ func newTestSyncPeerClient(network Network, blockchain Blockchain) *syncPeerClie
 	return client
 }
 
-func createTestSyncerService(t *testing.T, chain Blockchain) (*syncPeerService, *network.Server) {
+func createTestSyncerService(t *testing.T, chain Blockchain) (*syncPeerService, network.Server) {
 	t.Helper()
 
 	srv := newTestNetwork(t)
@@ -530,7 +532,7 @@ func (s *syncPeerService) setupIncompatibleGRPCServer() {
 	s.network.RegisterProtocol("/fake-syncer/1.0", s.stream)
 }
 
-func createNonSyncerService(t *testing.T, chain Blockchain) (*syncPeerService, *network.Server) {
+func createNonSyncerService(t *testing.T, chain Blockchain) (*syncPeerService, network.Server) {
 	t.Helper()
 
 	srv := newTestNetwork(t)
