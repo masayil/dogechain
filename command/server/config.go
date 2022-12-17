@@ -46,6 +46,8 @@ type Telemetry struct {
 
 // Network defines the network configuration params
 type Network struct {
+	IgnoreDiscoverCIDR string `json:"ignore_discover_cidr"`
+
 	NoDiscover       bool   `json:"no_discover"`
 	Libp2pAddr       string `json:"libp2p_addr"`
 	NatAddr          string `json:"nat_addr"`
@@ -80,10 +82,11 @@ func DefaultConfig() *Config {
 		DataDir:        "./dogechain-chain",
 		BlockGasTarget: "0x0", // Special value signaling the parent gas limit should be applied
 		Network: &Network{
-			NoDiscover:       defaultNetworkConfig.NoDiscover,
-			MaxPeers:         defaultNetworkConfig.MaxPeers,
-			MaxOutboundPeers: defaultNetworkConfig.MaxOutboundPeers,
-			MaxInboundPeers:  defaultNetworkConfig.MaxInboundPeers,
+			IgnoreDiscoverCIDR: "",
+			NoDiscover:         defaultNetworkConfig.NoDiscover,
+			MaxPeers:           defaultNetworkConfig.MaxPeers,
+			MaxOutboundPeers:   defaultNetworkConfig.MaxOutboundPeers,
+			MaxInboundPeers:    defaultNetworkConfig.MaxInboundPeers,
 		},
 		Telemetry:  &Telemetry{},
 		ShouldSeal: false,

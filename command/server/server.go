@@ -225,6 +225,13 @@ func setFlags(cmd *cobra.Command) {
 
 	// network flags
 	{
+		cmd.Flags().StringVar(
+			&params.rawConfig.Network.IgnoreDiscoverCIDR,
+			command.IgnoreDiscoverCIDRFlag,
+			defaultConfig.Network.IgnoreDiscoverCIDR,
+			"The comma separated list of CIDR ranges to ignore when discovering peers",
+		)
+
 		cmd.Flags().BoolVar(
 			&params.rawConfig.Network.NoDiscover,
 			command.NoDiscoverFlag,

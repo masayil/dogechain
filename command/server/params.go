@@ -2,6 +2,7 @@ package server
 
 import (
 	"errors"
+	"log"
 	"net"
 	"strings"
 
@@ -178,6 +179,26 @@ func (p *serverParams) generateConfig() *server.Config {
 	// namespace
 	ns := strings.Split(p.rawConfig.JSONNamespace, ",")
 
+	// ignore cidr
+	cidrList := strings.Split(p.rawConfig.Network.IgnoreDiscoverCIDR, ",")
+	ingoreCIDRs := []*net.IPNet{}
+
+	for _, cidrStr := range cidrList {
+		cidrStr = strings.TrimSpace(cidrStr)
+		if cidrStr == "" {
+			continue
+		}
+
+		_, ipnet, err := net.ParseCIDR(cidrStr)
+		if err != nil {
+			log.Printf("CIDR formart error: %s \n", err)
+
+			continue
+		}
+
+		ingoreCIDRs = append(ingoreCIDRs, ipnet)
+	}
+
 	return &server.Config{
 		Chain: chainCfg,
 		JSONRPC: &server.JSONRPC{
@@ -202,7 +223,9 @@ func (p *serverParams) generateConfig() *server.Config {
 			PrometheusAddr: p.prometheusAddress,
 		},
 		Network: &network.Config{
-			NoDiscover:       p.rawConfig.Network.NoDiscover,
+			NoDiscover:         p.rawConfig.Network.NoDiscover,
+			DiscoverIngoreCIDR: ingoreCIDRs,
+
 			Addr:             p.libp2pAddress,
 			NatAddr:          p.natAddress,
 			DNS:              p.dnsAddress,
