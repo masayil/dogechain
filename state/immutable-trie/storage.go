@@ -5,33 +5,47 @@ import (
 
 	"github.com/dogechain-lab/dogechain/helper/hex"
 	"github.com/dogechain-lab/dogechain/helper/kvdb"
-	"github.com/dogechain-lab/dogechain/types"
 	"github.com/dogechain-lab/fastrlp"
 )
 
 var parserPool fastrlp.ParserPool
 
-var (
-	// codePrefix is the code prefix for leveldb
-	codePrefix = []byte("code")
-)
+// Storage stores the trie
+type StorageReader interface {
+	Get(k []byte) ([]byte, bool, error)
+}
+
+type StorageWriter interface {
+	Set(k, v []byte) error
+}
 
 type Batch interface {
-	Set(k, v []byte)
-	Write() error
+	StorageWriter
+
+	Commit() error
 }
 
 // Storage stores the trie
 type Storage interface {
-	Set(k, v []byte) error
-	Get(k []byte) ([]byte, bool, error)
+	StorageReader
+	StorageWriter
 
-	SetCode(hash types.Hash, code []byte) error
-	GetCode(hash types.Hash) ([]byte, bool)
-
-	Batch() Batch
-
+	NewBatch() Batch
 	Close() error
+}
+
+type kvStorageBatch struct {
+	batch kvdb.KVBatch
+}
+
+func (kvBatch *kvStorageBatch) Set(k, v []byte) error {
+	kvBatch.batch.Set(k, v)
+
+	return nil
+}
+
+func (kvBatch *kvStorageBatch) Commit() error {
+	return kvBatch.batch.Write()
 }
 
 // wrap generic kvdb storage to implement Storage interface
@@ -47,21 +61,10 @@ func (kv *kvStorage) Set(k, v []byte) error {
 	return kv.db.Set(k, v)
 }
 
-func (kv *kvStorage) SetCode(hash types.Hash, code []byte) error {
-	return kv.db.Set(append(codePrefix, hash.Bytes()...), code)
-}
-
-func (kv *kvStorage) GetCode(hash types.Hash) ([]byte, bool) {
-	v, ok, _ := kv.db.Get(append(codePrefix, hash.Bytes()...))
-	if !ok {
-		return []byte{}, false
+func (kv *kvStorage) NewBatch() Batch {
+	return &kvStorageBatch{
+		batch: kv.db.Batch(),
 	}
-
-	return v, true
-}
-
-func (kv *kvStorage) Batch() Batch {
-	return kv.db.Batch()
 }
 
 func (kv *kvStorage) Close() error {
@@ -78,8 +81,7 @@ func NewLevelDBStorage(leveldbBuilder kvdb.LevelDBBuilder) (Storage, error) {
 }
 
 type memStorage struct {
-	db   map[string][]byte
-	code map[string][]byte
+	db map[string][]byte
 }
 
 type memBatch struct {
@@ -88,7 +90,7 @@ type memBatch struct {
 
 // NewMemoryStorage creates an inmemory trie storage
 func NewMemoryStorage() Storage {
-	return &memStorage{db: map[string][]byte{}, code: map[string][]byte{}}
+	return &memStorage{db: map[string][]byte{}}
 }
 
 func (m *memStorage) Set(p []byte, v []byte) error {
@@ -108,19 +110,7 @@ func (m *memStorage) Get(p []byte) ([]byte, bool, error) {
 	return v, true, nil
 }
 
-func (m *memStorage) SetCode(hash types.Hash, code []byte) error {
-	m.code[hash.String()] = code
-
-	return nil
-}
-
-func (m *memStorage) GetCode(hash types.Hash) ([]byte, bool) {
-	code, ok := m.code[hash.String()]
-
-	return code, ok
-}
-
-func (m *memStorage) Batch() Batch {
+func (m *memStorage) NewBatch() Batch {
 	return &memBatch{db: &m.db}
 }
 
@@ -128,18 +118,20 @@ func (m *memStorage) Close() error {
 	return nil
 }
 
-func (m *memBatch) Set(p, v []byte) {
+func (m *memBatch) Set(p, v []byte) error {
 	buf := make([]byte, len(v))
 	copy(buf[:], v[:])
 	(*m.db)[hex.EncodeToHex(p)] = buf
+
+	return nil
 }
 
-func (m *memBatch) Write() error {
+func (m *memBatch) Commit() error {
 	return nil
 }
 
 // GetNode retrieves a node from storage
-func GetNode(root []byte, storage Storage) (Node, bool, error) {
+func GetNode(root []byte, storage StorageReader) (Node, bool, error) {
 	data, ok, _ := storage.Get(root)
 	if !ok {
 		return nil, false, nil
@@ -159,12 +151,12 @@ func GetNode(root []byte, storage Storage) (Node, bool, error) {
 		return nil, false, fmt.Errorf("storage item should be an array")
 	}
 
-	n, err := decodeNode(v, storage)
+	n, err := decodeNode(v)
 
 	return n, err == nil, err
 }
 
-func decodeNode(v *fastrlp.Value, s Storage) (Node, error) {
+func decodeNode(v *fastrlp.Value) (Node, error) {
 	if v.Type() == fastrlp.TypeBytes {
 		vv := &ValueNode{
 			hash: true,
@@ -199,7 +191,7 @@ func decodeNode(v *fastrlp.Value, s Storage) (Node, error) {
 			vv.buf = append(vv.buf, v.Get(1).Raw()...)
 			nc.child = vv
 		} else {
-			nc.child, err = decodeNode(v.Get(1), s)
+			nc.child, err = decodeNode(v.Get(1))
 			if err != nil {
 				return nil, err
 			}
@@ -214,7 +206,7 @@ func decodeNode(v *fastrlp.Value, s Storage) (Node, error) {
 				// empty
 				continue
 			}
-			nc.children[i], err = decodeNode(v.Get(i), s)
+			nc.children[i], err = decodeNode(v.Get(i))
 			if err != nil {
 				return nil, err
 			}

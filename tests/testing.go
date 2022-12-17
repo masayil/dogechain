@@ -17,6 +17,7 @@ import (
 	itrie "github.com/dogechain-lab/dogechain/state/immutable-trie"
 	"github.com/dogechain-lab/dogechain/state/runtime"
 	"github.com/dogechain-lab/dogechain/types"
+	"github.com/hashicorp/go-hclog"
 )
 
 // TESTS is the default location of the tests folder
@@ -223,8 +224,8 @@ func (e *exec) UnmarshalJSON(input []byte) error {
 
 func buildState(
 	allocs map[types.Address]*chain.GenesisAccount,
-) (state.State, state.Snapshot, types.Hash) {
-	s := itrie.NewState(itrie.NewMemoryStorage(), nil)
+) (state.State, state.Snapshot, types.Hash, error) {
+	s := itrie.NewStateDB(itrie.NewMemoryStorage(), hclog.NewNullLogger(), nil)
 	snap := s.NewSnapshot()
 
 	txn := state.NewTxn(s, snap)
@@ -244,9 +245,13 @@ func buildState(
 	}
 
 	objs := txn.Commit(false)
-	snap, root := snap.Commit(objs)
 
-	return s, snap, types.BytesToHash(root)
+	snap, root, err := snap.Commit(objs)
+	if err != nil {
+		return nil, nil, types.ZeroHash, err
+	}
+
+	return s, snap, types.BytesToHash(root), nil
 }
 
 type indexes struct {

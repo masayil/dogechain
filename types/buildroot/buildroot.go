@@ -106,7 +106,7 @@ func deriveSlow(num int, h func(indx int) []byte) []byte {
 
 	numArenaPool.Put(ar)
 
-	x, _ := txn.Hash()
+	x, _ := txn.Hash(nil)
 
 	return x
 }

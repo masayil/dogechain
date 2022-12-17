@@ -178,10 +178,10 @@ func NewServer(config *Config) (*Server, error) {
 	}
 
 	if config.Telemetry.PrometheusAddr != nil {
-		m.serverMetrics = metricProvider("dogechain", config.Chain.Name, true)
+		m.serverMetrics = metricProvider("dogechain", config.Chain.Name, true, config.Telemetry.EnableIOMetrics)
 		m.prometheusServer = m.startPrometheusServer(config.Telemetry.PrometheusAddr)
 	} else {
-		m.serverMetrics = metricProvider("dogechain", config.Chain.Name, false)
+		m.serverMetrics = metricProvider("dogechain", config.Chain.Name, false, false)
 	}
 
 	// Set up the secrets manager
@@ -221,7 +221,7 @@ func NewServer(config *Config) (*Server, error) {
 
 	m.stateStorage = stateStorage
 
-	st := itrie.NewState(stateStorage, m.serverMetrics.trie)
+	st := itrie.NewStateDB(stateStorage, logger, m.serverMetrics.trie)
 	m.state = st
 
 	m.executor = state.NewExecutor(config.Chain.Params, st, logger)
@@ -229,7 +229,11 @@ func NewServer(config *Config) (*Server, error) {
 	m.executor.SetRuntime(evm.NewEVM())
 
 	// compute the genesis root state
-	genesisRoot := m.executor.WriteGenesis(config.Chain.Genesis.Alloc)
+	genesisRoot, err := m.executor.WriteGenesis(config.Chain.Genesis.Alloc)
+	if err != nil {
+		return nil, err
+	}
+
 	config.Chain.Genesis.StateRoot = genesisRoot
 
 	// create leveldb storageBuilder
