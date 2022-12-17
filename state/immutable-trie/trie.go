@@ -34,6 +34,10 @@ func (t *Trie) Get(k []byte) ([]byte, bool) {
 	return res, res != nil
 }
 
+func addressKey(addr types.Address) []byte {
+	return hashit(addr.Bytes())
+}
+
 func hashit(k []byte) []byte {
 	h := sha3.NewLegacyKeccak256()
 	h.Write(k)
@@ -71,7 +75,7 @@ func (t *Trie) Commit(objs []*stypes.Object) (state.Snapshot, []byte, error) {
 
 		for _, obj := range objs {
 			if obj.Deleted {
-				err := tt.Delete(hashit(obj.Address.Bytes()))
+				err := tt.Delete(addressKey(obj.Address))
 				if err != nil {
 					return err
 				}
@@ -143,7 +147,7 @@ func (t *Trie) Commit(objs []*stypes.Object) (state.Snapshot, []byte, error) {
 				vv := account.MarshalWith(arena)
 				data := vv.MarshalTo(nil)
 
-				tt.Insert(hashit(obj.Address.Bytes()), data)
+				tt.Insert(addressKey(obj.Address), data)
 				insertCount++
 
 				arena.Reset()
