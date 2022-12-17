@@ -32,24 +32,15 @@ func (kv *levelDBKV) NewBatch() Batch {
 // bytesPrefixRange returns key range that satisfy
 // - the given prefix, and
 // - the given seek position
-func bytesPrefixRange(prefix, start, limit []byte) *util.Range {
+func bytesPrefixRange(prefix, start []byte) *util.Range {
 	r := util.BytesPrefix(prefix)
 	r.Start = append(r.Start, start...)
-	r.Limit = limit
 
 	return r
 }
 
-func (kv *levelDBKV) NewIterator2(prefix, start, limit []byte) Iterator {
-	return kv.db.NewIterator(bytesPrefixRange(prefix, start, limit), nil)
-}
-
-func (kv *levelDBKV) NewIterator(Range *IteratorRange) Iterator {
-	if Range == nil {
-		return kv.db.NewIterator(nil, nil)
-	}
-
-	return kv.db.NewIterator(bytesPrefixRange(nil, Range.Start, Range.Limit), nil)
+func (kv *levelDBKV) NewIterator(prefix, start []byte) Iterator {
+	return kv.db.NewIterator(bytesPrefixRange(prefix, start), nil)
 }
 
 // Set sets the key-value pair in leveldb storage
