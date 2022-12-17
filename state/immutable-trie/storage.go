@@ -35,7 +35,7 @@ type Storage interface {
 }
 
 type kvStorageBatch struct {
-	batch kvdb.KVBatch
+	batch kvdb.Batch
 }
 
 func (kvBatch *kvStorageBatch) Set(k, v []byte) error {
@@ -63,7 +63,7 @@ func (kv *kvStorage) Set(k, v []byte) error {
 
 func (kv *kvStorage) NewBatch() Batch {
 	return &kvStorageBatch{
-		batch: kv.db.Batch(),
+		batch: kv.db.NewBatch(),
 	}
 }
 

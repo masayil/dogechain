@@ -70,7 +70,7 @@ func TestLevelDB(t *testing.T) {
 		values := [][]byte{{}}
 
 		{
-			batch := db.Batch()
+			batch := db.NewBatch()
 			r := rand.New(seed)
 
 			for i := 0; i < 100; i++ {
@@ -117,7 +117,7 @@ func TestLevelDB(t *testing.T) {
 		values := [][]byte{{}}
 
 		{
-			batch := db.Batch()
+			batch := db.NewBatch()
 			r := rand.New(seed)
 
 			for i := 0; i < 100; i++ {
@@ -145,7 +145,7 @@ func TestLevelDB(t *testing.T) {
 		}
 
 		{
-			iter := db.Iterator(nil)
+			iter := db.NewIterator(nil)
 			defer iter.Release()
 
 			iter.First()

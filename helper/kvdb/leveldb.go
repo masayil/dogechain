@@ -25,19 +25,31 @@ type levelDBKV struct {
 	db *leveldb.DB
 }
 
-func (kv *levelDBKV) Batch() KVBatch {
+func (kv *levelDBKV) NewBatch() Batch {
 	return &levelBatch{db: kv.db, batch: &leveldb.Batch{}}
 }
 
-func (kv *levelDBKV) Iterator(Range *KVIteratorRange) KVIterator {
+// bytesPrefixRange returns key range that satisfy
+// - the given prefix, and
+// - the given seek position
+func bytesPrefixRange(prefix, start, limit []byte) *util.Range {
+	r := util.BytesPrefix(prefix)
+	r.Start = append(r.Start, start...)
+	r.Limit = limit
+
+	return r
+}
+
+func (kv *levelDBKV) NewIterator2(prefix, start, limit []byte) Iterator {
+	return kv.db.NewIterator(bytesPrefixRange(prefix, start, limit), nil)
+}
+
+func (kv *levelDBKV) NewIterator(Range *IteratorRange) Iterator {
 	if Range == nil {
 		return kv.db.NewIterator(nil, nil)
 	}
 
-	return kv.db.NewIterator(&util.Range{
-		Start: Range.Start,
-		Limit: Range.Limit,
-	}, nil)
+	return kv.db.NewIterator(bytesPrefixRange(nil, Range.Start, Range.Limit), nil)
 }
 
 // Set sets the key-value pair in leveldb storage
