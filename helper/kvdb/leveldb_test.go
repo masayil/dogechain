@@ -138,6 +138,7 @@ func Test_LevelDB_Iterator(t *testing.T) {
 	defer iter.Release()
 
 	count := 0
+
 	for iter.Next() {
 		k := iter.Key()
 		v := iter.Value()
