@@ -48,7 +48,7 @@ func (pair *txnPair) Reset() {
 
 type stateDBTxn struct {
 	db   map[txnKey]*txnPair
-	lock sync.Mutex
+	lock sync.Mutex // for protecting map
 
 	stateDB StateDB
 	storage Storage
@@ -57,8 +57,7 @@ type stateDBTxn struct {
 }
 
 func (tx *stateDBTxn) Set(k []byte, v []byte) error {
-	tx.lock.Lock()
-	defer tx.lock.Unlock()
+	key := byteKeyToTxnKey(k)
 
 	pair, ok := txnPairPool.Get().(*txnPair)
 	if !ok {
@@ -68,62 +67,108 @@ func (tx *stateDBTxn) Set(k []byte, v []byte) error {
 	pair.key = append(pair.key[:], k...)
 	pair.value = append(pair.value[:], v...)
 
-	tx.db[txnKey(hex.EncodeToString(k))] = pair
+	tx.lock.Lock()
+	defer tx.lock.Unlock()
+
+	tx.db[key] = pair
 
 	return nil
 }
 
-func (tx *stateDBTxn) Get(k []byte) ([]byte, bool, error) {
+func (tx *stateDBTxn) Delete(k []byte) error {
+	key := byteKeyToTxnKey(k)
+
 	tx.lock.Lock()
 	defer tx.lock.Unlock()
 
-	v, ok := tx.db[txnKey(hex.EncodeToString(k))]
-	if !ok {
-		return tx.stateDB.Get(k)
+	delete(tx.db, key)
+
+	return nil
+}
+
+func byteKeyToTxnKey(k []byte) txnKey {
+	return txnKey(hex.EncodeToString(k))
+}
+
+func (tx *stateDBTxn) Has(k []byte) (bool, error) {
+	key := byteKeyToTxnKey(k)
+
+	tx.lock.Lock()
+
+	if _, ok := tx.db[key]; ok {
+		tx.lock.Unlock()
+
+		return true, nil
 	}
 
-	bufValue := make([]byte, len(v.value))
-	copy(bufValue[:], v.value[:])
+	tx.lock.Unlock()
 
-	return bufValue, true, nil
+	return tx.stateDB.Has(k)
+}
+
+func (tx *stateDBTxn) Get(k []byte) ([]byte, bool, error) {
+	key := byteKeyToTxnKey(k)
+
+	tx.lock.Lock()
+
+	v, ok := tx.db[key]
+	if ok {
+		// copy value
+		bufValue := make([]byte, len(v.value))
+		copy(bufValue[:], v.value[:])
+
+		// unlock
+		tx.lock.Unlock()
+
+		return bufValue, true, nil
+	}
+
+	tx.lock.Unlock()
+
+	return tx.stateDB.Get(k)
 }
 
 func (tx *stateDBTxn) SetCode(hash types.Hash, v []byte) error {
-	tx.lock.Lock()
-	defer tx.lock.Unlock()
-
+	// active code key is different from account key (hash)
 	key := schema.CodeKey(hash)
+	keyStr := byteKeyToTxnKey(key)
 
 	pair, ok := txnPairPool.Get().(*txnPair)
 	if !ok {
 		return errors.New("invalid type assertion")
 	}
 
-	pair.key = append(pair.key[:], key...)
-	pair.value = append(pair.value[:], v...)
+	pair.key = append(pair.key[:0], key...)
+	pair.value = append(pair.value[:0], v...)
 	pair.isCode = true
 
-	tx.db[txnKey(hex.EncodeToString(key))] = pair
+	tx.lock.Lock()
+	defer tx.lock.Unlock()
+
+	tx.db[keyStr] = pair
 
 	return nil
 }
 
 func (tx *stateDBTxn) GetCode(hash types.Hash) ([]byte, bool) {
+	key := byteKeyToTxnKey(schema.CodeKey(hash))
+
 	tx.lock.Lock()
-	defer tx.lock.Unlock()
 
-	key := schema.CodeKey(hash)
+	if v, ok := tx.db[key]; ok {
+		// depth copy
+		bufValue := make([]byte, len(v.value))
+		copy(bufValue[:], v.value[:])
 
-	v, ok := tx.db[txnKey(hex.EncodeToString(key))]
-	if !ok {
-		return tx.stateDB.GetCode(hash)
+		// unlock
+		tx.lock.Unlock()
+
+		return bufValue, true
 	}
 
-	// depth copy
-	bufValue := make([]byte, len(v.value))
-	copy(bufValue[:], v.value[:])
+	tx.lock.Unlock()
 
-	return bufValue, true
+	return tx.stateDB.GetCode(hash)
 }
 
 func (tx *stateDBTxn) NewSnapshot() state.Snapshot {
@@ -162,10 +207,11 @@ func (tx *stateDBTxn) Commit() error {
 	}
 
 	tx.lock.Lock()
-	defer tx.lock.Unlock()
 
 	// double check
 	if tx.cancel.Load() {
+		tx.lock.Unlock()
+
 		return ErrStateTransactionIsCancel
 	}
 
@@ -176,6 +222,8 @@ func (tx *stateDBTxn) Commit() error {
 		err := batch.Set(pair.key, pair.value)
 
 		if err != nil {
+			tx.lock.Unlock()
+
 			return err
 		}
 
@@ -184,19 +232,17 @@ func (tx *stateDBTxn) Commit() error {
 		}
 	}
 
+	tx.lock.Unlock()
+
 	return batch.Commit()
 }
 
 // clear transaction data, set cancel flag
 func (tx *stateDBTxn) Rollback() {
-	tx.lock.Lock()
-	defer tx.lock.Unlock()
-
-	if tx.cancel.Load() {
+	// cancle by atomic swap value
+	if alreadyCancel := tx.cancel.Swap(true); alreadyCancel {
 		return
 	}
-
-	tx.cancel.Store(true)
 
 	tx.clear()
 }
@@ -204,6 +250,9 @@ func (tx *stateDBTxn) Rollback() {
 func (tx *stateDBTxn) clear() {
 	tx.stateDB = nil
 	tx.storage = nil
+
+	tx.lock.Lock()
+	defer tx.lock.Unlock()
 
 	for tk := range tx.db {
 		pair := tx.db[tk]
