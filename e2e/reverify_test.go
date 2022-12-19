@@ -2,7 +2,6 @@ package e2e
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -15,9 +14,10 @@ import (
 )
 
 func TestReverify(t *testing.T) {
-	const toBlock uint64 = 10
-
-	const finalToBlock uint64 = 15
+	const (
+		toBlock      uint64 = 10
+		finalToBlock uint64 = 15
+	)
 
 	svrs := framework.NewTestServers(t, 4, func(config *framework.TestServerConfig) {
 		config.SetConsensus(framework.ConsensusDev)
@@ -25,23 +25,27 @@ func TestReverify(t *testing.T) {
 		config.SetDevInterval(1)
 	})
 
-	{
-		errs := framework.WaitForServersToSeal(svrs, toBlock)
-		for _, err := range errs {
-			assert.NoError(t, err)
-		}
+	errs := framework.WaitForServersToSeal(svrs, toBlock)
+	for _, err := range errs {
+		assert.NoError(t, err)
 	}
 
 	svr := svrs[0]
+	// data dir
 	svrRootDir := svr.Config.RootDir
+	// block number
+	currentBlockHeight, err := svr.JSONRPC().Eth().BlockNumber()
+	assert.NoError(t, err)
+	// stop server to make some db corruption
 	svr.Stop()
 
+	// wait for new blocks
 	time.Sleep(time.Second * 2)
 
 	// open trie database
 	leveldbBuilder := kvdb.NewLevelDBBuilder(
 		hclog.NewNullLogger(),
-		filepath.Join(svrRootDir, "trie"),
+		svr.StateDataDir(),
 	)
 
 	// open chain database
@@ -50,25 +54,30 @@ func TestReverify(t *testing.T) {
 
 	// corrupt data
 	{
-		iter := trie.NewIterator(nil)
+		iter := trie.NewIterator(nil, nil)
 		assert.NoError(t, iter.Error())
 
-		iter.Last()
-		assert.NoError(t, iter.Error())
+		var count uint64 = 0
+		for iter.Next() {
+			count++
+			// do nothing to reach the end
+			if count < currentBlockHeight {
+				continue
+			}
 
-		for iter.Prev() {
-			assert.NoError(t, iter.Error())
-			trie.Set(iter.Key(), []byte("corrupted data"))
+			err := trie.Set(iter.Key(), []byte("corrupted data"))
+			assert.NoError(t, err)
 		}
-		iter.Release()
-		err := trie.Close()
 
+		assert.NoError(t, iter.Error())
+
+		iter.Release()
+
+		err := trie.Close()
 		assert.NoError(t, err)
 	}
 
-	genesis, parseErr := chain.Import(
-		filepath.Join(svrRootDir, "genesis.json"),
-	)
+	genesis, parseErr := chain.Import(svr.GenesisFile())
 	assert.NoError(t, parseErr)
 
 	err = reverify.ReverifyChain(
