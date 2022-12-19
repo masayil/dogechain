@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/dogechain-lab/dogechain/state"
+	"github.com/dogechain-lab/dogechain/state/schema"
 	"github.com/dogechain-lab/dogechain/types"
 	"go.uber.org/atomic"
 )
@@ -91,18 +92,18 @@ func (tx *stateDBTxn) SetCode(hash types.Hash, v []byte) error {
 	tx.lock.Lock()
 	defer tx.lock.Unlock()
 
-	perfix := append(codePrefix, hash.Bytes()...)
+	key := schema.CodeKey(hash)
 
 	pair, ok := txnPairPool.Get().(*txnPair)
 	if !ok {
 		return errors.New("invalid type assertion")
 	}
 
-	pair.key = append(pair.key[:], perfix...)
+	pair.key = append(pair.key[:], key...)
 	pair.value = append(pair.value[:], v...)
 	pair.isCode = true
 
-	tx.db[txnKey(hex.EncodeToString(perfix))] = pair
+	tx.db[txnKey(hex.EncodeToString(key))] = pair
 
 	return nil
 }
@@ -111,9 +112,9 @@ func (tx *stateDBTxn) GetCode(hash types.Hash) ([]byte, bool) {
 	tx.lock.Lock()
 	defer tx.lock.Unlock()
 
-	perfix := append(codePrefix, hash.Bytes()...)
+	key := schema.CodeKey(hash)
 
-	v, ok := tx.db[txnKey(hex.EncodeToString(perfix))]
+	v, ok := tx.db[txnKey(hex.EncodeToString(key))]
 	if !ok {
 		return tx.stateDB.GetCode(hash)
 	}

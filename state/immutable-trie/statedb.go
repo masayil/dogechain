@@ -7,15 +7,13 @@ import (
 
 	"github.com/VictoriaMetrics/fastcache"
 	"github.com/dogechain-lab/dogechain/state"
+	"github.com/dogechain-lab/dogechain/state/schema"
 	"github.com/dogechain-lab/dogechain/types"
 	"github.com/hashicorp/go-hclog"
 	"go.uber.org/atomic"
 )
 
 var (
-	// codePrefix is the code prefix for leveldb
-	codePrefix = []byte("code")
-
 	ErrStateTransactionIsCancel = errors.New("transaction is cancel")
 )
 
@@ -99,8 +97,8 @@ func (db *stateDBImpl) Get(k []byte) ([]byte, bool, error) {
 }
 
 func (db *stateDBImpl) GetCode(hash types.Hash) ([]byte, bool) {
-	perfix := append(codePrefix, hash.Bytes()...)
-	if enc := db.codeCache.Get(nil, perfix); enc != nil {
+	key := schema.CodeKey(hash)
+	if enc := db.codeCache.Get(nil, key); enc != nil {
 		db.metrics.codeCacheHitInc()
 
 		return enc, true
@@ -111,7 +109,7 @@ func (db *stateDBImpl) GetCode(hash types.Hash) ([]byte, bool) {
 	// start observe disk read time
 	observe := db.metrics.codeDiskReadSecondsObserve()
 
-	v, ok, err := db.storage.Get(perfix)
+	v, ok, err := db.storage.Get(key)
 	if err != nil {
 		db.logger.Error("failed to get code", "err", err)
 	}
@@ -123,7 +121,7 @@ func (db *stateDBImpl) GetCode(hash types.Hash) ([]byte, bool) {
 
 	// write-back cache
 	if err == nil && ok {
-		db.cached.Set(perfix, v)
+		db.cached.Set(key, v)
 	}
 
 	if !ok {
