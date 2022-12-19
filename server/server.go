@@ -83,12 +83,14 @@ type Server struct {
 }
 
 const (
-	loggerDomainName = "dogechain"
+	loggerDomainName  = "dogechain"
+	BlockchainDataDir = "blockchain"
+	StateDataDir      = "trie"
 )
 
 var dirPaths = []string{
-	"blockchain",
-	"trie",
+	BlockchainDataDir,
+	StateDataDir,
 }
 
 // newFileLogger returns logger instance that writes all logs to a specified file.
@@ -210,7 +212,7 @@ func NewServer(config *Config) (*Server, error) {
 		leveldbBuilder := newLevelDBBuilder(
 			logger,
 			config,
-			filepath.Join(m.config.DataDir, "trie"),
+			filepath.Join(m.config.DataDir, StateDataDir),
 		)
 
 		return itrie.NewLevelDBStorage(leveldbBuilder)

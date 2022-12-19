@@ -75,8 +75,8 @@ func TestBackup(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		t.Cleanup(cancel)
 
-		os.RemoveAll(path.Join(svr.Config.RootDir, "blockchain"))
-		os.RemoveAll(path.Join(svr.Config.RootDir, "trie"))
+		os.RemoveAll(svr.BlockchainDataDir())
+		os.RemoveAll(svr.StateDataDir())
 
 		restoreSvr := framework.NewTestServer(t, svr.Config.RootDir, func(config *framework.TestServerConfig) {
 			*config = *svr.Config

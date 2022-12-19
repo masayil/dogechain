@@ -3,7 +3,6 @@ package reverify
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 
 	"github.com/dogechain-lab/dogechain/blockchain"
 	"github.com/dogechain-lab/dogechain/blockchain/storage/kvstorage"
@@ -72,7 +71,7 @@ func createConsensus(
 	config := &consensus.Config{
 		Params: genesis.Params,
 		Config: engineConfig,
-		Path:   filepath.Join(dataDir, "consensus"),
+		Path:   consensusDir(dataDir),
 	}
 
 	consensus, err := engine(
@@ -85,7 +84,7 @@ func createConsensus(
 			Blockchain:     blockchain,
 			Executor:       executor,
 			Grpc:           nil,
-			Logger:         logger.Named("consensus"),
+			Logger:         logger.Named(_consensusDir),
 			Metrics:        nil,
 			SecretsManager: secretsManager,
 			BlockTime:      2,
@@ -122,7 +121,7 @@ func createBlockchain(
 		genesis,
 		kvstorage.NewLevelDBStorageBuilder(
 			logger,
-			newLevelDBBuilder(logger, filepath.Join(dataDir, "blockchain")),
+			newLevelDBBuilder(logger, blockchainDir(dataDir)),
 		),
 		nil,
 		executor,

@@ -10,14 +10,31 @@ import (
 	itrie "github.com/dogechain-lab/dogechain/state/immutable-trie"
 )
 
+const (
+	_blockchainDir = "blockchain"
+	_stateDir      = "trie"
+	_consensusDir  = "consensus"
+)
+
+func stateDir(dataDir string) string {
+	return filepath.Join(dataDir, _stateDir)
+}
+
+func blockchainDir(dataDir string) string {
+	return filepath.Join(dataDir, _blockchainDir)
+}
+
+func consensusDir(dataDir string) string {
+	return filepath.Join(dataDir, _consensusDir)
+}
+
 func ReverifyChain(
 	logger hclog.Logger,
 	chain *chain.Chain,
 	dataDir string,
 	startHeight uint64,
 ) error {
-	stateStorage, err := itrie.NewLevelDBStorage(
-		newLevelDBBuilder(logger, filepath.Join(dataDir, "trie")))
+	stateStorage, err := itrie.NewLevelDBStorage(newLevelDBBuilder(logger, stateDir(dataDir)))
 	if err != nil {
 		logger.Error("failed to create state storage")
 

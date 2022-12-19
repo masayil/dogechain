@@ -71,7 +71,7 @@ func (t *TestServerConfig) SetSigner(signer *crypto.EIP155Signer) {
 
 // PrivateKey returns a private key in data directory
 func (t *TestServerConfig) PrivateKey() (*ecdsa.PrivateKey, error) {
-	return crypto.GenerateOrReadPrivateKey(filepath.Join(t.DataDir(), "consensus", ibft.IbftKeyName))
+	return crypto.GenerateOrReadPrivateKey(filepath.Join(t.DataDir(), _consensusDir, ibft.IbftKeyName))
 }
 
 // CALLBACKS //

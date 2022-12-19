@@ -49,6 +49,13 @@ const (
 	binaryName = "dogechain"
 )
 
+const (
+	_genesisFile   = "genesis.json"
+	_blockchainDir = "blockchain"
+	_stateDir      = "trie"
+	_consensusDir  = "consensus"
+)
+
 var lock sync.Mutex
 var initialPort = 12000
 
@@ -162,6 +169,18 @@ func (t *TestServer) IBFTOperator() ibftOp.IbftOperatorClient {
 	}
 
 	return ibftOp.NewIbftOperatorClient(conn)
+}
+
+func (t *TestServer) GenesisFile() string {
+	return filepath.Join(t.Config.RootDir, _genesisFile)
+}
+
+func (t *TestServer) BlockchainDataDir() string {
+	return filepath.Join(t.Config.RootDir, _blockchainDir)
+}
+
+func (t *TestServer) StateDataDir() string {
+	return filepath.Join(t.Config.RootDir, _stateDir)
 }
 
 func (t *TestServer) ReleaseReservedPorts() {
@@ -333,7 +352,7 @@ func (t *TestServer) Start(ctx context.Context) error {
 	args := []string{
 		serverCmd.Use,
 		// add custom chain
-		"--chain", filepath.Join(t.Config.RootDir, "genesis.json"),
+		"--chain", t.GenesisFile(),
 		// enable grpc
 		"--grpc-address", t.GrpcAddr(),
 		// enable libp2p
@@ -433,7 +452,7 @@ func (t *TestServer) SwitchIBFTType(typ ibft.MechanismType, from uint64, to, dep
 	args = append(args, commandSlice...)
 	args = append(args,
 		// add custom chain
-		"--chain", filepath.Join(t.Config.RootDir, "genesis.json"),
+		"--chain", t.GenesisFile(),
 		"--type", string(typ),
 		"--from", strconv.FormatUint(from, 10),
 	)
