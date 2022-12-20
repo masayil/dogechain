@@ -65,6 +65,8 @@ require (
 
 require go.uber.org/atomic v1.9.0
 
+require github.com/holiman/bloomfilter/v2 v2.0.3 // indirect
+
 require (
 	github.com/VictoriaMetrics/fastcache v1.6.0
 	github.com/armon/go-radix v1.0.0 // indirect

@@ -140,11 +140,10 @@ type diskAccountIterator struct {
 
 // AccountIterator creates an account iterator over a disk layer.
 func (dl *diskLayer) AccountIterator(seek types.Hash) AccountIterator {
-	pos := types.TrimRightZeroes(seek[:])
-
+	// pos := types.TrimRightZeroes(seek[:])
 	return &diskAccountIterator{
 		layer: dl,
-		it:    dl.diskdb.NewIterator(stypes.SnapshotAccountPrefix, pos),
+		// it:    dl.diskdb.NewIterator(stypes.SnapshotAccountPrefix, pos),
 	}
 }
 
@@ -304,12 +303,11 @@ type diskStorageIterator struct {
 // layer are deleted already. So the "destructed" flag returned here
 // is always false.
 func (dl *diskLayer) StorageIterator(account types.Hash, seek types.Hash) (StorageIterator, bool) {
-	pos := types.TrimRightZeroes(seek[:])
-
+	// pos := types.TrimRightZeroes(seek[:])
 	return &diskStorageIterator{
 		layer:   dl,
 		account: account,
-		it:      dl.diskdb.NewIterator(append(stypes.SnapshotStoragePrefix, account.Bytes()...), pos),
+		// it:      dl.diskdb.NewIterator(append(stypes.SnapshotStoragePrefix, account.Bytes()...), pos),
 	}, false
 }
 

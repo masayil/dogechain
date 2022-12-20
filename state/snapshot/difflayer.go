@@ -17,11 +17,59 @@
 package snapshot
 
 import (
+	"math"
 	"sync"
 	"sync/atomic"
 
 	"github.com/dogechain-lab/dogechain/state/stypes"
 	"github.com/dogechain-lab/dogechain/types"
+	"github.com/syndtr/goleveldb/leveldb/filter"
+)
+
+var (
+	// aggregatorMemoryLimit is the maximum size of the bottom-most diff layer
+	// that aggregates the writes from above until it's flushed into the disk
+	// layer.
+	//
+	// Note, bumping this up might drastically increase the size of the bloom
+	// filters that's stored in every diff layer. Don't do that without fully
+	// understanding all the implications.
+	aggregatorMemoryLimit = uint64(4 * 1024 * 1024)
+
+	// aggregatorItemLimit is an approximate number of items that will end up
+	// in the agregator layer before it's flushed out to disk. A plain account
+	// weighs around 14B (+hash), a storage slot 32B (+hash), a deleted slot
+	// 0B (+hash). Slots are mostly set/unset in lockstep, so that average at
+	// 16B (+hash). All in all, the average entry seems to be 15+32=47B. Use a
+	// smaller number to be on the safe side.
+	aggregatorItemLimit = aggregatorMemoryLimit / 42
+
+	// bloomTargetError is the target false positive rate when the aggregator
+	// layer is at its fullest. The actual value will probably move around up
+	// and down from this number, it's mostly a ballpark figure.
+	//
+	// Note, dropping this down might drastically increase the size of the bloom
+	// filters that's stored in every diff layer. Don't do that without fully
+	// understanding all the implications.
+	bloomTargetError = 0.02
+
+	// bloomSize is the ideal bloom filter size given the maximum number of items
+	// it's expected to hold and the target false positive error rate.
+	bloomSize = math.Ceil(float64(aggregatorItemLimit) * math.Log(bloomTargetError) / math.Log(1/math.Pow(2, math.Log(2))))
+
+	// bloomFuncs is the ideal number of bits a single entry should set in the
+	// bloom filter to keep its size to a minimum (given it's size and maximum
+	// entry count).
+	bloomFuncs = math.Round((bloomSize / float64(aggregatorItemLimit)) * math.Log(2))
+
+	// the bloom offsets are runtime constants which determines which part of the
+	// account/storage hash the hasher functions looks at, to determine the
+	// bloom key for an account/slot. This is randomized at init(), so that the
+	// global population of nodes do not all display the exact same behaviour with
+	// regards to bloom content
+	bloomDestructHasherOffset = 0
+	bloomAccountHasherOffset  = 0
+	bloomStorageHasherOffset  = 0
 )
 
 // diffLayer represents a collection of modifications made to a state snapshot
@@ -56,7 +104,8 @@ type diffLayer struct {
 	// Keyed storage slots for direct retrieval. one per account (nil means deleted)
 	storageData map[types.Hash]map[types.Hash][]byte
 
-	// diffed *bloomfilter.Filter // Bloom filter tracking all the diffed items up to the disk layer
+	// Bloom filter tracking all the diffed items up to the disk layer
+	diffed filter.Filter
 
 	lock sync.RWMutex
 }
@@ -156,4 +205,116 @@ func (dl *diffLayer) StorageList(accountHash types.Hash) ([]types.Hash, bool) {
 	defer dl.lock.RUnlock()
 
 	return nil, false
+}
+
+// flatten pushes all data from this point downwards, flattening everything into
+// a single diff at the bottom. Since usually the lowermost diff is the largest,
+// the flattening builds up from there in reverse.
+func (dl *diffLayer) flatten() snapshot {
+	// If the parent is not diff, we're the first in line, return unmodified
+	parent, ok := dl.parent.(*diffLayer)
+	if !ok {
+		return dl
+	}
+
+	// Parent is a diff, flatten it first (note, apart from weird corned cases,
+	// flatten will realistically only ever merge 1 layer, so there's no need to
+	// be smarter about grouping flattens together).
+	parent, _ = parent.flatten().(*diffLayer)
+
+	parent.lock.Lock()
+	defer parent.lock.Unlock()
+
+	// Before actually writing all our data to the parent, first ensure that the
+	// parent hasn't been 'corrupted' by someone else already flattening into it
+	if atomic.SwapUint32(&parent.stale, 1) != 0 {
+		// we've flattened into the same parent from two children, boo
+		panic("parent diff layer is stale")
+	}
+
+	// Overwrite all the updated accounts blindly, merge the sorted list
+	for hash := range dl.destructSet {
+		parent.destructSet[hash] = struct{}{}
+		delete(parent.accountData, hash)
+		delete(parent.storageData, hash)
+	}
+
+	for hash, data := range dl.accountData {
+		parent.accountData[hash] = data
+	}
+
+	// Overwrite all the updated storage slots (individually)
+	for accountHash, storage := range dl.storageData {
+		// If storage didn't exist (or was deleted) in the parent, overwrite blindly
+		if _, ok := parent.storageData[accountHash]; !ok {
+			parent.storageData[accountHash] = storage
+
+			continue
+		}
+		// Storage exists in both parent and child, merge the slots
+		comboData := parent.storageData[accountHash]
+
+		for storageHash, data := range storage {
+			comboData[storageHash] = data
+		}
+	}
+
+	// Return the combo parent
+	return &diffLayer{
+		parent:      parent.parent,
+		origin:      parent.origin,
+		root:        dl.root,
+		destructSet: parent.destructSet,
+		accountData: parent.accountData,
+		storageData: parent.storageData,
+		storageList: make(map[types.Hash][]types.Hash),
+		diffed:      dl.diffed,
+		memory:      parent.memory + dl.memory,
+	}
+}
+
+// rebloom discards the layer's current bloom and rebuilds it from scratch based
+// on the parent's and the local diffs.
+func (dl *diffLayer) rebloom(origin *diskLayer) {
+	// dl.lock.Lock()
+	// defer dl.lock.Unlock()
+
+	// defer func(start time.Time) {
+	// 	snapshotBloomIndexTimer.Update(time.Since(start))
+	// }(time.Now())
+
+	// Inject the new origin that triggered the rebloom
+	// dl.origin = origin
+
+	// // Retrieve the parent bloom or create a fresh empty one
+	// if parent, ok := dl.parent.(*diffLayer); ok {
+	// 	parent.lock.RLock()
+	// 	dl.diffed, _ = parent.diffed.Copy()
+	// 	parent.lock.RUnlock()
+	// } else {
+	// 	dl.diffed, _ = bloomfilter.New(uint64(bloomSize), uint64(bloomFuncs))
+	// }
+
+	// // Iterate over all the accounts and storage slots and index them
+	// for hash := range dl.destructSet {
+	// 	dl.diffed.Add(destructBloomHasher(hash))
+	// }
+
+	// for hash := range dl.accountData {
+	// 	dl.diffed.Add(accountBloomHasher(hash))
+	// }
+
+	// for accountHash, slots := range dl.storageData {
+	// 	for storageHash := range slots {
+	// 		dl.diffed.Add(storageBloomHasher{accountHash, storageHash})
+	// 	}
+	// }
+
+	// // Calculate the current false positive rate and update the error rate meter.
+	// // This is a bit cheating because subsequent layers will overwrite it, but it
+	// // should be fine, we're only interested in ballpark figures.
+	// k := float64(dl.diffed.K())
+	// n := float64(dl.diffed.N())
+	// m := float64(dl.diffed.M())
+	// snapshotBloomErrorGauge.Update(math.Pow(1.0-math.Exp((-k)*(n+0.5)/(m-1)), k))
 }

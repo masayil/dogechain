@@ -23,6 +23,7 @@ import (
 	"github.com/dogechain-lab/dogechain/helper/kvdb"
 	"github.com/dogechain-lab/dogechain/state/stypes"
 	"github.com/dogechain-lab/dogechain/types"
+	"github.com/hashicorp/go-hclog"
 )
 
 // diskLayer is a low level persistent snapshot built on top of a key-value store.
@@ -39,6 +40,8 @@ type diskLayer struct {
 	genAbort   chan chan *generatorStats // Notification channel to abort generating the snapshot in this layer
 
 	lock sync.RWMutex
+
+	logger hclog.Logger
 }
 
 // Root returns  root hash for which this snapshot was made.
