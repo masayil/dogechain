@@ -65,13 +65,13 @@ func (db *stateDBImpl) Logger() hclog.Logger {
 	return db.logger
 }
 
-// func (db *stateDBImpl) Has(p []byte) (bool, error) {
-// 	if db.cached.Has(p) {
-// 		return true, nil
-// 	}
+func (db *stateDBImpl) Has(p []byte) (bool, error) {
+	if db.cached.Has(p) {
+		return true, nil
+	}
 
-// 	return db.storage.Has(p)
-// }
+	return db.storage.Has(p)
+}
 
 func (db *stateDBImpl) Get(k []byte) ([]byte, bool, error) {
 	if enc := db.cached.Get(nil, k); enc != nil {

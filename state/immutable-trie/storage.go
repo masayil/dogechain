@@ -36,9 +36,9 @@ func (kvBatch *kvStorageBatch) Set(k, v []byte) error {
 	return nil
 }
 
-// func (kvBatch *kvStorageBatch) Delete(k []byte) error {
-// 	return kvBatch.batch.Delete(k)
-// }
+func (kvBatch *kvStorageBatch) Delete(k []byte) error {
+	return kvBatch.batch.Delete(k)
+}
 
 // // ValueSize retrieves the amount of data queued up for writing.
 // func (kvBatch *kvStorageBatch) ValueSize() int {
@@ -65,9 +65,9 @@ type kvStorage struct {
 	db kvdb.KVBatchStorage
 }
 
-// func (kv *kvStorage) Has(k []byte) (bool, error) {
-// 	return kv.db.Has(k)
-// }
+func (kv *kvStorage) Has(k []byte) (bool, error) {
+	return kv.db.Has(k)
+}
 
 func (kv *kvStorage) Get(k []byte) ([]byte, bool, error) {
 	return kv.db.Get(k)
@@ -77,9 +77,9 @@ func (kv *kvStorage) Set(k, v []byte) error {
 	return kv.db.Set(k, v)
 }
 
-// func (kv *kvStorage) Delete(k []byte) error {
-// 	return kv.db.Delete(k)
-// }
+func (kv *kvStorage) Delete(k []byte) error {
+	return kv.db.Delete(k)
+}
 
 func (kv *kvStorage) NewBatch() Batch {
 	return &kvStorageBatch{

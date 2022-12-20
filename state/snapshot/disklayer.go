@@ -17,10 +17,12 @@
 package snapshot
 
 import (
+	"bytes"
 	"sync"
 
 	"github.com/VictoriaMetrics/fastcache"
 	"github.com/dogechain-lab/dogechain/helper/kvdb"
+	"github.com/dogechain-lab/dogechain/helper/rawdb"
 	"github.com/dogechain-lab/dogechain/state/stypes"
 	"github.com/dogechain-lab/dogechain/types"
 	"github.com/hashicorp/go-hclog"
@@ -66,7 +68,21 @@ func (dl *diskLayer) Stale() bool {
 // Account directly retrieves the account associated with a particular hash in
 // the snapshot slim data format.
 func (dl *diskLayer) Account(hash types.Hash) (*stypes.Account, error) {
-	return nil, nil
+	data, err := dl.AccountRLP(hash)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(data) == 0 { // can be both nil and []byte{}
+		return nil, nil
+	}
+
+	account := new(stypes.Account)
+	if err := account.UnmarshalRlp(data); err != nil {
+		panic(err)
+	}
+
+	return account, nil
 }
 
 // AccountRLP directly retrieves the account RLP associated with a particular
@@ -75,7 +91,33 @@ func (dl *diskLayer) AccountRLP(hash types.Hash) ([]byte, error) {
 	dl.lock.RLock()
 	defer dl.lock.RUnlock()
 
-	return nil, nil
+	// If the layer was flattened into, consider it invalid (any live reference to
+	// the original should be marked as unusable).
+	if dl.stale {
+		return nil, ErrSnapshotStale
+	}
+	// If the layer is being generated, ensure the requested hash has already been
+	// covered by the generator.
+	if dl.genMarker != nil && bytes.Compare(hash[:], dl.genMarker) > 0 {
+		return nil, ErrNotCoveredYet
+	}
+
+	// If we're in the disk layer, all diff layers missed
+	// TODO: dirty account miss Counter
+
+	// Try to retrieve the account from the memory cache
+	if blob, found := dl.cache.HasGet(nil, hash[:]); found {
+		// TODO: clean account hit Counter, read data size Counter
+		return blob, nil
+	}
+
+	// Cache doesn't contain account, pull from disk and cache for later
+	blob := rawdb.ReadAccountSnapshot(dl.diskdb, hash)
+	dl.cache.Set(hash[:], blob)
+
+	// TODO: clean account miss Counter, write size Counter, inex Counter
+
+	return blob, nil
 }
 
 // Storage directly retrieves the storage data associated with a particular hash,
@@ -84,7 +126,35 @@ func (dl *diskLayer) Storage(accountHash, storageHash types.Hash) ([]byte, error
 	dl.lock.RLock()
 	defer dl.lock.RUnlock()
 
-	return nil, nil
+	// If the layer was flattened into, consider it invalid (any live reference to
+	// the original should be marked as unusable).
+	if dl.stale {
+		return nil, ErrSnapshotStale
+	}
+
+	key := append(accountHash[:], storageHash[:]...)
+
+	// If the layer is being generated, ensure the requested hash has already been
+	// covered by the generator.
+	if dl.genMarker != nil && bytes.Compare(key, dl.genMarker) > 0 {
+		return nil, ErrNotCoveredYet
+	}
+
+	// If we're in the disk layer, all diff layers missed
+	// TODO: dirty storage miss Counter
+
+	// Try to retrieve the storage slot from the memory cache
+	if blob, found := dl.cache.HasGet(nil, key); found {
+		// TODO: clean storage hit Counter, read size Counter
+		return blob, nil
+	}
+	// Cache doesn't contain storage slot, pull from disk and cache for later
+	blob := rawdb.ReadStorageSnapshot(dl.diskdb, accountHash, storageHash)
+	dl.cache.Set(key, blob)
+
+	// TODO: clean storage miss Counter, write size Counter, inex Counter
+
+	return blob, nil
 }
 
 // Update creates a new layer on top of the existing snapshot diff tree with
