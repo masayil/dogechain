@@ -94,6 +94,7 @@ type TagError struct {
 
 func (e TagError) Error() string {
 	field := "field " + e.Field
+
 	if e.StructType != "" {
 		field = e.StructType + "." + e.Field
 	}
