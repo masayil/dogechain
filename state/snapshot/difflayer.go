@@ -24,7 +24,6 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/dogechain-lab/dogechain/helper/rlp"
 	"github.com/dogechain-lab/dogechain/state/stypes"
 	"github.com/dogechain-lab/dogechain/types"
 	bloomfilter "github.com/holiman/bloomfilter/v2"
@@ -201,8 +200,8 @@ func (dl *diffLayer) Account(hash types.Hash) (*stypes.Account, error) {
 	}
 
 	account := new(stypes.Account)
-	if err := rlp.DecodeBytes(data, account); err != nil {
-		panic(err)
+	if err := account.UnmarshalRlp(data); err != nil {
+		return nil, err
 	}
 
 	return account, nil
