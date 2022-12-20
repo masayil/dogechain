@@ -35,10 +35,13 @@ func (e *testEncoder) EncodeRLP(w io.Writer) error {
 	if e == nil {
 		panic("EncodeRLP called on nil value")
 	}
+
 	if e.err != nil {
 		return e.err
 	}
+
 	w.Write([]byte{0, 1, 0, 1, 0, 1, 0, 1, 0, 1})
+
 	return nil
 }
 
@@ -46,6 +49,7 @@ type testEncoderValueMethod struct{}
 
 func (e testEncoderValueMethod) EncodeRLP(w io.Writer) error {
 	w.Write([]byte{0xFA, 0xFE, 0xF0})
+
 	return nil
 }
 
@@ -53,6 +57,7 @@ type byteEncoder byte
 
 func (e byteEncoder) EncodeRLP(w io.Writer) error {
 	w.Write(EmptyList)
+
 	return nil
 }
 
@@ -60,6 +65,7 @@ type undecodableEncoder func()
 
 func (f undecodableEncoder) EncodeRLP(w io.Writer) error {
 	w.Write([]byte{0xF5, 0xF5, 0xF5})
+
 	return nil
 }
 
@@ -369,18 +375,24 @@ var encTests = []encTest{
 }
 
 func runEncTests(t *testing.T, f func(val interface{}) ([]byte, error)) {
+	t.Helper()
+
 	for i, test := range encTests {
 		output, err := f(test.val)
 		if err != nil && test.error == "" {
 			t.Errorf("test %d: unexpected error: %v\nvalue %#v\ntype %T",
 				i, err, test.val, test.val)
+
 			continue
 		}
+
 		if test.error != "" && fmt.Sprint(err) != test.error {
 			t.Errorf("test %d: error mismatch\ngot   %v\nwant  %v\nvalue %#v\ntype  %T",
 				i, err, test.error, test.val, test.val)
+
 			continue
 		}
+
 		if err == nil && !bytes.Equal(output, unhex(test.output)) {
 			t.Errorf("test %d: output mismatch:\ngot   %X\nwant  %s\nvalue %#v\ntype  %T",
 				i, output, test.output, test.val, test.val)
@@ -392,6 +404,7 @@ func TestEncode(t *testing.T) {
 	runEncTests(t, func(val interface{}) ([]byte, error) {
 		b := new(bytes.Buffer)
 		err := Encode(b, val)
+
 		return b.Bytes(), err
 	})
 }
@@ -402,6 +415,7 @@ func TestEncodeToBytes(t *testing.T) {
 
 func TestEncodeAppendToBytes(t *testing.T) {
 	buffer := make([]byte, 20)
+
 	runEncTests(t, func(val interface{}) ([]byte, error) {
 		w := NewEncoderBuffer(nil)
 		defer w.Flush()
@@ -410,7 +424,9 @@ func TestEncodeAppendToBytes(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
+
 		output := w.AppendToBytes(buffer[:0])
+
 		return output, nil
 	})
 }
@@ -421,6 +437,7 @@ func TestEncodeToReader(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
+
 		return io.ReadAll(r)
 	})
 }
@@ -440,14 +457,17 @@ func TestEncodeToReaderPiecewise(t *testing.T) {
 			} else {
 				end = start + 3
 			}
+
 			n, err := r.Read(output[start:end])
 			end = start + n
+
 			if err == io.EOF {
 				break
 			} else if err != nil {
 				return nil, err
 			}
 		}
+
 		return output, nil
 	})
 }
@@ -457,8 +477,10 @@ func TestEncodeToReaderPiecewise(t *testing.T) {
 func TestEncodeToReaderReturnToPool(t *testing.T) {
 	buf := make([]byte, 50)
 	wg := new(sync.WaitGroup)
+
 	for i := 0; i < 5; i++ {
 		wg.Add(1)
+
 		go func() {
 			for i := 0; i < 1000; i++ {
 				_, r, _ := EncodeToReader("foo")
@@ -495,12 +517,15 @@ func BenchmarkEncodeBigInts(b *testing.B) {
 	for i := range ints {
 		ints[i] = new(big.Int).Exp(big.NewInt(2), big.NewInt(int64(i)), nil)
 	}
+
 	out := bytes.NewBuffer(make([]byte, 0, 4096))
+
 	b.ResetTimer()
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
 		out.Reset()
+
 		if err := Encode(out, ints); err != nil {
 			b.Fatal(err)
 		}
@@ -513,6 +538,7 @@ func BenchmarkEncodeConcurrentInterface(b *testing.B) {
 		B *big.Int
 		C [20]byte
 	}
+
 	value := []interface{}{
 		uint(999),
 		&struct1{A: "hello", B: big.NewInt(0xFFFFFFFF)},
@@ -521,14 +547,17 @@ func BenchmarkEncodeConcurrentInterface(b *testing.B) {
 	}
 
 	var wg sync.WaitGroup
+
 	for cpu := 0; cpu < runtime.NumCPU(); cpu++ {
 		wg.Add(1)
+
 		go func() {
 			defer wg.Done()
 
 			var buffer bytes.Buffer
 			for i := 0; i < b.N; i++ {
 				buffer.Reset()
+
 				err := Encode(&buffer, value)
 				if err != nil {
 					panic(err)
@@ -546,12 +575,16 @@ type byteArrayStruct struct {
 }
 
 func BenchmarkEncodeByteArrayStruct(b *testing.B) {
-	var out bytes.Buffer
-	var value byteArrayStruct
+	var (
+		out   bytes.Buffer
+		value byteArrayStruct
+	)
 
 	b.ReportAllocs()
+
 	for i := 0; i < b.N; i++ {
 		out.Reset()
+
 		if err := Encode(&out, &value); err != nil {
 			b.Fatal(err)
 		}
@@ -567,19 +600,23 @@ type structSliceElem struct {
 type structPtrSlice []*structSliceElem
 
 func BenchmarkEncodeStructPtrSlice(b *testing.B) {
-	var out bytes.Buffer
-	var value = structPtrSlice{
-		&structSliceElem{1, 1, 1},
-		&structSliceElem{2, 2, 2},
-		&structSliceElem{3, 3, 3},
-		&structSliceElem{5, 5, 5},
-		&structSliceElem{6, 6, 6},
-		&structSliceElem{7, 7, 7},
-	}
+	var (
+		out   bytes.Buffer
+		value = structPtrSlice{
+			&structSliceElem{1, 1, 1},
+			&structSliceElem{2, 2, 2},
+			&structSliceElem{3, 3, 3},
+			&structSliceElem{5, 5, 5},
+			&structSliceElem{6, 6, 6},
+			&structSliceElem{7, 7, 7},
+		}
+	)
 
 	b.ReportAllocs()
+
 	for i := 0; i < b.N; i++ {
 		out.Reset()
+
 		if err := Encode(&out, &value); err != nil {
 			b.Fatal(err)
 		}

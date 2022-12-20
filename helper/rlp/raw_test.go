@@ -54,6 +54,7 @@ func TestCountValues(t *testing.T) {
 		if count != test.count {
 			t.Errorf("test %d: count mismatch, got %d want %d\ninput: %s", i, count, test.count, test.input)
 		}
+
 		if !errors.Is(err, test.err) {
 			t.Errorf("test %d: err mismatch, got %q want %q\ninput: %s", i, err, test.err, test.input)
 		}
@@ -126,10 +127,12 @@ func TestSplitUint64(t *testing.T) {
 		if val != test.val {
 			t.Errorf("test %d: val mismatch: got %x, want %x (input %q)", i, val, test.val, test.input)
 		}
+
 		if !bytes.Equal(rest, unhex(test.rest)) {
 			t.Errorf("test %d: rest mismatch: got %x, want %s (input %q)", i, rest, test.rest, test.input)
 		}
-		if err != test.err {
+
+		if !errors.Is(err, test.err) {
 			t.Errorf("test %d: error mismatch: got %q, want %q", i, err, test.err)
 		}
 	}
@@ -207,13 +210,16 @@ func TestSplit(t *testing.T) {
 		if kind != test.kind {
 			t.Errorf("test %d: kind mismatch: got %v, want %v", i, kind, test.kind)
 		}
+
 		if !bytes.Equal(val, unhex(test.val)) {
 			t.Errorf("test %d: val mismatch: got %x, want %s", i, val, test.val)
 		}
+
 		if !bytes.Equal(rest, unhex(test.rest)) {
 			t.Errorf("test %d: rest mismatch: got %x, want %s", i, rest, test.rest)
 		}
-		if err != test.err {
+
+		if !errors.Is(err, test.err) {
 			t.Errorf("test %d: error mismatch: got %q, want %q", i, err, test.err)
 		}
 	}
@@ -251,10 +257,12 @@ func TestReadSize(t *testing.T) {
 
 	for _, test := range tests {
 		size, err := readSize(unhex(test.input), test.slen)
-		if err != test.err {
+		if !errors.Is(err, test.err) {
 			t.Errorf("readSize(%s, %d): error mismatch: got %q, want %q", test.input, test.slen, err, test.err)
+
 			continue
 		}
+
 		if size != test.size {
 			t.Errorf("readSize(%s, %d): size mismatch: got %#x, want %#x", test.input, test.slen, size, test.size)
 		}
@@ -296,9 +304,11 @@ func TestAppendUint64Random(t *testing.T) {
 	fn := func(i uint64) bool {
 		enc, _ := EncodeToBytes(i)
 		encAppend := AppendUint64(nil, i)
+
 		return bytes.Equal(enc, encAppend)
 	}
 	config := quick.Config{MaxCountScale: 50}
+
 	if err := quick.Check(fn, &config); err != nil {
 		t.Fatal(err)
 	}
@@ -325,6 +335,7 @@ func TestBytesSize(t *testing.T) {
 		if s != test.size {
 			t.Errorf("BytesSize(%#x) -> %d, want %d", test.v, s, test.size)
 		}
+
 		s = StringSize(string(test.v))
 		if s != test.size {
 			t.Errorf("StringSize(%#x) -> %d, want %d", test.v, s, test.size)

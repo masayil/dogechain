@@ -27,16 +27,17 @@ func typeReflectKind(typ types.Type) reflect.Kind {
 	switch typ := typ.(type) {
 	case *types.Basic:
 		k := typ.Kind()
-		if k >= types.Bool && k <= types.Complex128 {
+
+		switch {
+		case k >= types.Bool && k <= types.Complex128:
 			// value order matches for Bool..Complex128
 			return reflect.Bool + reflect.Kind(k-types.Bool)
-		}
-		if k == types.String {
+		case k == types.String:
 			return reflect.String
-		}
-		if k == types.UnsafePointer {
+		case k == types.UnsafePointer:
 			return reflect.UnsafePointer
 		}
+
 		panic(fmt.Errorf("unhandled BasicKind %v", k))
 	case *types.Array:
 		return reflect.Array
@@ -66,6 +67,7 @@ func nonZeroCheck(v string, vtyp types.Type, qualify types.Qualifier) string {
 	switch typ := typ.(type) {
 	case *types.Basic:
 		k := typ.Kind()
+
 		switch {
 		case k == types.Bool:
 			return v
@@ -93,13 +95,16 @@ func isBigInt(typ types.Type) bool {
 	if !ok {
 		return false
 	}
+
 	name := named.Obj()
+
 	return name.Pkg().Path() == "math/big" && name.Name() == "Int"
 }
 
 // isByte checks whether the underlying type of 'typ' is uint8.
 func isByte(typ types.Type) bool {
 	basic, ok := resolveUnderlying(typ).(*types.Basic)
+
 	return ok && basic.Kind() == types.Uint8
 }
 
@@ -109,6 +114,7 @@ func resolveUnderlying(typ types.Type) types.Type {
 		if t == typ {
 			return t
 		}
+
 		typ = t
 	}
 }

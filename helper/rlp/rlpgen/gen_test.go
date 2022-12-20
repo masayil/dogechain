@@ -31,9 +31,9 @@ import (
 
 // Package RLP is loaded only once and reused for all tests.
 var (
-	testFset       = token.NewFileSet()
-	testImporter   = importer.ForCompiler(testFset, "source", nil).(types.ImporterFrom)
-	testPackageRLP *types.Package
+	testFset        = token.NewFileSet()
+	testImporter, _ = importer.ForCompiler(testFset, "source", nil).(types.ImporterFrom)
+	testPackageRLP  *types.Package
 )
 
 func init() {
@@ -41,9 +41,10 @@ func init() {
 	if err != nil {
 		panic(err)
 	}
+
 	testPackageRLP, err = testImporter.ImportFrom(pathOfPackageRLP, cwd, 0)
 	if err != nil {
-		panic(fmt.Errorf("can't load package RLP: %v", err))
+		panic(fmt.Errorf("can't load package RLP: %w", err))
 	}
 }
 
@@ -87,11 +88,14 @@ func loadTestSource(file string, typeName string) (*buildContext, *types.Named, 
 	if err != nil {
 		return nil, nil, err
 	}
+
 	f, err := parser.ParseFile(testFset, file, content, 0)
 	if err != nil {
 		return nil, nil, err
 	}
+
 	conf := types.Config{Importer: testImporter}
+
 	pkg, err := conf.Check("test", testFset, []*ast.File{f}, nil)
 	if err != nil {
 		return nil, nil, err
@@ -99,9 +103,11 @@ func loadTestSource(file string, typeName string) (*buildContext, *types.Named, 
 
 	// Find the test struct.
 	bctx := newBuildContext(testPackageRLP)
+
 	typ, err := lookupStructType(pkg.Scope(), typeName)
 	if err != nil {
-		return nil, nil, fmt.Errorf("can't find type %s: %v", typeName, err)
+		return nil, nil, fmt.Errorf("can't find type %s: %w", typeName, err)
 	}
+
 	return bctx, typ, nil
 }

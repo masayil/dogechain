@@ -39,7 +39,8 @@ func ExampleEncoderBuffer() {
 	if err := buf.Flush(); err != nil {
 		panic(err)
 	}
-	fmt.Printf("%X\n", w.Bytes())
+
 	// Output:
 	// C404C20506
+	fmt.Printf("%X\n", w.Bytes())
 }

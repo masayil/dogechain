@@ -51,33 +51,41 @@ func TestStreamKind(t *testing.T) {
 	for i, test := range tests {
 		// using plainReader to inhibit input limit errors.
 		s := NewStream(newPlainReader(unhex(test.input)), 0)
-		kind, len, err := s.Kind()
+
+		kind, length, err := s.Kind()
 		if err != nil {
 			t.Errorf("test %d: Kind returned error: %v", i, err)
+
 			continue
 		}
+
 		if kind != test.wantKind {
 			t.Errorf("test %d: kind mismatch: got %d, want %d", i, kind, test.wantKind)
 		}
-		if len != test.wantLen {
-			t.Errorf("test %d: len mismatch: got %d, want %d", i, len, test.wantLen)
+
+		if length != test.wantLen {
+			t.Errorf("test %d: len mismatch: got %d, want %d", i, length, test.wantLen)
 		}
 	}
 }
 
 func TestNewListStream(t *testing.T) {
 	ls := NewListStream(bytes.NewReader(unhex("0101010101")), 3)
+
 	if k, size, err := ls.Kind(); k != List || size != 3 || err != nil {
 		t.Errorf("Kind() returned (%v, %d, %v), expected (List, 3, nil)", k, size, err)
 	}
+
 	if size, err := ls.List(); size != 3 || err != nil {
 		t.Errorf("List() returned (%d, %v), expected (3, nil)", size, err)
 	}
+
 	for i := 0; i < 3; i++ {
 		if val, err := ls.Uint(); val != 1 || err != nil {
 			t.Errorf("Uint() returned (%d, %v), expected (1, nil)", val, err)
 		}
 	}
+
 	if err := ls.ListEnd(); err != nil {
 		t.Errorf("ListEnd() returned %v, expected (3, nil)", err)
 	}
@@ -94,6 +102,7 @@ func TestStreamErrors(t *testing.T) {
 	}
 
 	type calls []string
+
 	tests := []struct {
 		string
 		calls
@@ -193,6 +202,8 @@ func TestStreamErrors(t *testing.T) {
 		}, nil, EOL},
 	}
 
+	const nilVal = "<nil>"
+
 testfor:
 	for i, test := range tests {
 		if test.newStream == nil {
@@ -203,12 +214,15 @@ testfor:
 		for j, call := range test.calls {
 			fval := rs.MethodByName(call)
 			ret := fval.Call(nil)
-			err := "<nil>"
+			err := nilVal
+
 			if lastret := ret[len(ret)-1].Interface(); lastret != nil {
+				//nolint:forcetypeassert
 				err = lastret.(error).Error()
 			}
+
 			if j == len(test.calls)-1 {
-				want := "<nil>"
+				want := nilVal
 				if test.error != nil {
 					want = test.error.Error()
 				}
@@ -217,9 +231,10 @@ testfor:
 					t.Errorf("test %d: last call (%s) error mismatch\ngot:  %s\nwant: %s",
 						i, call, err, test.error)
 				}
-			} else if err != "<nil>" {
+			} else if err != nilVal {
 				t.Log(test)
 				t.Errorf("test %d: call %d (%s) unexpected error: %q", i, j, call, err)
+
 				continue testfor
 			}
 		}
@@ -229,12 +244,13 @@ testfor:
 func TestStreamList(t *testing.T) {
 	s := NewStream(bytes.NewReader(unhex("C80102030405060708")), 0)
 
-	len, err := s.List()
+	length, err := s.List()
 	if err != nil {
 		t.Fatalf("List error: %v", err)
 	}
-	if len != 8 {
-		t.Fatalf("List returned invalid length, got %d, want 8", len)
+
+	if length != 8 {
+		t.Fatalf("List returned invalid length, got %d, want 8", length)
 	}
 
 	for i := uint64(1); i <= 8; i++ {
@@ -242,14 +258,16 @@ func TestStreamList(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Uint error: %v", err)
 		}
+
 		if i != v {
 			t.Errorf("Uint returned wrong value, got %d, want %d", v, i)
 		}
 	}
 
-	if _, err := s.Uint(); err != EOL {
+	if _, err := s.Uint(); !errors.Is(err, EOL) {
 		t.Errorf("Uint error mismatch, got %v, want %v", err, EOL)
 	}
+
 	if err = s.ListEnd(); err != nil {
 		t.Fatalf("ListEnd error: %v", err)
 	}
@@ -274,10 +292,12 @@ func TestStreamRaw(t *testing.T) {
 		s.List()
 
 		want := unhex(tt.output)
+
 		raw, err := s.Raw()
 		if err != nil {
 			t.Fatal(err)
 		}
+
 		if !bytes.Equal(want, raw) {
 			t.Errorf("test %d: raw mismatch: got %x, want %x", i, raw, want)
 		}
@@ -328,16 +348,16 @@ func TestStreamReadBytes(t *testing.T) {
 func TestDecodeErrors(t *testing.T) {
 	r := bytes.NewReader(nil)
 
-	if err := Decode(r, nil); err != errDecodeIntoNil {
+	if err := Decode(r, nil); !errors.Is(err, errDecodeIntoNil) {
 		t.Errorf("Decode(r, nil) error mismatch, got %q, want %q", err, errDecodeIntoNil)
 	}
 
 	var nilptr *struct{}
-	if err := Decode(r, nilptr); err != errDecodeIntoNil {
+	if err := Decode(r, nilptr); !errors.Is(err, errDecodeIntoNil) {
 		t.Errorf("Decode(r, nilptr) error mismatch, got %q, want %q", err, errDecodeIntoNil)
 	}
 
-	if err := Decode(r, struct{}{}); err != errNoPointer {
+	if err := Decode(r, struct{}{}); !errors.Is(err, errNoPointer) {
 		t.Errorf("Decode(r, struct{}{}) error mismatch, got %q, want %q", err, errNoPointer)
 	}
 
@@ -346,7 +366,7 @@ func TestDecodeErrors(t *testing.T) {
 		t.Errorf("Decode(r, new(chan bool)) error mismatch, got %q, want %q", err, expectErr)
 	}
 
-	if err := Decode(r, new(uint)); err != io.EOF {
+	if err := Decode(r, new(uint)); !errors.Is(err, io.EOF) {
 		t.Errorf("Decode(r, new(int)) error mismatch, got %q, want %q", err, io.EOF)
 	}
 }
@@ -665,6 +685,7 @@ var decodeTests = []decodeTest{
 		ptr:   new(nilListUint),
 		value: func() interface{} {
 			v := uint(3)
+
 			return nilListUint{X: &v}
 		}(),
 	},
@@ -856,23 +877,31 @@ var decodeTests = []decodeTest{
 func uintp(i uint) *uint { return &i }
 
 func runTests(t *testing.T, decode func([]byte, interface{}) error) {
+	t.Helper()
+
 	for i, test := range decodeTests {
 		input, err := hex.DecodeString(test.input)
 		if err != nil {
 			t.Errorf("test %d: invalid hex input %q", i, test.input)
+
 			continue
 		}
+
 		err = decode(input, test.ptr)
 		if err != nil && test.error == "" {
 			t.Errorf("test %d: unexpected Decode error: %v\ndecoding into %T\ninput %q",
 				i, err, test.ptr, test.input)
+
 			continue
 		}
+
 		if test.error != "" && fmt.Sprint(err) != test.error {
 			t.Errorf("test %d: Decode error mismatch\ngot  %v\nwant %v\ndecoding into %T\ninput %q",
 				i, err, test.error, test.ptr, test.input)
+
 			continue
 		}
+
 		deref := reflect.ValueOf(test.ptr).Elem().Interface()
 		if err == nil && !reflect.DeepEqual(deref, test.value) {
 			t.Errorf("test %d: value mismatch\ngot  %#v\nwant %#v\ndecoding into %T\ninput %q",
@@ -888,13 +917,18 @@ func TestDecodeWithByteReader(t *testing.T) {
 }
 
 func testDecodeWithEncReader(t *testing.T, n int) {
+	t.Helper()
+
 	s := strings.Repeat("0", n)
 	_, r, _ := EncodeToReader(s)
+
 	var decoded string
+
 	err := Decode(r, &decoded)
 	if err != nil {
 		t.Errorf("Unexpected decode error with n=%v: %v", n, err)
 	}
+
 	if decoded != s {
 		t.Errorf("Decode mismatch with n=%v", n)
 	}
@@ -921,8 +955,10 @@ func (r *plainReader) Read(buf []byte) (n int, err error) {
 	if len(*r) == 0 {
 		return 0, io.EOF
 	}
+
 	n = copy(buf, *r)
 	*r = (*r)[n:]
+
 	return n, nil
 }
 
@@ -934,8 +970,10 @@ func TestDecodeWithNonByteReader(t *testing.T) {
 
 func TestDecodeStreamReset(t *testing.T) {
 	s := NewStream(nil, 0)
+
 	runTests(t, func(input []byte, into interface{}) error {
 		s.Reset(bytes.NewReader(input), 0)
+
 		return s.Decode(into)
 	})
 }
@@ -946,7 +984,9 @@ func (t *testDecoder) DecodeRLP(s *Stream) error {
 	if _, err := s.Uint(); err != nil {
 		return err
 	}
+
 	t.called = true
+
 	return nil
 }
 
@@ -956,6 +996,7 @@ func TestDecodeDecoder(t *testing.T) {
 		T2 *testDecoder
 		T3 **testDecoder
 	}
+
 	if err := Decode(bytes.NewReader(unhex("C3010203")), &s); err != nil {
 		t.Fatalf("Decode error: %v", err)
 	}
@@ -982,12 +1023,15 @@ func TestDecodeDecoderNilPointer(t *testing.T) {
 		T1 *testDecoder `rlp:"nil"`
 		T2 *testDecoder
 	}
+
 	if err := Decode(bytes.NewReader(unhex("C2C002")), &s); err != nil {
 		t.Fatalf("Decode error: %v", err)
 	}
+
 	if s.T1 != nil {
 		t.Errorf("decoder T1 allocated for empty input (called: %v)", s.T1.called)
 	}
+
 	if s.T2 == nil || !s.T2.called {
 		t.Errorf("decoder T2 not allocated/called")
 	}
@@ -998,6 +1042,7 @@ type byteDecoder byte
 func (bd *byteDecoder) DecodeRLP(s *Stream) error {
 	_, err := s.Uint()
 	*bd = 255
+
 	return err
 }
 
@@ -1029,10 +1074,13 @@ func (f *unencodableDecoder) DecodeRLP(s *Stream) error {
 	if _, err := s.List(); err != nil {
 		return err
 	}
+
 	if err := s.ListEnd(); err != nil {
 		return err
 	}
+
 	*f = func() {}
+
 	return nil
 }
 
@@ -1041,6 +1089,7 @@ func TestDecoderFunc(t *testing.T) {
 	if err := DecodeBytes([]byte{0xC0}, (*unencodableDecoder)(&x)); err != nil {
 		t.Fatal(err)
 	}
+
 	x()
 }
 
@@ -1086,14 +1135,15 @@ func ExampleDecode() {
 	}
 
 	var s example
+
 	err := Decode(bytes.NewReader(input), &s)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 	} else {
+		// Output:
+		// Decoded value: rlp.example{A:0xa, B:0x14, String:"foobar"}
 		fmt.Printf("Decoded value: %#v\n", s)
 	}
-	// Output:
-	// Decoded value: rlp.example{A:0xa, B:0x14, String:"foobar"}
 }
 
 func ExampleDecode_structTagNil() {
@@ -1107,6 +1157,7 @@ func ExampleDecode_structTagNil() {
 	var normalRules struct {
 		String *string
 	}
+
 	Decode(bytes.NewReader(input), &normalRules)
 	fmt.Printf("normal: String = %q\n", *normalRules.String)
 
@@ -1115,6 +1166,7 @@ func ExampleDecode_structTagNil() {
 	var withEmptyOK struct {
 		String *string `rlp:"nil"`
 	}
+
 	Decode(bytes.NewReader(input), &withEmptyOK)
 	fmt.Printf("with nil tag: String = %v\n", withEmptyOK.String)
 
@@ -1134,6 +1186,7 @@ func ExampleStream() {
 	// Enter the list
 	if _, err := s.List(); err != nil {
 		fmt.Printf("List error: %v\n", err)
+
 		return
 	}
 
@@ -1161,7 +1214,9 @@ func BenchmarkDecodeUints(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		var s []uint
+
 		r := bytes.NewReader(enc)
+
 		if err := Decode(r, &s); err != nil {
 			b.Fatalf("Decode error: %v", err)
 		}
@@ -1175,6 +1230,7 @@ func BenchmarkDecodeUintsReused(b *testing.B) {
 	b.ResetTimer()
 
 	var s []uint
+
 	for i := 0; i < b.N; i++ {
 		r := bytes.NewReader(enc)
 		if err := Decode(r, &s); err != nil {
@@ -1188,11 +1244,13 @@ func BenchmarkDecodeByteArrayStruct(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
+
 	b.SetBytes(int64(len(enc)))
 	b.ReportAllocs()
 	b.ResetTimer()
 
 	var out byteArrayStruct
+
 	for i := 0; i < b.N; i++ {
 		if err := DecodeBytes(enc, &out); err != nil {
 			b.Fatal(err)
@@ -1206,15 +1264,18 @@ func BenchmarkDecodeBigInts(b *testing.B) {
 		// 2 ^ i
 		ints[i] = new(big.Int).Exp(big.NewInt(2), big.NewInt(int64(i)), nil)
 	}
+
 	enc, err := EncodeToBytes(ints)
 	if err != nil {
 		b.Fatal(err)
 	}
+
 	b.SetBytes(int64(len(enc)))
 	b.ReportAllocs()
 	b.ResetTimer()
 
 	var out []*big.Int
+
 	for i := 0; i < b.N; i++ {
 		if err := DecodeBytes(enc, &out); err != nil {
 			b.Fatal(err)
@@ -1227,10 +1288,12 @@ func encodeTestSlice(n uint) []byte {
 	for i := uint(0); i < n; i++ {
 		s[i] = i
 	}
+
 	b, err := EncodeToBytes(s)
 	if err != nil {
 		panic(fmt.Sprintf("encode error: %v", err))
 	}
+
 	return b
 }
 
@@ -1239,5 +1302,6 @@ func unhex(str string) []byte {
 	if err != nil {
 		panic(fmt.Sprintf("invalid hex string: %q", str))
 	}
+
 	return b
 }

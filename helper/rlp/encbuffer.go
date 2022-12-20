@@ -36,8 +36,9 @@ var encBufferPool = sync.Pool{
 }
 
 func getEncBuffer() *encBuffer {
-	buf := encBufferPool.Get().(*encBuffer)
+	buf, _ := encBufferPool.Get().(*encBuffer)
 	buf.reset()
+
 	return buf
 }
 
@@ -53,18 +54,20 @@ func (buf *encBuffer) size() int {
 }
 
 // makeBytes creates the encoder output.
-func (w *encBuffer) makeBytes() []byte {
-	out := make([]byte, w.size())
-	w.copyTo(out)
+func (buf *encBuffer) makeBytes() []byte {
+	out := make([]byte, buf.size())
+	buf.copyTo(out)
+
 	return out
 }
 
-func (w *encBuffer) copyTo(dst []byte) {
+func (buf *encBuffer) copyTo(dst []byte) {
 	strpos := 0
 	pos := 0
-	for _, head := range w.lheads {
+
+	for _, head := range buf.lheads {
 		// write string data before header
-		n := copy(dst[pos:], w.str[strpos:head.offset])
+		n := copy(dst[pos:], buf.str[strpos:head.offset])
 		pos += n
 		strpos += n
 		// write the header
@@ -72,17 +75,19 @@ func (w *encBuffer) copyTo(dst []byte) {
 		pos += len(enc)
 	}
 	// copy string data after the last list header
-	copy(dst[pos:], w.str[strpos:])
+	copy(dst[pos:], buf.str[strpos:])
 }
 
 // writeTo writes the encoder output to w.
 func (buf *encBuffer) writeTo(w io.Writer) (err error) {
 	strpos := 0
+
 	for _, head := range buf.lheads {
 		// write string data before header
 		if head.offset-strpos > 0 {
 			n, err := w.Write(buf.str[strpos:head.offset])
 			strpos += n
+
 			if err != nil {
 				return err
 			}
@@ -93,16 +98,19 @@ func (buf *encBuffer) writeTo(w io.Writer) (err error) {
 			return err
 		}
 	}
+
 	if strpos < len(buf.str) {
 		// write string data after the last list header
 		_, err = w.Write(buf.str[strpos:])
 	}
+
 	return err
 }
 
 // Write implements io.Writer and appends b directly to the output.
 func (buf *encBuffer) Write(b []byte) (int, error) {
 	buf.str = append(buf.str, b...)
+
 	return len(b), nil
 }
 
@@ -146,24 +154,29 @@ func (buf *encBuffer) writeString(s string) {
 const wordBytes = (32 << (uint64(^big.Word(0)) >> 63)) / 8
 
 // writeBigInt writes i as an integer.
-func (w *encBuffer) writeBigInt(i *big.Int) {
+func (buf *encBuffer) writeBigInt(i *big.Int) {
 	bitlen := i.BitLen()
 	if bitlen <= 64 {
-		w.writeUint64(i.Uint64())
+		buf.writeUint64(i.Uint64())
+
 		return
 	}
+
 	// Integer is larger than 64 bits, encode from i.Bits().
 	// The minimal byte length is bitlen rounded up to the next
 	// multiple of 8, divided by 8.
 	length := ((bitlen + 7) & -8) >> 3
-	w.encodeStringHeader(length)
-	w.str = append(w.str, make([]byte, length)...)
+	buf.encodeStringHeader(length)
+	buf.str = append(buf.str, make([]byte, length)...)
 	index := length
-	buf := w.str[len(w.str)-length:]
+	sbuf := buf.str[len(buf.str)-length:]
+
 	for _, d := range i.Bits() {
 		for j := 0; j < wordBytes && index > 0; j++ {
 			index--
-			buf[index] = byte(d)
+
+			sbuf[index] = byte(d)
+
 			d >>= 8
 		}
 	}
@@ -173,11 +186,13 @@ func (w *encBuffer) writeBigInt(i *big.Int) {
 // Call listEnd with this index after encoding the content of the list.
 func (buf *encBuffer) list() int {
 	buf.lheads = append(buf.lheads, listhead{offset: len(buf.str), size: buf.lhsize})
+
 	return len(buf.lheads) - 1
 }
 
 func (buf *encBuffer) listEnd(index int) {
 	lh := &buf.lheads[index]
+
 	lh.size = buf.size() - lh.offset - lh.size
 	if lh.size < 56 {
 		buf.lhsize++ // length encoded into kind tag
@@ -188,10 +203,12 @@ func (buf *encBuffer) listEnd(index int) {
 
 func (buf *encBuffer) encode(val interface{}) error {
 	rval := reflect.ValueOf(val)
+
 	writer, err := cachedWriter(rval.Type())
 	if err != nil {
 		return err
 	}
+
 	return writer(rval, buf)
 }
 
@@ -224,15 +241,20 @@ func (r *encReader) Read(b []byte) (n int, err error) {
 				encBufferPool.Put(r.buf)
 				r.buf = nil
 			}
+
 			return n, io.EOF
 		}
+
 		nn := copy(b[n:], r.piece)
 		n += nn
+
 		if nn < len(r.piece) {
 			// piece didn't fit, see you next time.
 			r.piece = r.piece[nn:]
+
 			return n, nil
 		}
+
 		r.piece = nil
 	}
 }
@@ -251,20 +273,25 @@ func (r *encReader) next() []byte {
 	case r.lhpos < len(r.buf.lheads):
 		// We're before the last list header.
 		head := r.buf.lheads[r.lhpos]
+
 		sizebefore := head.offset - r.strpos
 		if sizebefore > 0 {
 			// String data before header.
 			p := r.buf.str[r.strpos:head.offset]
 			r.strpos += sizebefore
+
 			return p
 		}
+
 		r.lhpos++
+
 		return head.encode(r.buf.sizebuf[:])
 
 	case r.strpos < len(r.buf.str):
 		// String data at the end, after all list headers.
 		p := r.buf.str[r.strpos:]
 		r.strpos = len(r.buf.str)
+
 		return p
 
 	default:
@@ -299,7 +326,9 @@ type EncoderBuffer struct {
 // NewEncoderBuffer creates an encoder buffer.
 func NewEncoderBuffer(dst io.Writer) EncoderBuffer {
 	var w EncoderBuffer
+
 	w.Reset(dst)
+
 	return w
 }
 
@@ -314,15 +343,17 @@ func (w *EncoderBuffer) Reset(dst io.Writer) {
 	if dst != nil {
 		if outer := encBufferFromWriter(dst); outer != nil {
 			*w = EncoderBuffer{outer, nil, false}
+
 			return
 		}
 	}
 
 	// Get a fresh buffer.
 	if w.buf == nil {
-		w.buf = encBufferPool.Get().(*encBuffer)
+		w.buf, _ = encBufferPool.Get().(*encBuffer)
 		w.ownBuffer = true
 	}
+
 	w.buf.reset()
 	w.dst = dst
 }
@@ -331,6 +362,7 @@ func (w *EncoderBuffer) Reset(dst io.Writer) {
 // If you want to re-use the buffer after Flush, you must call Reset.
 func (w *EncoderBuffer) Flush() error {
 	var err error
+
 	if w.dst != nil {
 		err = w.buf.writeTo(w.dst)
 	}
@@ -338,7 +370,9 @@ func (w *EncoderBuffer) Flush() error {
 	if w.ownBuffer {
 		encBufferPool.Put(w.buf)
 	}
+
 	*w = EncoderBuffer{}
+
 	return err
 }
 
@@ -352,6 +386,7 @@ func (w *EncoderBuffer) AppendToBytes(dst []byte) []byte {
 	size := w.buf.size()
 	out := append(dst, make([]byte, size)...)
 	w.buf.copyTo(out[len(dst):])
+
 	return out
 }
 

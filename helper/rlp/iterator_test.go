@@ -55,10 +55,12 @@ func TestIterator(t *testing.T) {
 	}
 
 	var i = 0
+
 	for txit.Next() {
 		if txit.err != nil {
 			t.Fatal(txit.err)
 		}
+
 		i++
 	}
 

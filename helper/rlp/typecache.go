@@ -17,6 +17,7 @@
 package rlp
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"sync"
@@ -57,21 +58,25 @@ type typeCache struct {
 func newTypeCache() *typeCache {
 	c := new(typeCache)
 	c.cur.Store(make(map[typekey]*typeinfo))
+
 	return c
 }
 
 func cachedDecoder(typ reflect.Type) (decoder, error) {
 	info := theTC.info(typ)
+
 	return info.decoder, info.decoderErr
 }
 
 func cachedWriter(typ reflect.Type) (writer, error) {
 	info := theTC.info(typ)
+
 	return info.writer, info.writerErr
 }
 
 func (c *typeCache) info(typ reflect.Type) *typeinfo {
 	key := typekey{Type: typ}
+	//nolint:forcetypeassert
 	if info := c.cur.Load().(map[typekey]*typeinfo)[key]; info != nil {
 		return info
 	}
@@ -84,7 +89,7 @@ func (c *typeCache) generate(typ reflect.Type, tags rlpstruct.Tags) *typeinfo {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	cur := c.cur.Load().(map[typekey]*typeinfo)
+	cur, _ := c.cur.Load().(map[typekey]*typeinfo)
 	if info := cur[typekey{typ, tags}]; info != nil {
 		return info
 	}
@@ -101,6 +106,7 @@ func (c *typeCache) generate(typ reflect.Type, tags rlpstruct.Tags) *typeinfo {
 	// next -> cur
 	c.cur.Store(c.next)
 	c.next = nil
+
 	return info
 }
 
@@ -115,6 +121,7 @@ func (c *typeCache) infoWhileGenerating(typ reflect.Type, tags rlpstruct.Tags) *
 	info := new(typeinfo)
 	c.next[key] = info
 	info.generate(typ, tags)
+
 	return info
 }
 
@@ -127,9 +134,11 @@ type field struct {
 // structFields resolves the typeinfo of all public fields in a struct type.
 func structFields(typ reflect.Type) (fields []field, err error) {
 	// Convert fields to rlpstruct.Field.
-	var allStructFields []rlpstruct.Field
+	var allStructFields = make([]rlpstruct.Field, 0, typ.NumField())
+
 	for i := 0; i < typ.NumField(); i++ {
 		rf := typ.Field(i)
+
 		allStructFields = append(allStructFields, rlpstruct.Field{
 			Name:     rf.Name,
 			Index:    i,
@@ -142,10 +151,13 @@ func structFields(typ reflect.Type) (fields []field, err error) {
 	// Filter/validate fields.
 	structFields, structTags, err := rlpstruct.ProcessFields(allStructFields)
 	if err != nil {
-		if tagErr, ok := err.(rlpstruct.TagError); ok {
+		var tagErr *rlpstruct.TagError
+		if errors.As(err, &tagErr) {
 			tagErr.StructType = typ.String()
+
 			return nil, tagErr
 		}
+
 		return nil, err
 	}
 
@@ -156,6 +168,7 @@ func structFields(typ reflect.Type) (fields []field, err error) {
 		info := theTC.infoWhileGenerating(typ, tags)
 		fields = append(fields, field{sf.Index, info, tags.Optional})
 	}
+
 	return fields, nil
 }
 
@@ -166,6 +179,7 @@ func firstOptionalField(fields []field) int {
 			return i
 		}
 	}
+
 	return len(fields)
 }
 
@@ -194,6 +208,7 @@ func rtypeToStructType(typ reflect.Type, rec map[reflect.Type]*rlpstruct.Type) *
 	if prev := rec[typ]; prev != nil {
 		return prev // short-circuit for recursive types
 	}
+
 	if rec == nil {
 		rec = make(map[reflect.Type]*rlpstruct.Type)
 	}
@@ -204,10 +219,12 @@ func rtypeToStructType(typ reflect.Type, rec map[reflect.Type]*rlpstruct.Type) *
 		IsEncoder: typ.Implements(encoderInterface),
 		IsDecoder: typ.Implements(decoderInterface),
 	}
+
 	rec[typ] = t
 	if k == reflect.Array || k == reflect.Slice || k == reflect.Ptr {
 		t.Elem = rtypeToStructType(typ.Elem(), rec)
 	}
+
 	return t
 }
 
@@ -221,6 +238,7 @@ func typeNilKind(typ reflect.Type, tags rlpstruct.Tags) Kind {
 	} else {
 		nk = styp.DefaultNilValue()
 	}
+
 	switch nk {
 	case rlpstruct.NilKindString:
 		return String
