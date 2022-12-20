@@ -5,25 +5,17 @@ import (
 
 	"github.com/dogechain-lab/dogechain/helper/hex"
 	"github.com/dogechain-lab/dogechain/helper/kvdb"
+	"github.com/dogechain-lab/dogechain/helper/kvdb/leveldb"
 	"github.com/dogechain-lab/fastrlp"
 )
 
 var parserPool fastrlp.ParserPool
 
-// Storage stores the trie
-type StorageReader interface {
-	Get(k []byte) ([]byte, bool, error)
-}
+type StorageReader kvdb.KVReader
+type StorageWriter kvdb.KVWriter
+type Batch kvdb.Batch
 
-type StorageWriter interface {
-	Set(k, v []byte) error
-}
-
-type Batch interface {
-	StorageWriter
-
-	Commit() error
-}
+// type Storage kvdb.KVBatchStorage
 
 // Storage stores the trie
 type Storage interface {
@@ -35,7 +27,7 @@ type Storage interface {
 }
 
 type kvStorageBatch struct {
-	batch kvdb.Batch
+	batch Batch
 }
 
 func (kvBatch *kvStorageBatch) Set(k, v []byte) error {
@@ -44,14 +36,38 @@ func (kvBatch *kvStorageBatch) Set(k, v []byte) error {
 	return nil
 }
 
-func (kvBatch *kvStorageBatch) Commit() error {
+// func (kvBatch *kvStorageBatch) Delete(k []byte) error {
+// 	return kvBatch.batch.Delete(k)
+// }
+
+// // ValueSize retrieves the amount of data queued up for writing.
+// func (kvBatch *kvStorageBatch) ValueSize() int {
+// 	return kvBatch.batch.ValueSize()
+// }
+
+// Write flushes any accumulated data to disk.
+func (kvBatch *kvStorageBatch) Write() error {
 	return kvBatch.batch.Write()
 }
+
+// // Reset resets the batch for reuse.
+// func (kvBatch *kvStorageBatch) Reset() {
+// 	kvBatch.batch.Reset()
+// }
+
+// // Replay replays the batch contents.
+// func (kvBatch *kvStorageBatch) Replay(w kvdb.KVWriter) error {
+// 	return kvBatch.batch.Replay(w)
+// }
 
 // wrap generic kvdb storage to implement Storage interface
 type kvStorage struct {
 	db kvdb.KVBatchStorage
 }
+
+// func (kv *kvStorage) Has(k []byte) (bool, error) {
+// 	return kv.db.Has(k)
+// }
 
 func (kv *kvStorage) Get(k []byte) ([]byte, bool, error) {
 	return kv.db.Get(k)
@@ -60,6 +76,10 @@ func (kv *kvStorage) Get(k []byte) ([]byte, bool, error) {
 func (kv *kvStorage) Set(k, v []byte) error {
 	return kv.db.Set(k, v)
 }
+
+// func (kv *kvStorage) Delete(k []byte) error {
+// 	return kv.db.Delete(k)
+// }
 
 func (kv *kvStorage) NewBatch() Batch {
 	return &kvStorageBatch{
@@ -71,7 +91,7 @@ func (kv *kvStorage) Close() error {
 	return kv.db.Close()
 }
 
-func NewLevelDBStorage(leveldbBuilder kvdb.LevelDBBuilder) (Storage, error) {
+func NewLevelDBStorage(leveldbBuilder leveldb.Builder) (Storage, error) {
 	db, err := leveldbBuilder.Build()
 	if err != nil {
 		return nil, err
@@ -80,12 +100,16 @@ func NewLevelDBStorage(leveldbBuilder kvdb.LevelDBBuilder) (Storage, error) {
 	return &kvStorage{db: db}, nil
 }
 
-type memStorage struct {
-	db map[string][]byte
+// memkeyvalue is a key-value tuple tagged with a deletion field to allow creating
+// memory-database write batches.
+type memkeyvalue struct {
+	key    []byte
+	value  []byte
+	delete bool
 }
 
-type memBatch struct {
-	db *map[string][]byte
+type memStorage struct {
+	db map[string][]byte
 }
 
 // NewMemoryStorage creates an inmemory trie storage
@@ -101,6 +125,18 @@ func (m *memStorage) Set(p []byte, v []byte) error {
 	return nil
 }
 
+func (m *memStorage) Delete(p []byte) error {
+	delete(m.db, hex.EncodeToHex(p))
+
+	return nil
+}
+
+func (m *memStorage) Has(p []byte) (bool, error) {
+	_, ok := m.db[hex.EncodeToHex(p)]
+
+	return ok, nil
+}
+
 func (m *memStorage) Get(p []byte) ([]byte, bool, error) {
 	v, ok := m.db[hex.EncodeToHex(p)]
 	if !ok {
@@ -111,24 +147,54 @@ func (m *memStorage) Get(p []byte) ([]byte, bool, error) {
 }
 
 func (m *memStorage) NewBatch() Batch {
-	return &memBatch{db: &m.db}
+	return &memBatch{db: m}
 }
 
 func (m *memStorage) Close() error {
 	return nil
 }
 
+// memBatch is a write-only memory batch that commits changes to its host
+// database when Write is called. A batch cannot be used concurrently.
+type memBatch struct {
+	db     *memStorage
+	writes []memkeyvalue
+	size   int
+}
+
 func (m *memBatch) Set(p, v []byte) error {
 	buf := make([]byte, len(v))
 	copy(buf[:], v[:])
-	(*m.db)[hex.EncodeToHex(p)] = buf
+	(*&m.db.db)[hex.EncodeToHex(p)] = buf
 
 	return nil
 }
 
-func (m *memBatch) Commit() error {
+func (m *memBatch) Delete(p []byte) error {
+	delete(m.db.db, hex.EncodeToHex(p))
+
 	return nil
 }
+
+// // ValueSize retrieves the amount of data queued up for writing.
+// func (m *memBatch) ValueSize() int {
+// 	return 0
+// }
+
+// Write flushes any accumulated data to disk.
+func (m *memBatch) Write() error {
+	return nil
+}
+
+// // Reset resets the batch for reuse.
+// func (m *memBatch) Reset() {
+
+// }
+
+// // Replay replays the batch contents.
+// func (m *memBatch) Replay(w kvdb.KVWriter) error {
+// 	return nil
+// }
 
 // GetNode retrieves a node from storage
 func GetNode(root []byte, storage StorageReader) (Node, bool, error) {

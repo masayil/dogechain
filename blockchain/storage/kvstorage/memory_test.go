@@ -17,5 +17,6 @@ func TestMemoryStorage(t *testing.T) {
 
 		return s, func() {}
 	}
+
 	storage.TestStorage(t, f)
 }

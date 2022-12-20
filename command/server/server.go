@@ -13,7 +13,7 @@ import (
 	"github.com/dogechain-lab/dogechain/command/helper"
 	"github.com/dogechain-lab/dogechain/crypto"
 	"github.com/dogechain-lab/dogechain/helper/daemon"
-	"github.com/dogechain-lab/dogechain/helper/kvdb"
+	"github.com/dogechain-lab/dogechain/helper/kvdb/leveldb"
 	"github.com/dogechain-lab/dogechain/network"
 	"github.com/dogechain-lab/dogechain/server"
 	"github.com/dogechain-lab/dogechain/txpool"
@@ -134,42 +134,42 @@ func setFlags(cmd *cobra.Command) {
 		cmd.Flags().IntVar(
 			&params.leveldbCacheSize,
 			leveldbCacheFlag,
-			kvdb.DefaultLevelDBCache,
+			leveldb.DefaultCache,
 			"the size of the leveldb cache in MB",
 		)
 
 		cmd.Flags().IntVar(
 			&params.leveldbHandles,
 			leveldbHandlesFlag,
-			kvdb.DefaultLevelDBHandles,
+			leveldb.DefaultHandles,
 			"the number of handles to leveldb open files",
 		)
 
 		cmd.Flags().IntVar(
 			&params.leveldbBloomKeyBits,
 			leveldbBloomKeyBitsFlag,
-			kvdb.DefaultLevelDBBloomKeyBits,
+			leveldb.DefaultBloomKeyBits,
 			"the bits of leveldb bloom filters",
 		)
 
 		cmd.Flags().IntVar(
 			&params.leveldbTableSize,
 			leveldbTableSizeFlag,
-			kvdb.DefaultLevelDBCompactionTableSize,
+			leveldb.DefaultCompactionTableSize,
 			"the leveldb 'sorted table' size in MB",
 		)
 
 		cmd.Flags().IntVar(
 			&params.leveldbTotalTableSize,
 			leveldbTotalTableSizeFlag,
-			kvdb.DefaultLevelDBCompactionTotalSize,
+			leveldb.DefaultCompactionTotalSize,
 			"limits leveldb total size of 'sorted table' for each level in MB",
 		)
 
 		cmd.Flags().BoolVar(
 			&params.leveldbNoSync,
 			leveldbNoSyncFlag,
-			kvdb.DefaultLevelDBNoSync,
+			leveldb.DefaultNoSyncFlag,
 			"leveldb nosync allows completely disable fsync",
 		)
 	}

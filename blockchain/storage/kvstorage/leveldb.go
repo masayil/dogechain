@@ -2,13 +2,13 @@ package kvstorage
 
 import (
 	"github.com/dogechain-lab/dogechain/blockchain/storage"
-	"github.com/dogechain-lab/dogechain/helper/kvdb"
+	"github.com/dogechain-lab/dogechain/helper/kvdb/leveldb"
 	"github.com/hashicorp/go-hclog"
 )
 
 type leveldbStorageBuilder struct {
 	logger         hclog.Logger
-	leveldbBuilder kvdb.LevelDBBuilder
+	leveldbBuilder leveldb.Builder
 }
 
 func (builder *leveldbStorageBuilder) Build() (storage.Storage, error) {
@@ -21,7 +21,7 @@ func (builder *leveldbStorageBuilder) Build() (storage.Storage, error) {
 }
 
 // NewLevelDBStorageBuilder creates the new blockchain storage builder
-func NewLevelDBStorageBuilder(logger hclog.Logger, leveldbBuilder kvdb.LevelDBBuilder) storage.StorageBuilder {
+func NewLevelDBStorageBuilder(logger hclog.Logger, leveldbBuilder leveldb.Builder) storage.StorageBuilder {
 	return &leveldbStorageBuilder{
 		logger:         logger,
 		leveldbBuilder: leveldbBuilder,

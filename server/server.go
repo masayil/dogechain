@@ -20,7 +20,7 @@ import (
 	"github.com/dogechain-lab/dogechain/graphql"
 	"github.com/dogechain-lab/dogechain/helper/common"
 	"github.com/dogechain-lab/dogechain/helper/keccak"
-	"github.com/dogechain-lab/dogechain/helper/kvdb"
+	"github.com/dogechain-lab/dogechain/helper/kvdb/leveldb"
 	"github.com/dogechain-lab/dogechain/helper/progress"
 	"github.com/dogechain-lab/dogechain/jsonrpc"
 	"github.com/dogechain-lab/dogechain/network"
@@ -138,8 +138,8 @@ func newLoggerFromConfig(config *Config) (hclog.Logger, error) {
 	return newCLILogger(config), nil
 }
 
-func newLevelDBBuilder(logger hclog.Logger, config *Config, path string) kvdb.LevelDBBuilder {
-	leveldbBuilder := kvdb.NewLevelDBBuilder(
+func newLevelDBBuilder(logger hclog.Logger, config *Config, path string) leveldb.Builder {
+	leveldbBuilder := leveldb.NewBuilder(
 		logger,
 		path,
 	)

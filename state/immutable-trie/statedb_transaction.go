@@ -90,21 +90,21 @@ func byteKeyToTxnKey(k []byte) txnKey {
 	return txnKey(hex.EncodeToString(k))
 }
 
-func (tx *stateDBTxn) Has(k []byte) (bool, error) {
-	key := byteKeyToTxnKey(k)
+// func (tx *stateDBTxn) Has(k []byte) (bool, error) {
+// 	key := byteKeyToTxnKey(k)
 
-	tx.lock.Lock()
+// 	tx.lock.Lock()
 
-	if _, ok := tx.db[key]; ok {
-		tx.lock.Unlock()
+// 	if _, ok := tx.db[key]; ok {
+// 		tx.lock.Unlock()
 
-		return true, nil
-	}
+// 		return true, nil
+// 	}
 
-	tx.lock.Unlock()
+// 	tx.lock.Unlock()
 
-	return tx.stateDB.Has(k)
-}
+// 	return tx.stateDB.Has(k)
+// }
 
 func (tx *stateDBTxn) Get(k []byte) ([]byte, bool, error) {
 	key := byteKeyToTxnKey(k)
@@ -234,7 +234,7 @@ func (tx *stateDBTxn) Commit() error {
 
 	tx.lock.Unlock()
 
-	return batch.Commit()
+	return batch.Write()
 }
 
 // clear transaction data, set cancel flag

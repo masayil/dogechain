@@ -8,7 +8,7 @@ import (
 	"github.com/dogechain-lab/dogechain/blockchain/storage/kvstorage"
 	"github.com/dogechain-lab/dogechain/chain"
 	"github.com/dogechain-lab/dogechain/consensus"
-	"github.com/dogechain-lab/dogechain/helper/kvdb"
+	"github.com/dogechain-lab/dogechain/helper/kvdb/leveldb"
 	"github.com/dogechain-lab/dogechain/network"
 	"github.com/dogechain-lab/dogechain/secrets"
 	"github.com/dogechain-lab/dogechain/server"
@@ -20,8 +20,8 @@ import (
 	"github.com/dogechain-lab/dogechain/state/runtime/precompiled"
 )
 
-func newLevelDBBuilder(log hclog.Logger, path string) kvdb.LevelDBBuilder {
-	leveldbBuilder := kvdb.NewLevelDBBuilder(
+func newLevelDBBuilder(log hclog.Logger, path string) leveldb.Builder {
+	leveldbBuilder := leveldb.NewBuilder(
 		log,
 		path,
 	)

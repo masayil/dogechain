@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/dogechain-lab/dogechain/blockchain/storage"
-	"github.com/dogechain-lab/dogechain/helper/kvdb"
+	"github.com/dogechain-lab/dogechain/helper/kvdb/leveldb"
 	"github.com/hashicorp/go-hclog"
 )
 
@@ -20,7 +20,7 @@ func newLevelDBStorage(t *testing.T) (storage.Storage, func()) {
 	logger := hclog.NewNullLogger()
 
 	s, err := NewLevelDBStorageBuilder(
-		logger, kvdb.NewLevelDBBuilder(logger, path)).Build()
+		logger, leveldb.NewBuilder(logger, path)).Build()
 	if err != nil {
 		t.Fatal(err)
 	}

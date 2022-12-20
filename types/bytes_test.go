@@ -5,6 +5,21 @@ import (
 	"testing"
 )
 
+func TestCopyBytes(t *testing.T) {
+	input := []byte{1, 2, 3, 4}
+
+	v := CopyBytes(input)
+	if !bytes.Equal(v, []byte{1, 2, 3, 4}) {
+		t.Fatal("not equal after copy")
+	}
+
+	v[0] = 99
+
+	if bytes.Equal(v, input) {
+		t.Fatal("result is not a copy")
+	}
+}
+
 func TestStringToBytes(t *testing.T) {
 	t.Parallel()
 

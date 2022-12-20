@@ -28,10 +28,10 @@ type memoryKV struct {
 	db map[string][]byte
 }
 
-func (m *memoryKV) Set(p []byte, v []byte) error {
-	m.db[hex.EncodeToHex(p)] = v
+func (m *memoryKV) Has(p []byte) (bool, error) {
+	_, ok := m.db[hex.EncodeToHex(p)]
 
-	return nil
+	return ok, nil
 }
 
 func (m *memoryKV) Get(p []byte) ([]byte, bool, error) {
@@ -41,6 +41,18 @@ func (m *memoryKV) Get(p []byte) ([]byte, bool, error) {
 	}
 
 	return v, true, nil
+}
+
+func (m *memoryKV) Set(p []byte, v []byte) error {
+	m.db[hex.EncodeToHex(p)] = v
+
+	return nil
+}
+
+func (m *memoryKV) Delete(p []byte) error {
+	delete(m.db, hex.EncodeToHex(p))
+
+	return nil
 }
 
 func (m *memoryKV) Close() error {

@@ -7,7 +7,7 @@ import (
 
 	"github.com/dogechain-lab/dogechain/chain"
 	"github.com/dogechain-lab/dogechain/e2e/framework"
-	"github.com/dogechain-lab/dogechain/helper/kvdb"
+	"github.com/dogechain-lab/dogechain/helper/kvdb/leveldb"
 	"github.com/dogechain-lab/dogechain/reverify"
 	"github.com/hashicorp/go-hclog"
 	"github.com/stretchr/testify/assert"
@@ -43,7 +43,7 @@ func TestReverify(t *testing.T) {
 	time.Sleep(time.Second * 2)
 
 	// open trie database
-	leveldbBuilder := kvdb.NewLevelDBBuilder(
+	leveldbBuilder := leveldb.NewBuilder(
 		hclog.NewNullLogger(),
 		svr.StateDataDir(),
 	)
