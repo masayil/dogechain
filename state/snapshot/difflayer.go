@@ -201,7 +201,7 @@ func (dl *diffLayer) Account(hash types.Hash) (*stypes.Account, error) {
 
 	account := new(stypes.Account)
 	if err := account.UnmarshalRlp(data); err != nil {
-		return nil, err
+		panic(err)
 	}
 
 	return account, nil
