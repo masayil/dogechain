@@ -26,3 +26,23 @@ type KVBatchStorage interface {
 	Iteratee
 	io.Closer
 }
+
+// Reader contains the methods required to read data from key-value
+type Reader interface {
+	KVReader
+}
+
+// Writer contains the methods required to write data to key-value
+type Writer interface {
+	KVWriter
+}
+
+// Database contains all the methods required by the high level database to not
+// only access the key-value data store but also the chain freezer.
+type Database interface {
+	Reader
+	Writer
+	Batcher
+	Iteratee
+	io.Closer
+}

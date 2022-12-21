@@ -542,8 +542,7 @@ func TestForkUnknownParents(t *testing.T) {
 }
 
 func TestBlockchainWriteBody(t *testing.T) {
-	storage, err := kvstorage.NewMemoryStorageBuilder(hclog.NewNullLogger()).Build()
-	assert.NoError(t, err)
+	storage := kvstorage.NewMemoryStorage(hclog.NewNullLogger())
 
 	b := &Blockchain{
 		db:      storage,

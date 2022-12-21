@@ -62,7 +62,7 @@ type KeyValueStorage struct {
 	db     KV
 }
 
-func newKeyValueStorage(logger hclog.Logger, db KV) storage.Storage {
+func NewKeyValueStorage(logger hclog.Logger, db KV) storage.Storage {
 	return &KeyValueStorage{logger: logger, db: db}
 }
 

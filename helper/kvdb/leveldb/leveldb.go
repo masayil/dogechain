@@ -2,13 +2,10 @@ package leveldb
 
 import (
 	"errors"
-	"fmt"
 
 	"github.com/dogechain-lab/dogechain/helper/kvdb"
 	"github.com/hashicorp/go-hclog"
 	"github.com/syndtr/goleveldb/leveldb"
-	"github.com/syndtr/goleveldb/leveldb/filter"
-	"github.com/syndtr/goleveldb/leveldb/opt"
 	"github.com/syndtr/goleveldb/leveldb/util"
 )
 
@@ -97,6 +94,8 @@ func (b *batch) Write() error {
 // database is the leveldb implementation of the kv storage
 type database struct {
 	db *leveldb.DB
+
+	logger Logger
 }
 
 func (kv *database) NewBatch() kvdb.Batch {
@@ -151,89 +150,23 @@ func (kv *database) Close() error {
 	return kv.db.Close()
 }
 
-func max(a, b int) int {
-	if a > b {
-		return a
+func New(file string, options ...Option) (kvdb.Database, error) {
+	o := &dbOption{
+		logger:  hclog.NewNullLogger(),
+		options: defaultLevelDBOptions(),
 	}
 
-	return b
-}
+	if err := handleOptions(o, options); err != nil {
+		return nil, err
+	}
 
-type builder struct {
-	logger  hclog.Logger
-	path    string
-	options *opt.Options
-}
-
-func (b *builder) SetCacheSize(cacheSize int) Builder {
-	cacheSize = max(cacheSize, minCache)
-
-	b.options.BlockCacheCapacity = cacheSize * opt.MiB
-
-	b.logger.Info("leveldb",
-		"BlockCacheCapacity", fmt.Sprintf("%d Mib", cacheSize),
-	)
-
-	return b
-}
-
-func (b *builder) SetHandles(handles int) Builder {
-	b.options.OpenFilesCacheCapacity = max(handles, minHandles)
-
-	b.logger.Info("leveldb",
-		"OpenFilesCacheCapacity", b.options.OpenFilesCacheCapacity,
-	)
-
-	return b
-}
-
-func (b *builder) SetBloomKeyBits(bloomKeyBits int) Builder {
-	b.options.Filter = filter.NewBloomFilter(bloomKeyBits)
-
-	b.logger.Info("leveldb",
-		"BloomFilter bits", bloomKeyBits,
-	)
-
-	return b
-}
-
-func (b *builder) SetCompactionTableSize(compactionTableSize int) Builder {
-	b.options.CompactionTableSize = compactionTableSize * opt.MiB
-	b.options.WriteBuffer = b.options.CompactionTableSize * 2
-
-	b.logger.Info("leveldb",
-		"CompactionTableSize", fmt.Sprintf("%d Mib", compactionTableSize),
-		"WriteBuffer", fmt.Sprintf("%d Mib", b.options.WriteBuffer/opt.MiB),
-	)
-
-	return b
-}
-
-func (b *builder) SetCompactionTotalSize(compactionTotalSize int) Builder {
-	b.options.CompactionTotalSize = compactionTotalSize * opt.MiB
-
-	b.logger.Info("leveldb",
-		"CompactionTotalSize", fmt.Sprintf("%d Mib", compactionTotalSize),
-	)
-
-	return b
-}
-
-func (b *builder) SetNoSync(noSync bool) Builder {
-	b.options.NoSync = noSync
-
-	b.logger.Info("leveldb",
-		"NoSync", noSync,
-	)
-
-	return b
-}
-
-func (b *builder) Build() (kvdb.KVBatchStorage, error) {
-	db, err := leveldb.OpenFile(b.path, b.options)
+	db, err := leveldb.OpenFile(file, o.options)
 	if err != nil {
 		return nil, err
 	}
 
-	return &database{db: db}, nil
+	return &database{
+		db:     db,
+		logger: o.logger,
+	}, nil
 }

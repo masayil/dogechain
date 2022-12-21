@@ -9,7 +9,7 @@ import (
 	"github.com/hashicorp/go-hclog"
 )
 
-func newLevelDBStorage(t *testing.T) (storage.Storage, func()) {
+func newLevelDBStorage(t *testing.T) storage.Storage {
 	t.Helper()
 
 	path, err := os.MkdirTemp("/tmp", "minimal_storage")
@@ -17,25 +17,22 @@ func newLevelDBStorage(t *testing.T) (storage.Storage, func()) {
 		t.Fatal(err)
 	}
 
-	logger := hclog.NewNullLogger()
+	t.Cleanup(func() {
+		os.RemoveAll(path)
+	})
 
-	s, err := NewLevelDBStorageBuilder(
-		logger, leveldb.NewBuilder(logger, path)).Build()
+	db, err := leveldb.New(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	closeFn := func() {
-		if err := s.Close(); err != nil {
-			t.Fatal(err)
-		}
+	s := NewKeyValueStorage(hclog.NewNullLogger(), db)
 
-		if err := os.RemoveAll(path); err != nil {
-			t.Fatal(err)
-		}
-	}
+	t.Cleanup(func() {
+		s.Close()
+	})
 
-	return s, closeFn
+	return s
 }
 
 func TestLevelDBStorage(t *testing.T) {

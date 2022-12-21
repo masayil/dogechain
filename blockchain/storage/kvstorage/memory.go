@@ -6,26 +6,18 @@ import (
 	"github.com/hashicorp/go-hclog"
 )
 
-type memoryStorageBuilder struct {
-	logger hclog.Logger
-}
-
-func (builder *memoryStorageBuilder) Build() (storage.Storage, error) {
-	db := &memoryKV{map[string][]byte{}}
-
-	return newKeyValueStorage(builder.logger, db), nil
-}
-
-// NewMemoryStorageBuilder creates the new blockchain storage builder
-func NewMemoryStorageBuilder(logger hclog.Logger) storage.StorageBuilder {
-	return &memoryStorageBuilder{
-		logger: logger,
-	}
-}
-
 // memoryKV is an in memory implementation of the kv storage
 type memoryKV struct {
 	db map[string][]byte
+}
+
+func NewMemoryStorage(logger hclog.Logger) storage.Storage {
+	return NewKeyValueStorage(
+		logger,
+		&memoryKV{
+			make(map[string][]byte),
+		},
+	)
 }
 
 func (m *memoryKV) Has(p []byte) (bool, error) {

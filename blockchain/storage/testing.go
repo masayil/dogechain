@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-type PlaceholderStorage func(t *testing.T) (Storage, func())
+type PlaceholderStorage func(t *testing.T) Storage
 
 var (
 	addr1 = types.StringToAddress("1")
@@ -54,8 +54,7 @@ func TestStorage(t *testing.T, m PlaceholderStorage) {
 func testCanonicalChain(t *testing.T, m PlaceholderStorage) {
 	t.Helper()
 
-	s, closeFn := m(t)
-	defer closeFn()
+	s := m(t)
 
 	var cases = []struct {
 		Number     uint64
@@ -107,8 +106,7 @@ func testCanonicalChain(t *testing.T, m PlaceholderStorage) {
 func testDifficulty(t *testing.T, m PlaceholderStorage) {
 	t.Helper()
 
-	s, closeFn := m(t)
-	defer closeFn()
+	s := m(t)
 
 	var cases = []struct {
 		Diff *big.Int
@@ -154,8 +152,7 @@ func testDifficulty(t *testing.T, m PlaceholderStorage) {
 func testHead(t *testing.T, m PlaceholderStorage) {
 	t.Helper()
 
-	s, closeFn := m(t)
-	defer closeFn()
+	s := m(t)
 
 	for i := uint64(0); i < 5; i++ {
 		h := &types.Header{
@@ -199,8 +196,7 @@ func testHead(t *testing.T, m PlaceholderStorage) {
 func testForks(t *testing.T, m PlaceholderStorage) {
 	t.Helper()
 
-	s, closeFn := m(t)
-	defer closeFn()
+	s := m(t)
 
 	var cases = []struct {
 		Forks []types.Hash
@@ -226,8 +222,7 @@ func testForks(t *testing.T, m PlaceholderStorage) {
 func testHeader(t *testing.T, m PlaceholderStorage) {
 	t.Helper()
 
-	s, closeFn := m(t)
-	defer closeFn()
+	s := m(t)
 
 	extraData, _ := hex.DecodeHex("0x11bbe8db4e347b4e8c937c1c8370e4b5ed33adb3db69cbdb7a38e1e50b1b82fa")
 	header := &types.Header{
@@ -255,8 +250,7 @@ func testHeader(t *testing.T, m PlaceholderStorage) {
 func testBody(t *testing.T, m PlaceholderStorage) {
 	t.Helper()
 
-	s, closeFn := m(t)
-	defer closeFn()
+	s := m(t)
 
 	header := &types.Header{
 		Number:     5,
@@ -322,8 +316,7 @@ func testBody(t *testing.T, m PlaceholderStorage) {
 func testReceipts(t *testing.T, m PlaceholderStorage) {
 	t.Helper()
 
-	s, closeFn := m(t)
-	defer closeFn()
+	s := m(t)
 
 	h := &types.Header{
 		Difficulty: 133,
@@ -398,8 +391,7 @@ func testReceipts(t *testing.T, m PlaceholderStorage) {
 func testWriteCanonicalHeader(t *testing.T, m PlaceholderStorage) {
 	t.Helper()
 
-	s, closeFn := m(t)
-	defer closeFn()
+	s := m(t)
 
 	h := &types.Header{
 		Number:    100,

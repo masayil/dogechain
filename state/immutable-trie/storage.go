@@ -5,7 +5,6 @@ import (
 
 	"github.com/dogechain-lab/dogechain/helper/hex"
 	"github.com/dogechain-lab/dogechain/helper/kvdb"
-	"github.com/dogechain-lab/dogechain/helper/kvdb/leveldb"
 	"github.com/dogechain-lab/fastrlp"
 )
 
@@ -91,13 +90,8 @@ func (kv *kvStorage) Close() error {
 	return kv.db.Close()
 }
 
-func NewLevelDBStorage(leveldbBuilder leveldb.Builder) (Storage, error) {
-	db, err := leveldbBuilder.Build()
-	if err != nil {
-		return nil, err
-	}
-
-	return &kvStorage{db: db}, nil
+func NewLevelDBStorage(db kvdb.KVBatchStorage) Storage {
+	return &kvStorage{db: db}
 }
 
 // memkeyvalue is a key-value tuple tagged with a deletion field to allow creating

@@ -20,15 +20,6 @@ import (
 	"github.com/dogechain-lab/dogechain/state/runtime/precompiled"
 )
 
-func newLevelDBBuilder(log hclog.Logger, path string) leveldb.Builder {
-	leveldbBuilder := leveldb.NewBuilder(
-		log,
-		path,
-	)
-
-	return leveldbBuilder
-}
-
 func createConsensus(
 	logger hclog.Logger,
 	genesis *chain.Chain,
@@ -116,14 +107,19 @@ func createBlockchain(
 
 	genesis.Genesis.StateRoot = genesisRoot
 
+	db, err := leveldb.New(
+		blockchainDir(dataDir),
+		leveldb.SetLogger(logger),
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	chain, err := blockchain.NewBlockchain(
 		logger,
 		genesis,
-		kvstorage.NewLevelDBStorageBuilder(
-			logger,
-			newLevelDBBuilder(logger, blockchainDir(dataDir)),
-		),
 		nil,
+		kvstorage.NewKeyValueStorage(logger, db),
 		executor,
 		nil,
 	)

@@ -43,13 +43,7 @@ func TestReverify(t *testing.T) {
 	time.Sleep(time.Second * 2)
 
 	// open trie database
-	leveldbBuilder := leveldb.NewBuilder(
-		hclog.NewNullLogger(),
-		svr.StateDataDir(),
-	)
-
-	// open chain database
-	trie, err := leveldbBuilder.Build()
+	trie, err := leveldb.New(svr.StateDataDir())
 	assert.NoError(t, err)
 
 	// corrupt data

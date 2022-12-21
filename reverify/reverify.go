@@ -7,6 +7,7 @@ import (
 	"github.com/hashicorp/go-hclog"
 
 	"github.com/dogechain-lab/dogechain/chain"
+	"github.com/dogechain-lab/dogechain/helper/kvdb/leveldb"
 	itrie "github.com/dogechain-lab/dogechain/state/immutable-trie"
 )
 
@@ -34,12 +35,15 @@ func ReverifyChain(
 	dataDir string,
 	startHeight uint64,
 ) error {
-	stateStorage, err := itrie.NewLevelDBStorage(newLevelDBBuilder(logger, stateDir(dataDir)))
+	s, err := leveldb.New(
+		stateDir(dataDir),
+		leveldb.SetLogger(logger),
+	)
 	if err != nil {
-		logger.Error("failed to create state storage")
-
 		return err
 	}
+
+	stateStorage := itrie.NewLevelDBStorage(s)
 	defer stateStorage.Close()
 
 	blockchain, consensus, err := createBlockchain(

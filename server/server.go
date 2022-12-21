@@ -138,23 +138,6 @@ func newLoggerFromConfig(config *Config) (hclog.Logger, error) {
 	return newCLILogger(config), nil
 }
 
-func newLevelDBBuilder(logger hclog.Logger, config *Config, path string) leveldb.Builder {
-	leveldbBuilder := leveldb.NewBuilder(
-		logger,
-		path,
-	)
-
-	// trie cache + blockchain cache = config.LeveldbOptions.CacheSize / 2
-	leveldbBuilder.SetCacheSize(config.LeveldbOptions.CacheSize / 2).
-		SetHandles(config.LeveldbOptions.Handles).
-		SetBloomKeyBits(config.LeveldbOptions.BloomKeyBits).
-		SetCompactionTableSize(config.LeveldbOptions.CompactionTableSize).
-		SetCompactionTotalSize(config.LeveldbOptions.CompactionTotalSize).
-		SetNoSync(config.LeveldbOptions.NoSync)
-
-	return leveldbBuilder
-}
-
 // NewServer creates a new Minimal server, using the passed in configuration
 func NewServer(config *Config) (*Server, error) {
 	logger, err := newLoggerFromConfig(config)
@@ -209,13 +192,21 @@ func NewServer(config *Config) (*Server, error) {
 
 	// start blockchain object
 	stateStorage, err := func() (itrie.Storage, error) {
-		leveldbBuilder := newLevelDBBuilder(
-			logger,
-			config,
+		db, err := leveldb.New(
 			filepath.Join(m.config.DataDir, StateDataDir),
+			leveldb.SetBloomKeyBits(config.LeveldbOptions.BloomKeyBits),
+			leveldb.SetCacheSize(config.LeveldbOptions.CacheSize/2),
+			leveldb.SetCompactionTableSize(config.LeveldbOptions.CompactionTableSize),
+			leveldb.SetCompactionTotalSize(config.LeveldbOptions.CompactionTotalSize),
+			leveldb.SetHandles(config.LeveldbOptions.Handles),
+			leveldb.SetLogger(logger.Named("database").With("path", StateDataDir)),
+			leveldb.SetNoSync(config.LeveldbOptions.NoSync),
 		)
+		if err != nil {
+			return nil, err
+		}
 
-		return itrie.NewLevelDBStorage(leveldbBuilder)
+		return itrie.NewLevelDBStorage(db), nil
 	}()
 
 	if err != nil {
@@ -239,19 +230,29 @@ func NewServer(config *Config) (*Server, error) {
 
 	config.Chain.Genesis.StateRoot = genesisRoot
 
-	// create leveldb storageBuilder
-	leveldbBuilder := newLevelDBBuilder(
-		logger,
-		config,
-		filepath.Join(m.config.DataDir, "blockchain"),
+	bLogger := logger.Named("database").With("path", BlockchainDataDir)
+
+	db, err := leveldb.New(
+		filepath.Join(m.config.DataDir, BlockchainDataDir),
+		leveldb.SetBloomKeyBits(config.LeveldbOptions.BloomKeyBits),
+		// trie cache + blockchain cache = config.LeveldbOptions.CacheSize
+		leveldb.SetCacheSize(config.LeveldbOptions.CacheSize/2),
+		leveldb.SetCompactionTableSize(config.LeveldbOptions.CompactionTableSize),
+		leveldb.SetCompactionTotalSize(config.LeveldbOptions.CompactionTotalSize),
+		leveldb.SetHandles(config.LeveldbOptions.Handles),
+		leveldb.SetLogger(bLogger),
+		leveldb.SetNoSync(config.LeveldbOptions.NoSync),
 	)
+	if err != nil {
+		return nil, err
+	}
 
 	// blockchain object
 	m.blockchain, err = blockchain.NewBlockchain(
 		logger,
 		config.Chain,
-		kvstorage.NewLevelDBStorageBuilder(logger, leveldbBuilder),
 		nil,
+		kvstorage.NewKeyValueStorage(bLogger, db),
 		m.executor,
 		m.serverMetrics.blockchain,
 	)

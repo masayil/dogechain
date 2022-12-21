@@ -10,12 +10,12 @@ import (
 func TestMemoryStorage(t *testing.T) {
 	t.Helper()
 
-	f := func(t *testing.T) (storage.Storage, func()) {
+	f := func(t *testing.T) storage.Storage {
 		t.Helper()
 
-		s, _ := NewMemoryStorageBuilder(hclog.NewNullLogger()).Build()
+		s := NewMemoryStorage(hclog.NewNullLogger())
 
-		return s, func() {}
+		return s
 	}
 
 	storage.TestStorage(t, f)

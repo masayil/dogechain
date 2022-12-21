@@ -193,19 +193,16 @@ func (b *Blockchain) GetAvgGasPrice() *big.Int {
 func NewBlockchain(
 	logger hclog.Logger,
 	config *chain.Chain,
-	storageBuilder storage.StorageBuilder,
 	consensus Verifier,
+	db storage.Storage,
 	executor Executor,
 	metrics *Metrics,
 ) (*Blockchain, error) {
-	if storageBuilder == nil {
-		return nil, ErrNilStorageBuilder
-	}
-
 	b := &Blockchain{
 		logger:    logger.Named("blockchain"),
 		config:    config,
 		consensus: consensus,
+		db:        db,
 		executor:  executor,
 		stream:    &eventStream{},
 		gpAverage: &gasPriceAverage{
@@ -214,17 +211,6 @@ func NewBlockchain(
 		},
 		metrics: NewDummyMetrics(metrics),
 	}
-
-	var (
-		db  storage.Storage
-		err error
-	)
-
-	if db, err = storageBuilder.Build(); err != nil {
-		return nil, err
-	}
-
-	b.db = db
 
 	if err := b.initCaches(defaultCacheSize); err != nil {
 		return nil, err
