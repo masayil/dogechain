@@ -217,7 +217,6 @@ testfor:
 			err := nilVal
 
 			if lastret := ret[len(ret)-1].Interface(); lastret != nil {
-				//nolint:forcetypeassert
 				err = lastret.(error).Error()
 			}
 

@@ -16,7 +16,6 @@ func TestContentEndpoint(t *testing.T) {
 		txPoolEndpoint := &TxPool{mockStore}
 
 		result, _ := txPoolEndpoint.Content()
-		//nolint:forcetypeassert
 		response := result.(ContentResponse)
 
 		assert.True(t, mockStore.includeQueued)
@@ -33,7 +32,6 @@ func TestContentEndpoint(t *testing.T) {
 		txPoolEndpoint := &TxPool{mockStore}
 
 		result, _ := txPoolEndpoint.Content()
-		//nolint:forcetypeassert
 		response := result.(ContentResponse)
 
 		assert.Equal(t, 1, len(response.Pending))
@@ -61,7 +59,6 @@ func TestContentEndpoint(t *testing.T) {
 		txPoolEndpoint := &TxPool{mockStore}
 
 		result, _ := txPoolEndpoint.Content()
-		//nolint:forcetypeassert
 		response := result.(ContentResponse)
 
 		assert.Equal(t, 0, len(response.Pending))
@@ -96,7 +93,6 @@ func TestContentEndpoint(t *testing.T) {
 		txPoolEndpoint := &TxPool{mockStore}
 
 		result, _ := txPoolEndpoint.Content()
-		//nolint:forcetypeassert
 		response := result.(ContentResponse)
 
 		assert.True(t, mockStore.includeQueued)
@@ -114,7 +110,6 @@ func TestInspectEndpoint(t *testing.T) {
 		txPoolEndpoint := &TxPool{mockStore}
 
 		result, _ := txPoolEndpoint.Inspect()
-		//nolint:forcetypeassert
 		response := result.(InspectResponse)
 
 		assert.True(t, mockStore.includeQueued)
@@ -133,7 +128,6 @@ func TestInspectEndpoint(t *testing.T) {
 		txPoolEndpoint := &TxPool{mockStore}
 
 		result, _ := txPoolEndpoint.Inspect()
-		//nolint:forcetypeassert
 		response := result.(InspectResponse)
 
 		assert.Equal(t, 0, len(response.Pending))
@@ -154,7 +148,6 @@ func TestInspectEndpoint(t *testing.T) {
 		txPoolEndpoint := &TxPool{mockStore}
 
 		result, _ := txPoolEndpoint.Inspect()
-		//nolint:forcetypeassert
 		response := result.(InspectResponse)
 
 		assert.Equal(t, 1, len(response.Pending))
@@ -173,7 +166,6 @@ func TestStatusEndpoint(t *testing.T) {
 		txPoolEndpoint := &TxPool{mockStore}
 
 		result, _ := txPoolEndpoint.Status()
-		//nolint:forcetypeassert
 		response := result.(StatusResponse)
 
 		assert.Equal(t, uint64(0), response.Pending)
@@ -196,7 +188,6 @@ func TestStatusEndpoint(t *testing.T) {
 		txPoolEndpoint := &TxPool{mockStore}
 
 		result, _ := txPoolEndpoint.Status()
-		//nolint:forcetypeassert
 		response := result.(StatusResponse)
 
 		assert.Equal(t, uint64(3), response.Pending)
