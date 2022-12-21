@@ -22,7 +22,7 @@ import (
 	"sort"
 
 	"github.com/dogechain-lab/dogechain/helper/kvdb"
-	"github.com/dogechain-lab/dogechain/state/stypes"
+	"github.com/dogechain-lab/dogechain/state/schema"
 	"github.com/dogechain-lab/dogechain/types"
 )
 
@@ -307,7 +307,7 @@ func (dl *diskLayer) StorageIterator(account types.Hash, seek types.Hash) (Stora
 	return &diskStorageIterator{
 		layer:   dl,
 		account: account,
-		// it:      dl.diskdb.NewIterator(append(stypes.SnapshotStoragePrefix, account.Bytes()...), pos),
+		// it:      dl.diskdb.NewIterator(schema.SnapshotsStorageKey(account), pos),
 	}, false
 }
 
@@ -326,7 +326,10 @@ func (it *diskStorageIterator) Next() bool {
 			return false
 		}
 
-		if len(it.it.Key()) == len(stypes.SnapshotStoragePrefix)+types.HashLength+types.HashLength {
+		key := it.it.Key()
+		// key length equal and prefix match
+		if (len(key) == len(schema.SnapshotStoragePrefix)+types.HashLength+types.HashLength) &&
+			bytes.Equal(key[:len(schema.SnapshotStoragePrefix)], schema.SnapshotStoragePrefix) {
 			break
 		}
 	}
