@@ -327,9 +327,10 @@ func (it *diskStorageIterator) Next() bool {
 		}
 
 		key := it.it.Key()
+		prefixLength := len(schema.SnapshotStoragePrefix)
 		// key length equal and prefix match
-		if (len(key) == len(schema.SnapshotStoragePrefix)+types.HashLength+types.HashLength) &&
-			bytes.Equal(key[:len(schema.SnapshotStoragePrefix)], schema.SnapshotStoragePrefix) {
+		if (len(key) == prefixLength+types.HashLength+types.HashLength) &&
+			bytes.Equal(key[:prefixLength], schema.SnapshotStoragePrefix) {
 			break
 		}
 	}
