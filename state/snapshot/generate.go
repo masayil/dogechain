@@ -1,11 +1,15 @@
 package snapshot
 
 import (
+	"bytes"
+	"fmt"
 	"os"
 	"time"
 
 	"github.com/VictoriaMetrics/fastcache"
 	"github.com/dogechain-lab/dogechain/helper/kvdb"
+	"github.com/dogechain-lab/dogechain/helper/rawdb"
+	"github.com/dogechain-lab/dogechain/helper/rlp"
 	"github.com/dogechain-lab/dogechain/types"
 )
 
@@ -25,9 +29,9 @@ func generateSnapshot(
 		genMarker = []byte{} // Initialized but empty!
 	)
 
-	// TODO: write batch to db and journal
-	// rawdb.WriteSnapshotRoot(batch, root)
-	// journalProgress(batch, genMarker, stats)
+	// write batch to db and journal
+	rawdb.WriteSnapshotRoot(batch, root)
+	journalProgress(batch, genMarker, stats, logger)
 
 	if err := batch.Write(); err != nil {
 		logger.Error("Failed to write initialized state marker", "err", err)
@@ -50,6 +54,49 @@ func generateSnapshot(
 	logger.Debug("Start snapshot generation", "root", root)
 
 	return base
+}
+
+// journalProgress persists the generator stats into the database to resume later.
+func journalProgress(
+	db kvdb.KVWriter,
+	marker []byte,
+	stats *generatorStats,
+	logger kvdb.Logger,
+) {
+	// Write out the generator marker. Note it's a standalone disk layer generator
+	// which is not mixed with journal. It's ok if the generator is persisted while
+	// journal is not.
+	entry := journalGenerator{
+		Done:   marker == nil,
+		Marker: marker,
+	}
+
+	if stats != nil {
+		entry.Accounts = stats.accounts
+		entry.Slots = stats.slots
+		entry.Storage = uint64(stats.storage)
+	}
+
+	blob, err := rlp.EncodeToBytes(entry)
+	if err != nil {
+		panic(err) // Cannot happen, here to catch dev errors
+	}
+
+	var logstr string
+	switch {
+	case marker == nil:
+		logstr = "done"
+	case bytes.Equal(marker, []byte{}):
+		logstr = "empty"
+	case len(marker) == types.HashLength:
+		logstr = fmt.Sprintf("%#x", marker)
+	default:
+		logstr = fmt.Sprintf("%#x:%#x", marker[:types.HashLength], marker[types.HashLength:])
+	}
+
+	logger.Debug("Journalled generator progress", "progress", logstr)
+
+	rawdb.WriteSnapshotGenerator(db, blob)
 }
 
 // generate is a background thread that iterates over the state and storage tries,

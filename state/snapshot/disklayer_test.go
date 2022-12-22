@@ -26,6 +26,7 @@ import (
 	"github.com/dogechain-lab/dogechain/helper/rlp"
 	"github.com/dogechain-lab/dogechain/state/schema"
 	"github.com/dogechain-lab/dogechain/types"
+	"github.com/hashicorp/go-hclog"
 )
 
 // reverse reverses the contents of a byte slice. It's used to update random accs
@@ -109,6 +110,7 @@ func TestDiskMerge(t *testing.T) {
 			},
 		},
 	}
+
 	base := snaps.Snapshot(baseRoot)
 	base.AccountRLP(accNoModCache)
 	base.AccountRLP(accModCache)
@@ -119,20 +121,27 @@ func TestDiskMerge(t *testing.T) {
 	base.Storage(conNukeCache, conNukeCacheSlot)
 
 	// Modify or delete some accounts, flatten everything onto disk
-	if err := snaps.Update(diffRoot, baseRoot, map[types.Hash]struct{}{
-		accDelNoCache:  {},
-		accDelCache:    {},
-		conNukeNoCache: {},
-		conNukeCache:   {},
-	}, map[types.Hash][]byte{
-		accModNoCache: reverse(accModNoCache[:]),
-		accModCache:   reverse(accModCache[:]),
-	}, map[types.Hash]map[types.Hash][]byte{
-		conModNoCache: {conModNoCacheSlot: reverse(conModNoCacheSlot[:])},
-		conModCache:   {conModCacheSlot: reverse(conModCacheSlot[:])},
-		conDelNoCache: {conDelNoCacheSlot: nil},
-		conDelCache:   {conDelCacheSlot: nil},
-	}); err != nil {
+	if err := snaps.Update(
+		diffRoot,
+		baseRoot,
+		map[types.Hash]struct{}{
+			accDelNoCache:  {},
+			accDelCache:    {},
+			conNukeNoCache: {},
+			conNukeCache:   {},
+		},
+		map[types.Hash][]byte{
+			accModNoCache: reverse(accModNoCache[:]),
+			accModCache:   reverse(accModCache[:]),
+		},
+		map[types.Hash]map[types.Hash][]byte{
+			conModNoCache: {conModNoCacheSlot: reverse(conModNoCacheSlot[:])},
+			conModCache:   {conModCacheSlot: reverse(conModCacheSlot[:])},
+			conDelNoCache: {conDelNoCacheSlot: nil},
+			conDelCache:   {conDelCacheSlot: nil},
+		},
+		hclog.NewNullLogger(),
+	); err != nil {
 		t.Fatalf("failed to update snapshot tree: %v", err)
 	}
 
@@ -151,9 +160,9 @@ func TestDiskMerge(t *testing.T) {
 		t.Helper()
 		blob, err := base.AccountRLP(account)
 		if err != nil {
-			t.Errorf("account access (%x) failed: %v", account, err)
+			t.Errorf("account access (%s) failed: %v", account, err)
 		} else if !bytes.Equal(blob, data) {
-			t.Errorf("account access (%x) mismatch: have %x, want %x", account, blob, data)
+			t.Errorf("account access (%s) mismatch: have %x, want %x", account, blob, data)
 		}
 	}
 
@@ -169,9 +178,9 @@ func TestDiskMerge(t *testing.T) {
 		t.Helper()
 		blob, err := base.Storage(account, slot)
 		if err != nil {
-			t.Errorf("storage access (%x:%x) failed: %v", account, slot, err)
+			t.Errorf("storage access (%s:%s) failed: %v", account, slot, err)
 		} else if !bytes.Equal(blob, data) {
-			t.Errorf("storage access (%x:%x) mismatch: have %x, want %x", account, slot, blob, data)
+			t.Errorf("storage access (%s:%s) mismatch: have %x, want %x", account, slot, blob, data)
 		}
 	}
 
@@ -190,7 +199,7 @@ func TestDiskMerge(t *testing.T) {
 	assertDatabaseAccount := func(account types.Hash, data []byte) {
 		t.Helper()
 		if blob := rawdb.ReadAccountSnapshot(db, account); !bytes.Equal(blob, data) {
-			t.Errorf("account database access (%x) mismatch: have %x, want %x", account, blob, data)
+			t.Errorf("account database access (%s) mismatch: have %x, want %x", account, blob, data)
 		}
 	}
 
@@ -205,7 +214,7 @@ func TestDiskMerge(t *testing.T) {
 	assertDatabaseStorage := func(account types.Hash, slot types.Hash, data []byte) {
 		t.Helper()
 		if blob := rawdb.ReadStorageSnapshot(db, account, slot); !bytes.Equal(blob, data) {
-			t.Errorf("storage database access (%x:%x) mismatch: have %x, want %x", account, slot, blob, data)
+			t.Errorf("storage database access (%s:%s) mismatch: have %x, want %x", account, slot, blob, data)
 		}
 	}
 
@@ -322,10 +331,10 @@ func TestDiskPartialMerge(t *testing.T) {
 			t.Helper()
 			blob, err := base.AccountRLP(account)
 			if bytes.Compare(account[:], genMarker) > 0 && err != ErrNotCoveredYet {
-				t.Fatalf("test %d: post-marker (%x) account access (%x) succeeded: %x", i, genMarker, account, blob)
+				t.Fatalf("test %d: post-marker (%s) account access (%s) succeeded: %x", i, genMarker, account, blob)
 			}
 			if bytes.Compare(account[:], genMarker) <= 0 && !bytes.Equal(blob, data) {
-				t.Fatalf("test %d: pre-marker (%x) account access (%x) mismatch: have %x, want %x", i, genMarker, account, blob, data)
+				t.Fatalf("test %d: pre-marker (%s) account access (%s) mismatch: have %x, want %x", i, genMarker, account, blob, data)
 			}
 		}
 
@@ -339,10 +348,10 @@ func TestDiskPartialMerge(t *testing.T) {
 			t.Helper()
 			blob, err := base.Storage(account, slot)
 			if bytes.Compare(append(account[:], slot[:]...), genMarker) > 0 && err != ErrNotCoveredYet {
-				t.Fatalf("test %d: post-marker (%x) storage access (%x:%x) succeeded: %x", i, genMarker, account, slot, blob)
+				t.Fatalf("test %d: post-marker (%x) storage access (%s:%s) succeeded: %x", i, genMarker, account, slot, blob)
 			}
 			if bytes.Compare(append(account[:], slot[:]...), genMarker) <= 0 && !bytes.Equal(blob, data) {
-				t.Fatalf("test %d: pre-marker (%x) storage access (%x:%x) mismatch: have %x, want %x", i, genMarker, account, slot, blob, data)
+				t.Fatalf("test %d: pre-marker (%x) storage access (%s:%s) mismatch: have %x, want %x", i, genMarker, account, slot, blob, data)
 			}
 		}
 
@@ -352,20 +361,27 @@ func TestDiskPartialMerge(t *testing.T) {
 		assertStorage(conNukeCache, conNukeCacheSlot, conNukeCacheSlot[:])
 
 		// Modify or delete some accounts, flatten everything onto disk
-		if err := snaps.Update(diffRoot, baseRoot, map[types.Hash]struct{}{
-			accDelNoCache:  {},
-			accDelCache:    {},
-			conNukeNoCache: {},
-			conNukeCache:   {},
-		}, map[types.Hash][]byte{
-			accModNoCache: reverse(accModNoCache[:]),
-			accModCache:   reverse(accModCache[:]),
-		}, map[types.Hash]map[types.Hash][]byte{
-			conModNoCache: {conModNoCacheSlot: reverse(conModNoCacheSlot[:])},
-			conModCache:   {conModCacheSlot: reverse(conModCacheSlot[:])},
-			conDelNoCache: {conDelNoCacheSlot: nil},
-			conDelCache:   {conDelCacheSlot: nil},
-		}); err != nil {
+		if err := snaps.Update(
+			diffRoot,
+			baseRoot,
+			map[types.Hash]struct{}{
+				accDelNoCache:  {},
+				accDelCache:    {},
+				conNukeNoCache: {},
+				conNukeCache:   {},
+			},
+			map[types.Hash][]byte{
+				accModNoCache: reverse(accModNoCache[:]),
+				accModCache:   reverse(accModCache[:]),
+			},
+			map[types.Hash]map[types.Hash][]byte{
+				conModNoCache: {conModNoCacheSlot: reverse(conModNoCacheSlot[:])},
+				conModCache:   {conModCacheSlot: reverse(conModCacheSlot[:])},
+				conDelNoCache: {conDelNoCacheSlot: nil},
+				conDelCache:   {conDelCacheSlot: nil},
+			},
+			hclog.NewNullLogger(),
+		); err != nil {
 			t.Fatalf("test %d: failed to update snapshot tree: %v", i, err)
 		}
 
@@ -404,10 +420,10 @@ func TestDiskPartialMerge(t *testing.T) {
 			t.Helper()
 			blob := rawdb.ReadAccountSnapshot(db, account)
 			if bytes.Compare(account[:], genMarker) > 0 && blob != nil {
-				t.Fatalf("test %d: post-marker (%x) account database access (%x) succeeded: %x", i, genMarker, account, blob)
+				t.Fatalf("test %d: post-marker (%x) account database access (%s) succeeded: %x", i, genMarker, account, blob)
 			}
 			if bytes.Compare(account[:], genMarker) <= 0 && !bytes.Equal(blob, data) {
-				t.Fatalf("test %d: pre-marker (%x) account database access (%x) mismatch: have %x, want %x", i, genMarker, account, blob, data)
+				t.Fatalf("test %d: pre-marker (%x) account database access (%s) mismatch: have %x, want %x", i, genMarker, account, blob, data)
 			}
 		}
 
@@ -425,10 +441,10 @@ func TestDiskPartialMerge(t *testing.T) {
 			t.Helper()
 			blob := rawdb.ReadStorageSnapshot(db, account, slot)
 			if bytes.Compare(append(account[:], slot[:]...), genMarker) > 0 && blob != nil {
-				t.Fatalf("test %d: post-marker (%x) storage database access (%x:%x) succeeded: %x", i, genMarker, account, slot, blob)
+				t.Fatalf("test %d: post-marker (%x) storage database access (%s:%s) succeeded: %x", i, genMarker, account, slot, blob)
 			}
 			if bytes.Compare(append(account[:], slot[:]...), genMarker) <= 0 && !bytes.Equal(blob, data) {
-				t.Fatalf("test %d: pre-marker (%x) storage database access (%x:%x) mismatch: have %x, want %x", i, genMarker, account, slot, blob, data)
+				t.Fatalf("test %d: pre-marker (%x) storage database access (%s:%s) mismatch: have %x, want %x", i, genMarker, account, slot, blob, data)
 			}
 		}
 
@@ -481,9 +497,16 @@ func TestDiskGeneratorPersistence(t *testing.T) {
 	}
 
 	// Modify or delete some accounts, flatten everything onto disk
-	if err := snaps.Update(diffRoot, baseRoot, nil, map[types.Hash][]byte{
-		accTwo: accTwo[:],
-	}, nil); err != nil {
+	if err := snaps.Update(
+		diffRoot,
+		baseRoot,
+		nil,
+		map[types.Hash][]byte{
+			accTwo: accTwo[:],
+		},
+		nil,
+		hclog.NewNullLogger(),
+	); err != nil {
 		t.Fatalf("failed to update snapshot tree: %v", err)
 	}
 
@@ -504,11 +527,18 @@ func TestDiskGeneratorPersistence(t *testing.T) {
 
 	// Test scenario 2, the disk layer is fully generated
 	// Modify or delete some accounts, flatten everything onto disk
-	if err := snaps.Update(diffTwoRoot, diffRoot, nil, map[types.Hash][]byte{
-		accThree: accThree.Bytes(),
-	}, map[types.Hash]map[types.Hash][]byte{
-		accThree: {accThreeSlot: accThreeSlot.Bytes()},
-	}); err != nil {
+	if err := snaps.Update(
+		diffTwoRoot,
+		diffRoot,
+		nil,
+		map[types.Hash][]byte{
+			accThree: accThree.Bytes(),
+		},
+		map[types.Hash]map[types.Hash][]byte{
+			accThree: {accThreeSlot: accThreeSlot.Bytes()},
+		},
+		hclog.NewNullLogger(),
+	); err != nil {
 		t.Fatalf("failed to update snapshot tree: %v", err)
 	}
 

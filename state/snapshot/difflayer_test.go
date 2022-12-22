@@ -165,12 +165,12 @@ func TestMergeDelete(t *testing.T) {
 
 	// Add some flipAccs-flopping layers on top
 	parent := newDiffLayer(emptyLayer(), types.Hash{}, flipDrops(), flipAccs(), storage, logger)
-	child := parent.Update(types.Hash{}, flopDrops(), flopAccs(), storage)
-	child = child.Update(types.Hash{}, flipDrops(), flipAccs(), storage)
-	child = child.Update(types.Hash{}, flopDrops(), flopAccs(), storage)
-	child = child.Update(types.Hash{}, flipDrops(), flipAccs(), storage)
-	child = child.Update(types.Hash{}, flopDrops(), flopAccs(), storage)
-	child = child.Update(types.Hash{}, flipDrops(), flipAccs(), storage)
+	child := parent.Update(types.Hash{}, flopDrops(), flopAccs(), storage, logger)
+	child = child.Update(types.Hash{}, flipDrops(), flipAccs(), storage, logger)
+	child = child.Update(types.Hash{}, flopDrops(), flopAccs(), storage, logger)
+	child = child.Update(types.Hash{}, flipDrops(), flipAccs(), storage, logger)
+	child = child.Update(types.Hash{}, flopDrops(), flopAccs(), storage, logger)
+	child = child.Update(types.Hash{}, flipDrops(), flipAccs(), storage, logger)
 
 	if data, _ := child.Account(h1); data == nil {
 		t.Errorf("last diff layer: expected %x account to be non-nil", h1)

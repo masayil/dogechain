@@ -164,6 +164,7 @@ func (dl *diskLayer) Update(
 	destructs map[types.Hash]struct{},
 	accounts map[types.Hash][]byte,
 	storage map[types.Hash]map[types.Hash][]byte,
+	logger kvdb.Logger,
 ) *diffLayer {
-	return newDiffLayer(dl, blockHash, destructs, accounts, storage, dl.logger)
+	return newDiffLayer(dl, blockHash, destructs, accounts, storage, logger)
 }

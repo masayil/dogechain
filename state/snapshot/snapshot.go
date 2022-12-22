@@ -9,10 +9,10 @@ import (
 	"sync/atomic"
 
 	"github.com/dogechain-lab/dogechain/helper/kvdb"
+	"github.com/dogechain-lab/dogechain/helper/rawdb"
 	"github.com/dogechain-lab/dogechain/helper/rlp"
 	"github.com/dogechain-lab/dogechain/state/stypes"
 	"github.com/dogechain-lab/dogechain/types"
-	"github.com/hashicorp/go-hclog"
 )
 
 var (
@@ -74,6 +74,7 @@ type snapshot interface {
 		destructs map[types.Hash]struct{},
 		accounts map[types.Hash][]byte,
 		storage map[types.Hash]map[types.Hash][]byte,
+		logger kvdb.Logger,
 	) *diffLayer
 
 	// Journal commits an entire diff hierarchy to disk into a single journal entry.
@@ -116,7 +117,7 @@ type Tree struct {
 	layers map[types.Hash]snapshot // Collection of all known layers
 	lock   sync.RWMutex
 
-	logger hclog.Logger
+	logger kvdb.Logger
 
 	// Test hooks
 	onFlatten func() // Hook invoked when the bottom most diff layers are flattened
@@ -142,7 +143,7 @@ func New(
 	config Config,
 	diskdb kvdb.KVBatchStorage,
 	root types.Hash,
-	logger hclog.Logger,
+	logger kvdb.Logger,
 ) (*Tree, error) {
 	// Create a new, empty snapshot tree
 	snap := &Tree{
@@ -150,7 +151,7 @@ func New(
 		diskdb: diskdb,
 		// triedb: triedb,
 		layers: make(map[types.Hash]snapshot),
-		logger: logger.Named("snapshot"),
+		logger: logger,
 	}
 
 	// Attempt to load a previously persisted snapshot and rebuild one if failed
@@ -317,6 +318,7 @@ func (t *Tree) Update(
 	destructs map[types.Hash]struct{},
 	accounts map[types.Hash][]byte,
 	storage map[types.Hash]map[types.Hash][]byte,
+	logger kvdb.Logger,
 ) error {
 	// Reject noop updates to avoid self-loops in the snapshot tree. This is a
 	// special case that can only happen for Clique networks where empty blocks
@@ -335,7 +337,7 @@ func (t *Tree) Update(
 	}
 
 	//nolint:forcetypeassert
-	snap := parent.(snapshot).Update(blockRoot, destructs, accounts, storage)
+	snap := parent.(snapshot).Update(blockRoot, destructs, accounts, storage, logger)
 
 	// Save the new snapshot for later
 	t.lock.Lock()
@@ -528,7 +530,164 @@ func (t *Tree) cap(diff *diffLayer, layers int) *diskLayer {
 // The disk layer persistence should be operated in an atomic way. All updates should
 // be discarded if the whole transition if not finished.
 func diffToDisk(bottom *diffLayer) *diskLayer {
-	return nil
+	var (
+		//nolint:forcetypeassert
+		base   = bottom.parent.(*diskLayer)
+		batch  = base.diskdb.NewBatch()
+		stats  *generatorStats
+		logger = bottom.logger
+	)
+
+	// If the disk layer is running a snapshot generator, abort it
+	if base.genAbort != nil {
+		abort := make(chan *generatorStats)
+
+		base.genAbort <- abort
+		stats = <-abort
+	}
+
+	// Put the deletion in the batch writer, flush all updates in the final step.
+	rawdb.DeleteSnapshotRoot(batch)
+
+	// Mark the original base as stale as we're going to create a new wrapper
+	base.lock.Lock()
+	if base.stale {
+		panic("parent disk layer is stale") // we've committed into the same base from two children, boo
+	}
+
+	base.stale = true
+
+	base.lock.Unlock()
+
+	// Destroy all the destructed accounts from the database
+	for hash := range bottom.destructSet {
+		// Skip any account not covered yet by the snapshot
+		if base.genMarker != nil && bytes.Compare(hash[:], base.genMarker) > 0 {
+			continue
+		}
+
+		// Remove all storage slots
+		rawdb.DeleteAccountSnapshot(batch, hash)
+		base.cache.Set(hash[:], nil)
+
+		it := rawdb.IterateStorageSnapshots(base.diskdb, hash)
+		for it.Next() {
+			key := it.Key()
+			batch.Delete(key)
+			base.cache.Del(key[1:])
+
+			// TODO: flush storage item Counter
+
+			// Ensure we don't delete too much data blindly (contract can be
+			// huge). It's ok to flush, the root will go missing in case of a
+			// crash and we'll detect and regenerate the snapshot.
+			if batch.ValueSize() > kvdb.IdealBatchSize {
+				if err := batch.Write(); err != nil {
+					logger.Error("Failed to write storage deletions", "err", err)
+					os.Exit(1)
+				}
+
+				batch.Reset()
+			}
+		}
+		it.Release()
+	}
+
+	// Push all updated accounts into the database
+	for hash, data := range bottom.accountData {
+		// Skip any account not covered yet by the snapshot
+		if base.genMarker != nil && bytes.Compare(hash[:], base.genMarker) > 0 {
+			continue
+		}
+
+		// Push the account to disk
+		rawdb.WriteAccountSnapshot(batch, hash, data)
+		base.cache.Set(hash[:], data)
+
+		// TODO: clean account write size Counter, flush account item Counter, flush account size Counter
+
+		// Ensure we don't write too much data blindly. It's ok to flush, the
+		// root will go missing in case of a crash and we'll detect and regen
+		// the snapshot.
+		if batch.ValueSize() > kvdb.IdealBatchSize {
+			if err := batch.Write(); err != nil {
+				logger.Error("Failed to write storage deletions", "err", err)
+				os.Exit(1)
+			}
+
+			// reset batch for another write
+			batch.Reset()
+		}
+	}
+
+	// Push all the storage slots into the database
+	for accountHash, storage := range bottom.storageData {
+		// Skip any account not covered yet by the snapshot
+		if base.genMarker != nil && bytes.Compare(accountHash[:], base.genMarker) > 0 {
+			continue
+		}
+
+		// Generation might be mid-account, track that case too
+		midAccount := base.genMarker != nil && bytes.Equal(accountHash[:], base.genMarker[:types.HashLength])
+
+		for storageHash, data := range storage {
+			// Skip any slot not covered yet by the snapshot
+			if midAccount && bytes.Compare(storageHash[:], base.genMarker[types.HashLength:]) > 0 {
+				continue
+			}
+
+			//TODO: flush storage item Counter, flush storage size Counter
+
+			if len(data) > 0 {
+				//TODO: clean storage write size Counter
+				rawdb.WriteStorageSnapshot(batch, accountHash, storageHash, data)
+				base.cache.Set(append(accountHash[:], storageHash[:]...), data)
+			} else {
+				rawdb.DeleteStorageSnapshot(batch, accountHash, storageHash)
+				base.cache.Set(append(accountHash[:], storageHash[:]...), nil)
+			}
+		}
+	}
+
+	// Update the snapshot block marker and write any remainder data
+	rawdb.WriteSnapshotRoot(batch, bottom.root)
+
+	// Write out the generator progress marker and report
+	journalProgress(batch, base.genMarker, stats, logger)
+
+	// Flush all the updates in the single db operation. Ensure the
+	// disk layer transition is atomic.
+	if err := batch.Write(); err != nil {
+		logger.Error("Failed to write leftover snapshot", "err", err)
+		os.Exit(1)
+	}
+
+	logger.Debug("Journalled disk layer", "root", bottom.root, "complete", base.genMarker == nil)
+
+	res := &diskLayer{
+		root:   bottom.root,
+		cache:  base.cache,
+		diskdb: base.diskdb,
+		// TODO: cached db
+		// triedb:     base.triedb,
+		genMarker:  base.genMarker,
+		genPending: base.genPending,
+		logger:     logger,
+	}
+
+	// If snapshot generation hasn't finished yet, port over all the starts and
+	// continue where the previous round left off.
+	//
+	// Note, the `base.genAbort` comparison is not used normally, it's checked
+	// to allow the tests to play with the marker without triggering this path.
+	if base.genMarker != nil && base.genAbort != nil {
+		res.genMarker = base.genMarker
+		res.genAbort = make(chan chan *generatorStats)
+
+		go res.generate(stats)
+	}
+
+	return res
 }
 
 // Journal commits an entire diff hierarchy to disk into a single journal entry.
@@ -584,11 +743,10 @@ func (t *Tree) Rebuild(root types.Hash) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 
-	// TODO: disable snapshot on disk db
-	// // Firstly delete any recovery flag in the database. Because now we are
-	// // building a brand new snapshot. Also reenable the snapshot feature.
-	// rawdb.DeleteSnapshotRecoveryNumber(t.diskdb)
-	// rawdb.DeleteSnapshotDisabled(t.diskdb)
+	// Firstly delete any recovery flag in the database. Because now we are
+	// building a brand new snapshot. Also reenable the snapshot feature.
+	rawdb.DeleteSnapshotRecoveryNumber(t.diskdb)
+	rawdb.DeleteSnapshotDisabled(t.diskdb)
 
 	// Iterate over and mark all layers stale
 	for _, layer := range t.layers {
