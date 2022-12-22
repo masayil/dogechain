@@ -9,6 +9,7 @@ import (
 	"github.com/dogechain-lab/dogechain/blockchain/storage"
 	"github.com/dogechain-lab/dogechain/blockchain/storage/kvstorage"
 	"github.com/dogechain-lab/dogechain/chain"
+	"github.com/dogechain-lab/dogechain/helper/kvdb/memorydb"
 	"github.com/dogechain-lab/dogechain/state"
 	itrie "github.com/dogechain-lab/dogechain/state/immutable-trie"
 	"github.com/dogechain-lab/dogechain/types"
@@ -105,7 +106,12 @@ func NewTestBlockchain(t *testing.T, headers []*types.Header) *Blockchain {
 		},
 	}
 
-	st := itrie.NewStateDB(itrie.NewMemoryStorage(), hclog.NewNullLogger(), nil)
+	st := itrie.NewStateDB(
+		memorydb.New(),
+		hclog.NewNullLogger(),
+		nil,
+	)
+
 	b, err := newBlockChain(config, state.NewExecutor(config.Params, st, hclog.NewNullLogger()))
 
 	if err != nil {

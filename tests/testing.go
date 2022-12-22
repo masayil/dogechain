@@ -13,6 +13,7 @@ import (
 	"github.com/dogechain-lab/dogechain/chain"
 	"github.com/dogechain-lab/dogechain/crypto"
 	"github.com/dogechain-lab/dogechain/helper/hex"
+	"github.com/dogechain-lab/dogechain/helper/kvdb/memorydb"
 	"github.com/dogechain-lab/dogechain/state"
 	itrie "github.com/dogechain-lab/dogechain/state/immutable-trie"
 	"github.com/dogechain-lab/dogechain/state/runtime"
@@ -225,7 +226,7 @@ func (e *exec) UnmarshalJSON(input []byte) error {
 func buildState(
 	allocs map[types.Address]*chain.GenesisAccount,
 ) (state.State, state.Snapshot, types.Hash, error) {
-	s := itrie.NewStateDB(itrie.NewMemoryStorage(), hclog.NewNullLogger(), nil)
+	s := itrie.NewStateDB(memorydb.New(), hclog.NewNullLogger(), nil)
 	snap := s.NewSnapshot()
 
 	txn := state.NewTxn(s, snap)

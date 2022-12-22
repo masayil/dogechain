@@ -206,7 +206,7 @@ func NewServer(config *Config) (*Server, error) {
 			return nil, err
 		}
 
-		return itrie.NewLevelDBStorage(db), nil
+		return db, nil
 	}()
 
 	if err != nil {
