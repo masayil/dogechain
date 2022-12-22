@@ -7,17 +7,17 @@ const IdealBatchSize = 100 * 1024
 type Batch interface {
 	KVWriter
 
-	// // ValueSize retrieves the amount of data queued up for writing.
-	// ValueSize() int
+	// ValueSize retrieves the amount of data queued up for writing.
+	ValueSize() int
 
 	// Write flushes any accumulated data to disk.
 	Write() error
 
-	// // Reset resets the batch for reuse.
-	// Reset()
+	// Reset resets the batch for reuse.
+	Reset()
 
-	// // Replay replays the batch contents.
-	// Replay(w KVWriter) error
+	// Replay replays the batch contents.
+	Replay(w KVWriter) error
 }
 
 // Batcher wraps the NewBatch method of a backing data store.

@@ -39,25 +39,25 @@ func (kvBatch *kvStorageBatch) Delete(k []byte) error {
 	return kvBatch.batch.Delete(k)
 }
 
-// // ValueSize retrieves the amount of data queued up for writing.
-// func (kvBatch *kvStorageBatch) ValueSize() int {
-// 	return kvBatch.batch.ValueSize()
-// }
+// ValueSize retrieves the amount of data queued up for writing.
+func (kvBatch *kvStorageBatch) ValueSize() int {
+	return kvBatch.batch.ValueSize()
+}
 
 // Write flushes any accumulated data to disk.
 func (kvBatch *kvStorageBatch) Write() error {
 	return kvBatch.batch.Write()
 }
 
-// // Reset resets the batch for reuse.
-// func (kvBatch *kvStorageBatch) Reset() {
-// 	kvBatch.batch.Reset()
-// }
+// Reset resets the batch for reuse.
+func (kvBatch *kvStorageBatch) Reset() {
+	kvBatch.batch.Reset()
+}
 
-// // Replay replays the batch contents.
-// func (kvBatch *kvStorageBatch) Replay(w kvdb.KVWriter) error {
-// 	return kvBatch.batch.Replay(w)
-// }
+// Replay replays the batch contents.
+func (kvBatch *kvStorageBatch) Replay(w kvdb.KVWriter) error {
+	return kvBatch.batch.Replay(w)
+}
 
 // wrap generic kvdb storage to implement Storage interface
 type kvStorage struct {

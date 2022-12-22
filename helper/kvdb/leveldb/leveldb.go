@@ -45,51 +45,51 @@ func (b *batch) Delete(k []byte) error {
 	return nil
 }
 
-// // ValueSize retrieves the amount of data queued up for writing.
-// func (b *batch) ValueSize() int {
-// 	return b.size
-// }
+// ValueSize retrieves the amount of data queued up for writing.
+func (b *batch) ValueSize() int {
+	return b.size
+}
 
 func (b *batch) Write() error {
 	return b.db.Write(b.batch, nil)
 }
 
-// // Reset resets the batch for reuse.
-// func (b *batch) Reset() {
-// 	b.batch.Reset()
-// 	b.size = 0
-// }
+// Reset resets the batch for reuse.
+func (b *batch) Reset() {
+	b.batch.Reset()
+	b.size = 0
+}
 
-// // Replay replays the batch contents.
-// func (b *batch) Replay(w kvdb.KVWriter) error {
-// 	return b.batch.Replay(&replayer{writer: w})
-// }
+// Replay replays the batch contents.
+func (b *batch) Replay(w kvdb.KVWriter) error {
+	return b.batch.Replay(&replayer{writer: w})
+}
 
-// // replayer is a small wrapper to implement the correct replay methods.
-// type replayer struct {
-// 	writer  kvdb.KVWriter
-// 	failure error
-// }
+// replayer is a small wrapper to implement the correct replay methods.
+type replayer struct {
+	writer  kvdb.KVWriter
+	failure error
+}
 
-// // Put inserts the given value into the key-value data store.
-// func (r *replayer) Put(key, value []byte) {
-// 	// If the replay already failed, stop executing ops
-// 	if r.failure != nil {
-// 		return
-// 	}
+// Put inserts the given value into the key-value data store.
+func (r *replayer) Put(key, value []byte) {
+	// If the replay already failed, stop executing ops
+	if r.failure != nil {
+		return
+	}
 
-// 	r.failure = r.writer.Set(key, value)
-// }
+	r.failure = r.writer.Set(key, value)
+}
 
-// // Delete removes the key from the key-value data store.
-// func (r *replayer) Delete(key []byte) {
-// 	// If the replay already failed, stop executing ops
-// 	if r.failure != nil {
-// 		return
-// 	}
+// Delete removes the key from the key-value data store.
+func (r *replayer) Delete(key []byte) {
+	// If the replay already failed, stop executing ops
+	if r.failure != nil {
+		return
+	}
 
-// 	r.failure = r.writer.Delete(key)
-// }
+	r.failure = r.writer.Delete(key)
+}
 
 // database is the leveldb implementation of the kv storage
 type database struct {
