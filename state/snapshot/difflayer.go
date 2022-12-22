@@ -513,6 +513,7 @@ func (dl *diffLayer) flatten() snapshot {
 		storageList: make(map[types.Hash][]types.Hash),
 		diffed:      dl.diffed,
 		memory:      parent.memory + dl.memory,
+		logger:      dl.logger,
 	}
 }
 
