@@ -25,6 +25,7 @@ import (
 	"github.com/dogechain-lab/dogechain/helper/keccak"
 	"github.com/dogechain-lab/dogechain/helper/kvdb/memorydb"
 	"github.com/dogechain-lab/dogechain/types"
+	"github.com/hashicorp/go-hclog"
 )
 
 func copyDestructs(destructs map[types.Hash]struct{}) map[types.Hash]struct{} {
@@ -85,12 +86,14 @@ func TestMergeBasics(t *testing.T) {
 		}
 	}
 
+	logger := hclog.NewNullLogger()
+
 	// Add some (identical) layers on top
-	parent := newDiffLayer(emptyLayer(), types.Hash{}, copyDestructs(destructs), copyAccounts(accounts), copyStorage(storage))
-	child := newDiffLayer(parent, types.Hash{}, copyDestructs(destructs), copyAccounts(accounts), copyStorage(storage))
-	child = newDiffLayer(child, types.Hash{}, copyDestructs(destructs), copyAccounts(accounts), copyStorage(storage))
-	child = newDiffLayer(child, types.Hash{}, copyDestructs(destructs), copyAccounts(accounts), copyStorage(storage))
-	child = newDiffLayer(child, types.Hash{}, copyDestructs(destructs), copyAccounts(accounts), copyStorage(storage))
+	parent := newDiffLayer(emptyLayer(), types.Hash{}, copyDestructs(destructs), copyAccounts(accounts), copyStorage(storage), logger)
+	child := newDiffLayer(parent, types.Hash{}, copyDestructs(destructs), copyAccounts(accounts), copyStorage(storage), logger)
+	child = newDiffLayer(child, types.Hash{}, copyDestructs(destructs), copyAccounts(accounts), copyStorage(storage), logger)
+	child = newDiffLayer(child, types.Hash{}, copyDestructs(destructs), copyAccounts(accounts), copyStorage(storage), logger)
+	child = newDiffLayer(child, types.Hash{}, copyDestructs(destructs), copyAccounts(accounts), copyStorage(storage), logger)
 	// And flatten
 	merged, _ := (child.flatten()).(*diffLayer)
 
@@ -158,8 +161,10 @@ func TestMergeDelete(t *testing.T) {
 			h2: randomAccount(),
 		}
 	}
+	logger := hclog.NewNullLogger()
+
 	// Add some flipAccs-flopping layers on top
-	parent := newDiffLayer(emptyLayer(), types.Hash{}, flipDrops(), flipAccs(), storage)
+	parent := newDiffLayer(emptyLayer(), types.Hash{}, flipDrops(), flipAccs(), storage, logger)
 	child := parent.Update(types.Hash{}, flopDrops(), flopAccs(), storage)
 	child = child.Update(types.Hash{}, flipDrops(), flipAccs(), storage)
 	child = child.Update(types.Hash{}, flopDrops(), flopAccs(), storage)
@@ -218,6 +223,7 @@ func TestInsertAndMerge(t *testing.T) {
 		slot   = types.StringToHash("0x02")
 		parent *diffLayer
 		child  *diffLayer
+		logger = hclog.NewNullLogger()
 	)
 
 	{
@@ -226,7 +232,7 @@ func TestInsertAndMerge(t *testing.T) {
 			accounts  = make(map[types.Hash][]byte)
 			storage   = make(map[types.Hash]map[types.Hash][]byte)
 		)
-		parent = newDiffLayer(emptyLayer(), types.Hash{}, destructs, accounts, storage)
+		parent = newDiffLayer(emptyLayer(), types.Hash{}, destructs, accounts, storage, logger)
 	}
 	{
 		var (
@@ -237,7 +243,7 @@ func TestInsertAndMerge(t *testing.T) {
 		accounts[acc] = randomAccount()
 		storage[acc] = make(map[types.Hash][]byte)
 		storage[acc][slot] = []byte{0x01}
-		child = newDiffLayer(parent, types.Hash{}, destructs, accounts, storage)
+		child = newDiffLayer(parent, types.Hash{}, destructs, accounts, storage, logger)
 	}
 
 	// And flatten
@@ -272,13 +278,14 @@ func BenchmarkSearch(b *testing.B) {
 			destructs = make(map[types.Hash]struct{})
 			accounts  = make(map[types.Hash][]byte)
 			storage   = make(map[types.Hash]map[types.Hash][]byte)
+			logger    = hclog.NewNullLogger()
 		)
 
 		for i := 0; i < 10000; i++ {
 			accounts[randomHash()] = randomAccount()
 		}
 
-		return newDiffLayer(parent, types.Hash{}, destructs, accounts, storage)
+		return newDiffLayer(parent, types.Hash{}, destructs, accounts, storage, logger)
 	}
 
 	var layer snapshot = emptyLayer()
@@ -313,6 +320,7 @@ func BenchmarkSearchSlot(b *testing.B) {
 			destructs = make(map[types.Hash]struct{})
 			accounts  = make(map[types.Hash][]byte)
 			storage   = make(map[types.Hash]map[types.Hash][]byte)
+			logger    = hclog.NewNullLogger()
 		)
 
 		accounts[accountKey] = accountRLP
@@ -325,7 +333,7 @@ func BenchmarkSearchSlot(b *testing.B) {
 			storage[accountKey] = accStorage
 		}
 
-		return newDiffLayer(parent, types.Hash{}, destructs, accounts, storage)
+		return newDiffLayer(parent, types.Hash{}, destructs, accounts, storage, logger)
 	}
 
 	var layer snapshot = emptyLayer()
@@ -351,6 +359,7 @@ func BenchmarkFlatten(b *testing.B) {
 			destructs = make(map[types.Hash]struct{})
 			accounts  = make(map[types.Hash][]byte)
 			storage   = make(map[types.Hash]map[types.Hash][]byte)
+			logger    = hclog.NewNullLogger()
 		)
 
 		for i := 0; i < 100; i++ {
@@ -367,7 +376,7 @@ func BenchmarkFlatten(b *testing.B) {
 			storage[accountKey] = accStorage
 		}
 
-		return newDiffLayer(parent, types.Hash{}, destructs, accounts, storage)
+		return newDiffLayer(parent, types.Hash{}, destructs, accounts, storage, logger)
 	}
 
 	b.ResetTimer()
@@ -408,6 +417,7 @@ func BenchmarkJournal(b *testing.B) {
 			destructs = make(map[types.Hash]struct{})
 			accounts  = make(map[types.Hash][]byte)
 			storage   = make(map[types.Hash]map[types.Hash][]byte)
+			logger    = hclog.NewNullLogger()
 		)
 
 		for i := 0; i < 200; i++ {
@@ -424,7 +434,7 @@ func BenchmarkJournal(b *testing.B) {
 			storage[accountKey] = accStorage
 		}
 
-		return newDiffLayer(parent, types.Hash{}, destructs, accounts, storage)
+		return newDiffLayer(parent, types.Hash{}, destructs, accounts, storage, logger)
 	}
 
 	layer := snapshot(emptyLayer())
