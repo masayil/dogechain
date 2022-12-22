@@ -50,8 +50,6 @@ var (
 
 // KV is a generic key-value store, need close it
 type KV interface {
-	Close() error
-
 	Set(p []byte, v []byte) error
 	Get(p []byte) ([]byte, bool, error)
 }
@@ -340,9 +338,4 @@ func (s *KeyValueStorage) get(p []byte, k []byte) ([]byte, bool) {
 	}
 
 	return data, ok
-}
-
-// Close closes the connection with the db
-func (s *KeyValueStorage) Close() error {
-	return s.db.Close()
 }

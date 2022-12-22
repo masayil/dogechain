@@ -1464,8 +1464,7 @@ func (b *Blockchain) Close() error {
 
 	b.wg.Wait()
 
-	// close db at last
-	return b.db.Close()
+	return nil
 }
 
 func (b *Blockchain) stop() {

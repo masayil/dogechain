@@ -20,6 +20,7 @@ import (
 	"github.com/dogechain-lab/dogechain/graphql"
 	"github.com/dogechain-lab/dogechain/helper/common"
 	"github.com/dogechain-lab/dogechain/helper/keccak"
+	"github.com/dogechain-lab/dogechain/helper/kvdb"
 	"github.com/dogechain-lab/dogechain/helper/kvdb/leveldb"
 	"github.com/dogechain-lab/dogechain/helper/progress"
 	"github.com/dogechain-lab/dogechain/jsonrpc"
@@ -42,10 +43,11 @@ import (
 
 // Minimal is the central manager of the blockchain client
 type Server struct {
-	logger       hclog.Logger
-	config       *Config
-	state        state.State
-	stateStorage itrie.Storage
+	logger  hclog.Logger
+	config  *Config
+	state   state.State
+	stateDB itrie.Storage
+	blockDB kvdb.Database
 
 	consensus consensus.Consensus
 
@@ -191,79 +193,88 @@ func NewServer(config *Config) (*Server, error) {
 	}
 
 	// start blockchain object
-	stateStorage, err := func() (itrie.Storage, error) {
+	{
+		stateStorage, err := func() (itrie.Storage, error) {
+			db, err := leveldb.New(
+				filepath.Join(m.config.DataDir, StateDataDir),
+				leveldb.SetBloomKeyBits(config.LeveldbOptions.BloomKeyBits),
+				leveldb.SetCacheSize(config.LeveldbOptions.CacheSize/2),
+				leveldb.SetCompactionTableSize(config.LeveldbOptions.CompactionTableSize),
+				leveldb.SetCompactionTotalSize(config.LeveldbOptions.CompactionTotalSize),
+				leveldb.SetHandles(config.LeveldbOptions.Handles),
+				leveldb.SetLogger(logger.Named("database").With("path", StateDataDir)),
+				leveldb.SetNoSync(config.LeveldbOptions.NoSync),
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			return db, nil
+		}()
+
+		if err != nil {
+			return nil, err
+		}
+
+		m.stateDB = stateStorage
+
+		//TODO: get last snapshot block block hash
+		st := itrie.NewStateDB(stateStorage, logger, m.serverMetrics.trie)
+		m.state = st
+
+		m.executor = state.NewExecutor(config.Chain.Params, st, logger)
+		m.executor.SetRuntime(precompiled.NewPrecompiled())
+		m.executor.SetRuntime(evm.NewEVM())
+	}
+
+	{
+		// Setup blockchain
+		// compute the genesis root state
+		genesisRoot, err := m.executor.WriteGenesis(config.Chain.Genesis.Alloc)
+		if err != nil {
+			return nil, err
+		}
+
+		config.Chain.Genesis.StateRoot = genesisRoot
+
+		bLogger := logger.Named("database").With("path", BlockchainDataDir)
+
 		db, err := leveldb.New(
-			filepath.Join(m.config.DataDir, StateDataDir),
+			filepath.Join(m.config.DataDir, BlockchainDataDir),
 			leveldb.SetBloomKeyBits(config.LeveldbOptions.BloomKeyBits),
+			// trie cache + blockchain cache = config.LeveldbOptions.CacheSize
 			leveldb.SetCacheSize(config.LeveldbOptions.CacheSize/2),
 			leveldb.SetCompactionTableSize(config.LeveldbOptions.CompactionTableSize),
 			leveldb.SetCompactionTotalSize(config.LeveldbOptions.CompactionTotalSize),
 			leveldb.SetHandles(config.LeveldbOptions.Handles),
-			leveldb.SetLogger(logger.Named("database").With("path", StateDataDir)),
+			leveldb.SetLogger(bLogger),
 			leveldb.SetNoSync(config.LeveldbOptions.NoSync),
 		)
 		if err != nil {
 			return nil, err
 		}
 
-		return db, nil
-	}()
+		m.blockDB = db
 
-	if err != nil {
-		return nil, err
+		// blockchain object
+		m.blockchain, err = blockchain.NewBlockchain(
+			logger,
+			config.Chain,
+			nil,
+			kvstorage.NewKeyValueStorage(bLogger, db),
+			m.executor,
+			m.serverMetrics.blockchain,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// TODO: refactor the design. Executor and blockchain should not rely on each other.
+		m.executor.GetHash = m.blockchain.GetHashHelper
 	}
-
-	m.stateStorage = stateStorage
-
-	st := itrie.NewStateDB(stateStorage, logger, m.serverMetrics.trie)
-	m.state = st
-
-	m.executor = state.NewExecutor(config.Chain.Params, st, logger)
-	m.executor.SetRuntime(precompiled.NewPrecompiled())
-	m.executor.SetRuntime(evm.NewEVM())
-
-	// compute the genesis root state
-	genesisRoot, err := m.executor.WriteGenesis(config.Chain.Genesis.Alloc)
-	if err != nil {
-		return nil, err
-	}
-
-	config.Chain.Genesis.StateRoot = genesisRoot
-
-	bLogger := logger.Named("database").With("path", BlockchainDataDir)
-
-	db, err := leveldb.New(
-		filepath.Join(m.config.DataDir, BlockchainDataDir),
-		leveldb.SetBloomKeyBits(config.LeveldbOptions.BloomKeyBits),
-		// trie cache + blockchain cache = config.LeveldbOptions.CacheSize
-		leveldb.SetCacheSize(config.LeveldbOptions.CacheSize/2),
-		leveldb.SetCompactionTableSize(config.LeveldbOptions.CompactionTableSize),
-		leveldb.SetCompactionTotalSize(config.LeveldbOptions.CompactionTotalSize),
-		leveldb.SetHandles(config.LeveldbOptions.Handles),
-		leveldb.SetLogger(bLogger),
-		leveldb.SetNoSync(config.LeveldbOptions.NoSync),
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	// blockchain object
-	m.blockchain, err = blockchain.NewBlockchain(
-		logger,
-		config.Chain,
-		nil,
-		kvstorage.NewKeyValueStorage(bLogger, db),
-		m.executor,
-		m.serverMetrics.blockchain,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	// TODO: refactor the design. Executor and blockchain should not rely on each other.
-	m.executor.GetHash = m.blockchain.GetHashHelper
 
 	{
+		// Set up txpool
 		hub := &txpoolHub{
 			state:      m.state,
 			Blockchain: m.blockchain,
@@ -792,7 +803,7 @@ func (s *Server) Close() {
 
 	// Close the consensus layer
 	if err := s.consensus.Close(); err != nil {
-		s.logger.Error("failed to close consensus", "err", err.Error())
+		s.logger.Error("failed to close consensus", "err", err)
 	}
 
 	s.logger.Info("close txpool")
@@ -804,21 +815,28 @@ func (s *Server) Close() {
 
 	// Close the networking layer
 	if err := s.network.Close(); err != nil {
-		s.logger.Error("failed to close networking", "err", err.Error())
+		s.logger.Error("failed to close networking", "err", err)
+	}
+
+	s.logger.Info("close blockchain")
+
+	// Close the blockchain layer
+	if err := s.blockchain.Close(); err != nil {
+		s.logger.Error("failed to close blockchain", "err", err)
 	}
 
 	s.logger.Info("close state storage")
 
 	// Close the state storage
-	if err := s.stateStorage.Close(); err != nil {
-		s.logger.Error("failed to close storage for trie", "err", err.Error())
+	if err := s.stateDB.Close(); err != nil {
+		s.logger.Error("failed to close storage for trie", "err", err)
 	}
 
 	s.logger.Info("close blockchain storage")
 
-	// Close the blockchain layer
-	if err := s.blockchain.Close(); err != nil {
-		s.logger.Error("failed to close blockchain", "err", err.Error())
+	// Close the blockchain storage
+	if err := s.blockDB.Close(); err != nil {
+		s.logger.Error("failed to close storage for blockchain", "err", err)
 	}
 
 	if s.prometheusServer != nil {

@@ -36,8 +36,6 @@ type Storage interface {
 
 	WriteTxLookup(hash types.Hash, blockHash types.Hash) error
 	ReadTxLookup(hash types.Hash) (types.Hash, bool)
-
-	Close() error
 }
 
 // Factory is a factory method to create a blockchain storage
