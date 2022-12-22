@@ -95,7 +95,7 @@ func (b *batch) Write() error {
 type database struct {
 	db *leveldb.DB
 
-	logger Logger
+	logger kvdb.Logger
 }
 
 func (kv *database) NewBatch() kvdb.Batch {

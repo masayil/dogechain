@@ -1,4 +1,4 @@
-package leveldb
+package kvdb
 
 // Logger describes the interface that must be implemented by all loggers.
 type Logger interface {

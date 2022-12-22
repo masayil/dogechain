@@ -3,6 +3,7 @@ package leveldb
 import (
 	"fmt"
 
+	"github.com/dogechain-lab/dogechain/helper/kvdb"
 	"github.com/hashicorp/go-hclog"
 	"github.com/syndtr/goleveldb/leveldb/filter"
 	"github.com/syndtr/goleveldb/leveldb/opt"
@@ -107,7 +108,7 @@ func SetHandles(v int) Option {
 // SetLogger sets the outside logger to it
 //
 // The default one print out nothing
-func SetLogger(v Logger) Option {
+func SetLogger(v kvdb.Logger) Option {
 	if v == nil {
 		v = hclog.NewNullLogger()
 	}
@@ -141,7 +142,7 @@ func defaultLevelDBOptions() *opt.Options {
 }
 
 type dbOption struct {
-	logger  Logger
+	logger  kvdb.Logger
 	options *opt.Options
 }
 
@@ -172,7 +173,7 @@ PARAM_LOOP:
 		case handles:
 			o.options.OpenFilesCacheCapacity = v.Value.(int)
 		case logger:
-			o.logger = v.Value.(Logger)
+			o.logger = v.Value.(kvdb.Logger)
 		case noSync:
 			o.options.NoSync = v.Value.(bool)
 		case readOnly:
