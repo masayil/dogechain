@@ -99,7 +99,31 @@ func (dl *diffLayer) AccountIterator(seek types.Hash) AccountIterator {
 
 // Next steps the iterator forward one element, returning false if exhausted.
 func (it *diffAccountIterator) Next() bool {
-	return false
+	// If the iterator was already stale, consider it a programmer error. Although
+	// we could just return false here, triggering this path would probably mean
+	// somebody forgot to check for Error, so lets blow up instead of undefined
+	// behavior that's hard to debug.
+	if it.fail != nil {
+		panic(fmt.Sprintf("called Next of failed iterator: %v", it.fail))
+	}
+
+	// Stop iterating if all keys were exhausted
+	if len(it.keys) == 0 {
+		return false
+	}
+
+	if it.layer.Stale() {
+		it.fail, it.keys = ErrSnapshotStale, nil
+
+		return false
+	}
+
+	// Iterator seems to be still alive, retrieve and cache the live hash
+	it.curHash = it.keys[0]
+	// key cached, shift the iterator and notify the user of success
+	it.keys = it.keys[1:]
+
+	return true
 }
 
 // Error returns any failure that occurred during iteration, which might have
@@ -123,9 +147,25 @@ func (it *diffAccountIterator) Hash() types.Hash {
 // Note the returned account is not a copy, please don't modify it.
 func (it *diffAccountIterator) Account() []byte {
 	it.layer.lock.RLock()
-	defer it.layer.lock.RUnlock()
 
-	return nil
+	blob, ok := it.layer.accountData[it.curHash]
+	if !ok {
+		if _, ok := it.layer.destructSet[it.curHash]; ok {
+			it.layer.lock.RUnlock()
+
+			return nil
+		}
+
+		panic(fmt.Sprintf("iterator referenced non-existent account: %x", it.curHash))
+	}
+
+	it.layer.lock.RUnlock()
+
+	if it.layer.Stale() {
+		it.fail, it.keys = ErrSnapshotStale, nil
+	}
+
+	return blob
 }
 
 // Release is a noop for diff account iterators as there are no held resources.
@@ -140,16 +180,39 @@ type diskAccountIterator struct {
 
 // AccountIterator creates an account iterator over a disk layer.
 func (dl *diskLayer) AccountIterator(seek types.Hash) AccountIterator {
-	// pos := types.TrimRightZeroes(seek[:])
+	pos := types.TrimRightZeroes(seek[:])
+
 	return &diskAccountIterator{
 		layer: dl,
-		// it:    dl.diskdb.NewIterator(stypes.SnapshotAccountPrefix, pos),
+		it:    dl.diskdb.NewIterator(schema.SnapshotAccountPrefix, pos),
 	}
 }
 
 // Next steps the iterator forward one element, returning false if exhausted.
 func (it *diskAccountIterator) Next() bool {
-	return false
+	// If the iterator was already exhausted, don't bother
+	if it.it == nil {
+		return false
+	}
+
+	// Try to advance the iterator and release it if we reached the end
+	for {
+		if !it.it.Next() {
+			it.it.Release()
+			it.it = nil
+
+			return false
+		}
+
+		key := it.it.Key()
+		// strict match
+		if len(key) == schema.SnapshotPrefixLength+types.HashLength &&
+			bytes.Equal(key[:schema.SnapshotPrefixLength], schema.SnapshotAccountPrefix) {
+			break
+		}
+	}
+
+	return true
 }
 
 // Error returns any failure that occurred during iteration, which might have
@@ -158,7 +221,11 @@ func (it *diskAccountIterator) Next() bool {
 // A diff layer is immutable after creation content wise and can always be fully
 // iterated without error, so this method always returns nil.
 func (it *diskAccountIterator) Error() error {
-	return nil
+	if it.it == nil {
+		return nil // Iterator is exhausted and released
+	}
+
+	return it.it.Error()
 }
 
 // Hash returns the hash of the account the iterator is currently at.
@@ -303,11 +370,12 @@ type diskStorageIterator struct {
 // layer are deleted already. So the "destructed" flag returned here
 // is always false.
 func (dl *diskLayer) StorageIterator(account types.Hash, seek types.Hash) (StorageIterator, bool) {
-	// pos := types.TrimRightZeroes(seek[:])
+	pos := types.TrimRightZeroes(seek[:])
+
 	return &diskStorageIterator{
 		layer:   dl,
 		account: account,
-		// it:      dl.diskdb.NewIterator(schema.SnapshotsStorageKey(account), pos),
+		it:      dl.diskdb.NewIterator(schema.SnapshotsStorageKey(account), pos),
 	}, false
 }
 
@@ -327,10 +395,9 @@ func (it *diskStorageIterator) Next() bool {
 		}
 
 		key := it.it.Key()
-		prefixLength := len(schema.SnapshotStoragePrefix)
-		// key length equal and prefix match
-		if (len(key) == prefixLength+types.HashLength+types.HashLength) &&
-			bytes.Equal(key[:prefixLength], schema.SnapshotStoragePrefix) {
+		// strict match
+		if (len(key) == schema.SnapshotPrefixLength+types.HashLength+types.HashLength) &&
+			bytes.Equal(key[:schema.SnapshotPrefixLength], schema.SnapshotStoragePrefix) {
 			break
 		}
 	}
