@@ -83,6 +83,7 @@ func journalProgress(
 	}
 
 	var logstr string
+
 	switch {
 	case marker == nil:
 		logstr = "done"
