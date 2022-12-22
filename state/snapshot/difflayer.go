@@ -24,6 +24,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/dogechain-lab/dogechain/helper/kvdb"
 	"github.com/dogechain-lab/dogechain/state/stypes"
 	"github.com/dogechain-lab/dogechain/types"
 	bloomfilter "github.com/holiman/bloomfilter/v2"
@@ -111,6 +112,9 @@ type diffLayer struct {
 	diffed *bloomfilter.Filter
 
 	lock sync.RWMutex
+
+	// shared logger for print out debug info
+	logger kvdb.Logger
 }
 
 // newDiffLayer creates a new diff on top of an existing snapshot, whether that's a low
@@ -121,6 +125,7 @@ func newDiffLayer(
 	destructs map[types.Hash]struct{},
 	accounts map[types.Hash][]byte,
 	storage map[types.Hash]map[types.Hash][]byte,
+	logger kvdb.Logger,
 ) *diffLayer {
 	// Create the new layer with some pre-allocated data segments
 	dl := &diffLayer{
@@ -130,6 +135,7 @@ func newDiffLayer(
 		accountData: accounts,
 		storageData: storage,
 		storageList: make(map[types.Hash][]types.Hash),
+		logger:      logger,
 	}
 
 	switch parent := parent.(type) {
@@ -352,7 +358,7 @@ func (dl *diffLayer) Update(
 	accounts map[types.Hash][]byte,
 	storage map[types.Hash]map[types.Hash][]byte,
 ) *diffLayer {
-	return newDiffLayer(dl, blockRoot, destructs, accounts, storage)
+	return newDiffLayer(dl, blockRoot, destructs, accounts, storage, dl.logger)
 }
 
 // AccountList returns a sorted list of all accounts in this diffLayer, including

@@ -21,8 +21,8 @@ import (
 	"math"
 	"time"
 
+	"github.com/dogechain-lab/dogechain/helper/kvdb"
 	"github.com/dogechain-lab/dogechain/types"
-	"github.com/hashicorp/go-hclog"
 )
 
 const (
@@ -39,7 +39,7 @@ type generatorStats struct {
 	slots    uint64            // Number of storage slots indexed(generated or recovered)
 	dangling uint64            // Number of dangling storage slots
 	storage  types.StorageSize // Total account and storage slot size(generation or recovery)
-	logger   hclog.Logger      // logger
+	logger   kvdb.Logger       // logger
 }
 
 // Log creates an contextual log with the given message and the context pulled

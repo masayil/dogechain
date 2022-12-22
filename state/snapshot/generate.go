@@ -7,7 +7,6 @@ import (
 	"github.com/VictoriaMetrics/fastcache"
 	"github.com/dogechain-lab/dogechain/helper/kvdb"
 	"github.com/dogechain-lab/dogechain/types"
-	"github.com/hashicorp/go-hclog"
 )
 
 // generateSnapshot regenerates a brand new snapshot based on an existing state
@@ -17,7 +16,7 @@ func generateSnapshot(
 	diskdb kvdb.KVBatchStorage,
 	cache int,
 	root types.Hash,
-	logger hclog.Logger,
+	logger kvdb.Logger,
 ) *diskLayer {
 	// Create a new disk layer with an initialized state marker at zero
 	var (
@@ -43,7 +42,7 @@ func generateSnapshot(
 		genMarker:  genMarker,
 		genPending: make(chan struct{}),
 		genAbort:   make(chan chan *generatorStats),
-		logger:     logger.With("root", root),
+		logger:     logger,
 	}
 
 	go base.generate(stats)

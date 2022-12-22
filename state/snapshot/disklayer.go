@@ -25,7 +25,6 @@ import (
 	"github.com/dogechain-lab/dogechain/helper/rawdb"
 	"github.com/dogechain-lab/dogechain/state/stypes"
 	"github.com/dogechain-lab/dogechain/types"
-	"github.com/hashicorp/go-hclog"
 )
 
 // diskLayer is a low level persistent snapshot built on top of a key-value store.
@@ -43,7 +42,7 @@ type diskLayer struct {
 
 	lock sync.RWMutex
 
-	logger hclog.Logger
+	logger kvdb.Logger
 }
 
 // Root returns  root hash for which this snapshot was made.
@@ -166,5 +165,5 @@ func (dl *diskLayer) Update(
 	accounts map[types.Hash][]byte,
 	storage map[types.Hash]map[types.Hash][]byte,
 ) *diffLayer {
-	return newDiffLayer(dl, blockHash, destructs, accounts, storage)
+	return newDiffLayer(dl, blockHash, destructs, accounts, storage, dl.logger)
 }
