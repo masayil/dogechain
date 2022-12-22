@@ -2,6 +2,10 @@ package schema
 
 import "github.com/dogechain-lab/dogechain/types"
 
+const (
+	SnapshotPrefixLength = 2 // "s*" s means snapshot, * is the first letter of the subkey
+)
+
 var (
 	// codePrefix is the code prefix for leveldb
 	CodePrefix = []byte("code")

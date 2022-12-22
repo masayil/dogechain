@@ -11,6 +11,7 @@ import (
 	"github.com/dogechain-lab/dogechain/helper/kvdb"
 	"github.com/dogechain-lab/dogechain/helper/rawdb"
 	"github.com/dogechain-lab/dogechain/helper/rlp"
+	"github.com/dogechain-lab/dogechain/state/schema"
 	"github.com/dogechain-lab/dogechain/state/stypes"
 	"github.com/dogechain-lab/dogechain/types"
 )
@@ -333,7 +334,7 @@ func (t *Tree) Update(
 	// Generate a new snapshot on top of the parent
 	parent := t.Snapshot(parentRoot)
 	if parent == nil {
-		return fmt.Errorf("parent [%#x] snapshot missing", parentRoot)
+		return fmt.Errorf("parent [%s] snapshot missing", parentRoot)
 	}
 
 	//nolint:forcetypeassert
@@ -361,12 +362,12 @@ func (t *Tree) Cap(root types.Hash, layers int) error {
 	// Retrieve the head snapshot to cap from
 	snap := t.Snapshot(root)
 	if snap == nil {
-		return fmt.Errorf("snapshot [%#x] missing", root)
+		return fmt.Errorf("snapshot [%s] missing", root)
 	}
 
 	diff, ok := snap.(*diffLayer)
 	if !ok {
-		return fmt.Errorf("snapshot [%#x] is disk layer", root)
+		return fmt.Errorf("snapshot [%s] is disk layer", root)
 	}
 
 	// If the generator is still running, use a more aggressive cap
@@ -574,7 +575,8 @@ func diffToDisk(bottom *diffLayer) *diskLayer {
 		for it.Next() {
 			key := it.Key()
 			batch.Delete(key)
-			base.cache.Del(key[1:])
+			// delete all cache snapshot key
+			base.cache.Del(key[schema.SnapshotPrefixLength:])
 
 			// TODO: flush storage item Counter
 
@@ -700,7 +702,7 @@ func (t *Tree) Journal(root types.Hash) (types.Hash, error) {
 	// Retrieve the head snapshot to journal from var snap snapshot
 	snap := t.Snapshot(root)
 	if snap == nil {
-		return types.Hash{}, fmt.Errorf("snapshot [%#x] missing", root)
+		return types.Hash{}, fmt.Errorf("snapshot [%s] missing", root)
 	}
 
 	// Run the journaling

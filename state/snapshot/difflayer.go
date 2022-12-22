@@ -150,7 +150,7 @@ func newDiffLayer(
 	// Sanity check that accounts or storage slots are never nil
 	for accountHash, blob := range accounts {
 		if blob == nil {
-			panic(fmt.Sprintf("account %#x nil", accountHash))
+			panic(fmt.Sprintf("account %s nil", accountHash))
 		}
 
 		// TODO: dirty account memory gauge
@@ -160,7 +160,7 @@ func newDiffLayer(
 
 	for accountHash, slots := range storage {
 		if slots == nil {
-			panic(fmt.Sprintf("storage %#x nil", accountHash))
+			panic(fmt.Sprintf("storage %s nil", accountHash))
 		}
 		// Determine memory size and track the dirty writes
 		for _, data := range slots {
