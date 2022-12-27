@@ -26,11 +26,11 @@ func newLevelDBStorage(t *testing.T) storage.Storage {
 		t.Fatal(err)
 	}
 
-	s := NewKeyValueStorage(hclog.NewNullLogger(), db)
-
 	t.Cleanup(func() {
-		s.Close()
+		db.Close()
 	})
+
+	s := NewKeyValueStorage(hclog.NewNullLogger(), db)
 
 	return s
 }
