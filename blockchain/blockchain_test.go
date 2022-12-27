@@ -10,6 +10,7 @@ import (
 	"github.com/dogechain-lab/dogechain/blockchain/storage"
 	"github.com/dogechain-lab/dogechain/blockchain/storage/kvstorage"
 	"github.com/dogechain-lab/dogechain/chain"
+	"github.com/dogechain-lab/dogechain/helper/kvdb/memorydb"
 	"github.com/dogechain-lab/dogechain/state"
 	"github.com/dogechain-lab/dogechain/types"
 	"github.com/stretchr/testify/assert"
@@ -541,7 +542,7 @@ func TestForkUnknownParents(t *testing.T) {
 }
 
 func TestBlockchainWriteBody(t *testing.T) {
-	storage := kvstorage.NewMemoryStorage()
+	storage := kvstorage.NewKeyValueStorage(memorydb.New())
 
 	b := &Blockchain{
 		db:      storage,

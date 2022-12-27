@@ -1,4 +1,4 @@
-package storage
+package rawdb
 
 import (
 	"github.com/dogechain-lab/dogechain/types"
