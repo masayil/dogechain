@@ -355,7 +355,7 @@ func newBlockChain(config *chain.Chain, executor Executor) (*Blockchain, error) 
 		hclog.NewNullLogger(),
 		config,
 		&MockVerifier{},
-		kvstorage.NewMemoryStorage(hclog.NewNullLogger()),
+		kvstorage.NewMemoryStorage(),
 		executor,
 		NilMetrics(),
 	)

@@ -8,7 +8,6 @@ import (
 	"github.com/dogechain-lab/dogechain/blockchain/storage"
 	"github.com/dogechain-lab/dogechain/types"
 	"github.com/dogechain-lab/fastrlp"
-	"github.com/hashicorp/go-hclog"
 )
 
 // Prefixes for the key-value store
@@ -56,12 +55,11 @@ type KV interface {
 
 // KeyValueStorage is a generic storage for kv databases
 type KeyValueStorage struct {
-	logger hclog.Logger
-	db     KV
+	db KV
 }
 
-func NewKeyValueStorage(logger hclog.Logger, db KV) storage.Storage {
-	return &KeyValueStorage{logger: logger, db: db}
+func NewKeyValueStorage(db KV) storage.Storage {
+	return &KeyValueStorage{db: db}
 }
 
 func (s *KeyValueStorage) encodeUint(n uint64) []byte {

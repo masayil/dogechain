@@ -3,7 +3,6 @@ package kvstorage
 import (
 	"github.com/dogechain-lab/dogechain/blockchain/storage"
 	"github.com/dogechain-lab/dogechain/helper/hex"
-	"github.com/hashicorp/go-hclog"
 )
 
 // memoryKV is an in memory implementation of the kv storage
@@ -11,9 +10,8 @@ type memoryKV struct {
 	db map[string][]byte
 }
 
-func NewMemoryStorage(logger hclog.Logger) storage.Storage {
+func NewMemoryStorage() storage.Storage {
 	return NewKeyValueStorage(
-		logger,
 		&memoryKV{
 			make(map[string][]byte),
 		},

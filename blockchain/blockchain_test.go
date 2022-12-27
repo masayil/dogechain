@@ -12,7 +12,6 @@ import (
 	"github.com/dogechain-lab/dogechain/chain"
 	"github.com/dogechain-lab/dogechain/state"
 	"github.com/dogechain-lab/dogechain/types"
-	"github.com/hashicorp/go-hclog"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -542,7 +541,7 @@ func TestForkUnknownParents(t *testing.T) {
 }
 
 func TestBlockchainWriteBody(t *testing.T) {
-	storage := kvstorage.NewMemoryStorage(hclog.NewNullLogger())
+	storage := kvstorage.NewMemoryStorage()
 
 	b := &Blockchain{
 		db:      storage,

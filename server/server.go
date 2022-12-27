@@ -147,7 +147,7 @@ func NewServer(config *Config) (*Server, error) {
 		return nil, fmt.Errorf("could not setup new logger instance, %w", err)
 	}
 
-	m := &Server{
+	srv := &Server{
 		logger: logger,
 		config: config,
 		chain:  config.Chain,
@@ -158,212 +158,278 @@ func NewServer(config *Config) (*Server, error) {
 		restoreProgression: progress.NewProgressionWrapper(progress.ChainSyncRestore),
 	}
 
-	m.logger.Info("Data dir", "path", config.DataDir)
+	srv.logger.Info("Data dir", "path", config.DataDir)
 
 	// Generate all the paths in the dataDir
 	if err := common.SetupDataDir(config.DataDir, dirPaths); err != nil {
 		return nil, fmt.Errorf("failed to create data directories: %w", err)
 	}
 
-	if config.Telemetry.PrometheusAddr != nil {
-		m.serverMetrics = metricProvider("dogechain", config.Chain.Name, true, config.Telemetry.EnableIOMetrics)
-		m.prometheusServer = m.startPrometheusServer(config.Telemetry.PrometheusAddr)
-	} else {
-		m.serverMetrics = metricProvider("dogechain", config.Chain.Name, false, false)
-	}
+	// Set up metrics
+	srv.setupMetris()
 
 	// Set up the secrets manager
-	if err := m.setupSecretsManager(); err != nil {
+	if err := srv.setupSecretsManager(); err != nil {
 		return nil, fmt.Errorf("failed to set up the secrets manager: %w", err)
 	}
 
 	// start libp2p
-	{
-		netConfig := config.Network
-		netConfig.Chain = m.config.Chain
-		netConfig.DataDir = filepath.Join(m.config.DataDir, "libp2p")
-		netConfig.SecretsManager = m.secretsManager
-		netConfig.Metrics = m.serverMetrics.network
-
-		network, err := network.NewServer(logger, netConfig)
-		if err != nil {
-			return nil, err
-		}
-		m.network = network
+	if err := srv.setupNetwork(); err != nil {
+		return nil, err
 	}
 
-	// start blockchain object
-	{
-		stateStorage, err := func() (itrie.Storage, error) {
-			db, err := leveldb.New(
-				filepath.Join(m.config.DataDir, StateDataDir),
-				leveldb.SetBloomKeyBits(config.LeveldbOptions.BloomKeyBits),
-				leveldb.SetCacheSize(config.LeveldbOptions.CacheSize/2),
-				leveldb.SetCompactionTableSize(config.LeveldbOptions.CompactionTableSize),
-				leveldb.SetCompactionTotalSize(config.LeveldbOptions.CompactionTotalSize),
-				leveldb.SetHandles(config.LeveldbOptions.Handles),
-				leveldb.SetLogger(logger.Named("database").With("path", StateDataDir)),
-				leveldb.SetNoSync(config.LeveldbOptions.NoSync),
-			)
-			if err != nil {
-				return nil, err
-			}
-
-			return db, nil
-		}()
-
-		if err != nil {
-			return nil, err
-		}
-
-		m.stateDB = stateStorage
-
-		//TODO: get last snapshot block block hash
-		st := itrie.NewStateDB(stateStorage, logger, m.serverMetrics.trie)
-		m.state = st
-
-		m.executor = state.NewExecutor(config.Chain.Params, st, logger)
-		m.executor.SetRuntime(precompiled.NewPrecompiled())
-		m.executor.SetRuntime(evm.NewEVM())
+	// set up blockchain database
+	if err := srv.setupBlockchainDB(); err != nil {
+		return nil, err
 	}
+
+	// set up state database
+	if err := srv.setupStateDB(); err != nil {
+		return nil, err
+	}
+
+	// setup executor
+	srv.setupExecutor()
 
 	{
 		// Setup blockchain
 		// compute the genesis root state
-		genesisRoot, err := m.executor.WriteGenesis(config.Chain.Genesis.Alloc)
+		// TODO: weird to commit every restart
+		genesisRoot, err := srv.executor.WriteGenesis(config.Chain.Genesis.Alloc)
 		if err != nil {
 			return nil, err
 		}
 
 		config.Chain.Genesis.StateRoot = genesisRoot
 
-		bLogger := logger.Named("database").With("path", BlockchainDataDir)
-
-		db, err := leveldb.New(
-			filepath.Join(m.config.DataDir, BlockchainDataDir),
-			leveldb.SetBloomKeyBits(config.LeveldbOptions.BloomKeyBits),
-			// trie cache + blockchain cache = config.LeveldbOptions.CacheSize
-			leveldb.SetCacheSize(config.LeveldbOptions.CacheSize/2),
-			leveldb.SetCompactionTableSize(config.LeveldbOptions.CompactionTableSize),
-			leveldb.SetCompactionTotalSize(config.LeveldbOptions.CompactionTotalSize),
-			leveldb.SetHandles(config.LeveldbOptions.Handles),
-			leveldb.SetLogger(bLogger),
-			leveldb.SetNoSync(config.LeveldbOptions.NoSync),
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		m.blockDB = db
-
 		// blockchain object
-		m.blockchain, err = blockchain.NewBlockchain(
+		srv.blockchain, err = blockchain.NewBlockchain(
 			logger,
 			config.Chain,
 			nil,
-			kvstorage.NewKeyValueStorage(bLogger, db),
-			m.executor,
-			m.serverMetrics.blockchain,
+			kvstorage.NewKeyValueStorage(srv.blockDB),
+			srv.executor,
+			srv.serverMetrics.blockchain,
 		)
 		if err != nil {
 			return nil, err
 		}
 
 		// TODO: refactor the design. Executor and blockchain should not rely on each other.
-		m.executor.GetHash = m.blockchain.GetHashHelper
+		// And it should not cache any header for the "Hotspot Invalid"
+		srv.executor.GetHash = srv.blockchain.GetHashHelper
 	}
 
-	{
-		// Set up txpool
-		hub := &txpoolHub{
-			state:      m.state,
-			Blockchain: m.blockchain,
-		}
-
-		blackList := make([]types.Address, len(m.config.Chain.Params.BlackList))
-		for i, a := range m.config.Chain.Params.BlackList {
-			blackList[i] = types.StringToAddress(a)
-		}
-
-		// start transaction pool
-		m.txpool, err = txpool.NewTxPool(
-			logger,
-			m.chain.Params.Forks.At(0),
-			hub,
-			m.grpcServer,
-			m.network,
-			m.serverMetrics.txpool,
-			&txpool.Config{
-				Sealing:               m.config.Seal,
-				MaxSlots:              m.config.MaxSlots,
-				PriceLimit:            m.config.PriceLimit,
-				PruneTickSeconds:      m.config.PruneTickSeconds,
-				PromoteOutdateSeconds: m.config.PromoteOutdateSeconds,
-				BlackList:             blackList,
-				DDOSProtection:        m.config.Chain.Params.DDOSProtection,
-			},
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		// use the eip155 signer
-		signer := crypto.NewEIP155Signer(uint64(m.config.Chain.Params.ChainID))
-		m.txpool.SetSigner(signer)
+	// Set up txpool
+	if err := srv.setupTxpool(); err != nil {
+		return nil, err
 	}
 
-	{
-		// Setup consensus
-		if err := m.setupConsensus(); err != nil {
-			return nil, err
-		}
-		m.blockchain.SetConsensus(m.consensus)
+	// Setup consensus
+	if err := srv.setupConsensus(); err != nil {
+		return nil, err
 	}
 
 	// after consensus is done, we can mine the genesis block in blockchain
 	// This is done because consensus might use a custom Hash function so we need
 	// to wait for consensus because we do any block hashing like genesis
-	if err := m.blockchain.ComputeGenesis(); err != nil {
+	if err := srv.blockchain.ComputeGenesis(); err != nil {
 		return nil, err
 	}
 
 	// initialize data in consensus layer
-	if err := m.consensus.Initialize(); err != nil {
+	if err := srv.consensus.Initialize(); err != nil {
 		return nil, err
 	}
 
 	// setup and start jsonrpc server
-	if err := m.setupJSONRPC(); err != nil {
+	if err := srv.setupJSONRPC(); err != nil {
 		return nil, err
 	}
 
 	// setup and start graphql server
-	if err := m.setupGraphQL(); err != nil {
+	if err := srv.setupGraphQL(); err != nil {
 		return nil, err
 	}
 
 	// restore archive data before starting
-	if err := m.restoreChain(); err != nil {
+	if err := srv.restoreChain(); err != nil {
 		return nil, err
 	}
 
 	// start consensus
-	if err := m.consensus.Start(); err != nil {
+	if err := srv.consensus.Start(); err != nil {
 		return nil, err
 	}
 
 	// setup and start grpc server
-	if err := m.setupGRPC(); err != nil {
+	if err := srv.setupGRPC(); err != nil {
 		return nil, err
 	}
 
-	if err := m.network.Start(); err != nil {
+	// start network to discover peers
+	if err := srv.network.Start(); err != nil {
 		return nil, err
 	}
 
-	m.txpool.Start()
+	// start txpool to accept transactions
+	srv.txpool.Start()
 
-	return m, nil
+	return srv, nil
+}
+
+// setupTxpool set up txpool
+//
+// Must behind other components initilized
+func (s *Server) setupTxpool() error {
+	var (
+		err    error
+		config = s.config
+		hub    = &txpoolHub{
+			state:      s.state,
+			Blockchain: s.blockchain,
+		}
+	)
+
+	blackList := make([]types.Address, len(config.Chain.Params.BlackList))
+	for i, a := range config.Chain.Params.BlackList {
+		blackList[i] = types.StringToAddress(a)
+	}
+
+	txpoolCfg := &txpool.Config{
+		Sealing:               config.Seal,
+		MaxSlots:              config.MaxSlots,
+		PriceLimit:            config.PriceLimit,
+		PruneTickSeconds:      config.PruneTickSeconds,
+		PromoteOutdateSeconds: config.PromoteOutdateSeconds,
+		BlackList:             blackList,
+		DDOSProtection:        config.Chain.Params.DDOSProtection,
+	}
+
+	// start transaction pool
+	s.txpool, err = txpool.NewTxPool(
+		s.logger,
+		s.chain.Params.Forks.At(0),
+		hub,
+		s.grpcServer,
+		s.network,
+		s.serverMetrics.txpool,
+		txpoolCfg,
+	)
+	if err != nil {
+		return err
+	}
+
+	// use the eip155 signer at the beginning
+	signer := crypto.NewEIP155Signer(uint64(config.Chain.Params.ChainID))
+	s.txpool.SetSigner(signer)
+
+	return nil
+}
+
+func (s *Server) setupExecutor() {
+	logger := s.logger.Named("executor")
+	s.executor = state.NewExecutor(s.config.Chain.Params, s.state, logger)
+	s.executor.SetRuntime(precompiled.NewPrecompiled())
+	s.executor.SetRuntime(evm.NewEVM())
+}
+
+func (s *Server) setupStateDB() error {
+	var (
+		config       = s.config
+		logger       = s.logger
+		levelOptions = config.LeveldbOptions
+	)
+
+	db, err := leveldb.New(
+		filepath.Join(config.DataDir, StateDataDir),
+		leveldb.SetBloomKeyBits(levelOptions.BloomKeyBits),
+		// trie cache + blockchain cache = leveldbOptions.CacheSize
+		leveldb.SetCacheSize(levelOptions.CacheSize/2),
+		leveldb.SetCompactionTableSize(levelOptions.CompactionTableSize),
+		leveldb.SetCompactionTotalSize(levelOptions.CompactionTotalSize),
+		leveldb.SetHandles(levelOptions.Handles),
+		leveldb.SetLogger(logger.Named("database").With("path", StateDataDir)),
+		leveldb.SetNoSync(levelOptions.NoSync),
+	)
+	if err != nil {
+		return err
+	}
+
+	s.stateDB = db
+
+	st := itrie.NewStateDB(db, logger, s.serverMetrics.trie)
+	s.state = st
+
+	return nil
+}
+
+func (s *Server) setupBlockchainDB() error {
+	var (
+		config         = s.config
+		leveldbOptions = config.LeveldbOptions
+		logger         = s.logger
+	)
+
+	db, err := leveldb.New(
+		filepath.Join(config.DataDir, BlockchainDataDir),
+		leveldb.SetBloomKeyBits(leveldbOptions.BloomKeyBits),
+		// trie cache + blockchain cache = leveldbOptions.CacheSize
+		leveldb.SetCacheSize(leveldbOptions.CacheSize/2),
+		leveldb.SetCompactionTableSize(leveldbOptions.CompactionTableSize),
+		leveldb.SetCompactionTotalSize(leveldbOptions.CompactionTotalSize),
+		leveldb.SetHandles(leveldbOptions.Handles),
+		leveldb.SetLogger(logger.Named("database").With("path", BlockchainDataDir)),
+		leveldb.SetNoSync(leveldbOptions.NoSync),
+	)
+	if err != nil {
+		return err
+	}
+
+	s.blockDB = db
+
+	return nil
+}
+
+// setupNetwork set up a libp2p network for the server
+func (s *Server) setupNetwork() error {
+	config := s.config
+	netConfig := config.Network
+
+	// more detail configuration
+	netConfig.Chain = s.config.Chain
+	netConfig.DataDir = filepath.Join(s.config.DataDir, "libp2p")
+	netConfig.SecretsManager = s.secretsManager
+	netConfig.Metrics = s.serverMetrics.network
+
+	network, err := network.NewServer(s.logger, netConfig)
+	if err != nil {
+		return err
+	}
+
+	s.network = network
+
+	return nil
+}
+
+// setupMetris set up metrics and metric server
+//
+// Must done before other components
+func (s *Server) setupMetris() {
+	var (
+		config    = s.config
+		namespace = "dogechain"
+		chainName = config.Chain.Name
+	)
+
+	if config.Telemetry.PrometheusAddr == nil {
+		s.serverMetrics = metricProvider(namespace, chainName, false, false)
+
+		return
+	}
+
+	s.serverMetrics = metricProvider(namespace, chainName, true, config.Telemetry.EnableIOMetrics)
+	s.prometheusServer = s.startPrometheusServer(config.Telemetry.PrometheusAddr)
 }
 
 func (s *Server) restoreChain() error {
@@ -515,6 +581,7 @@ func (s *Server) setupConsensus() error {
 	}
 
 	s.consensus = consensus
+	s.blockchain.SetConsensus(consensus)
 
 	return nil
 }

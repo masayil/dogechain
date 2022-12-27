@@ -119,7 +119,7 @@ func createBlockchain(
 		logger,
 		genesis,
 		nil,
-		kvstorage.NewKeyValueStorage(logger, db),
+		kvstorage.NewKeyValueStorage(db),
 		executor,
 		nil,
 	)

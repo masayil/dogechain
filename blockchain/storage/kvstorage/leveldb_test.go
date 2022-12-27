@@ -6,7 +6,6 @@ import (
 
 	"github.com/dogechain-lab/dogechain/blockchain/storage"
 	"github.com/dogechain-lab/dogechain/helper/kvdb/leveldb"
-	"github.com/hashicorp/go-hclog"
 )
 
 func newLevelDBStorage(t *testing.T) storage.Storage {
@@ -30,7 +29,7 @@ func newLevelDBStorage(t *testing.T) storage.Storage {
 		db.Close()
 	})
 
-	s := NewKeyValueStorage(hclog.NewNullLogger(), db)
+	s := NewKeyValueStorage(db)
 
 	return s
 }

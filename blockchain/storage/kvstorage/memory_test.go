@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/dogechain-lab/dogechain/blockchain/storage"
-	"github.com/hashicorp/go-hclog"
 )
 
 func TestMemoryStorage(t *testing.T) {
@@ -13,7 +12,7 @@ func TestMemoryStorage(t *testing.T) {
 	f := func(t *testing.T) storage.Storage {
 		t.Helper()
 
-		s := NewMemoryStorage(hclog.NewNullLogger())
+		s := NewMemoryStorage()
 
 		return s
 	}
