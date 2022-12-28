@@ -44,24 +44,29 @@ import (
 
 // Minimal is the central manager of the blockchain client
 type Server struct {
-	logger  hclog.Logger
-	config  *Config
-	state   state.State
-	stateDB itrie.Storage
-	blockDB kvdb.Database
+	// configuration
+	config *Config
 
+	// global logger
+	logger hclog.Logger
+
+	// databases
+	trieDB  itrie.Storage
+	chainDB kvdb.Database
+
+	// consensus
 	consensus consensus.Consensus
 
 	// blockchain stack
 	blockchain *blockchain.Blockchain
-	chain      *chain.Chain
 
+	// state holder
+	state state.State
 	// state executor
 	executor *state.Executor
 
 	// jsonrpc stack
 	jsonrpcServer *jsonrpc.JSONRPC
-
 	// graphql stack
 	graphqlServer *graphql.GraphQLService
 
@@ -151,7 +156,6 @@ func NewServer(config *Config) (*Server, error) {
 	srv := &Server{
 		logger: logger,
 		config: config,
-		chain:  config.Chain,
 		grpcServer: grpc.NewServer(
 			grpc.MaxRecvMsgSize(common.MaxGrpcMsgSize),
 			grpc.MaxSendMsgSize(common.MaxGrpcMsgSize),
@@ -266,10 +270,11 @@ func (s *Server) setupTxpool() error {
 			state:      s.state,
 			Blockchain: s.blockchain,
 		}
+		chainCfg = s.config.Chain
 	)
 
-	blackList := make([]types.Address, len(config.Chain.Params.BlackList))
-	for i, a := range config.Chain.Params.BlackList {
+	blackList := make([]types.Address, len(chainCfg.Params.BlackList))
+	for i, a := range chainCfg.Params.BlackList {
 		blackList[i] = types.StringToAddress(a)
 	}
 
@@ -280,13 +285,13 @@ func (s *Server) setupTxpool() error {
 		PruneTickSeconds:      config.PruneTickSeconds,
 		PromoteOutdateSeconds: config.PromoteOutdateSeconds,
 		BlackList:             blackList,
-		DDOSProtection:        config.Chain.Params.DDOSProtection,
+		DDOSProtection:        chainCfg.Params.DDOSProtection,
 	}
 
 	// start transaction pool
 	s.txpool, err = txpool.NewTxPool(
 		s.logger,
-		s.chain.Params.Forks.At(0),
+		chainCfg.Params.Forks.At(0),
 		hub,
 		s.grpcServer,
 		s.network,
@@ -298,7 +303,7 @@ func (s *Server) setupTxpool() error {
 	}
 
 	// use the eip155 signer at the beginning
-	signer := crypto.NewEIP155Signer(uint64(config.Chain.Params.ChainID))
+	signer := crypto.NewEIP155Signer(uint64(chainCfg.Params.ChainID))
 	s.txpool.SetSigner(signer)
 
 	return nil
@@ -306,7 +311,7 @@ func (s *Server) setupTxpool() error {
 
 func (s *Server) GetHashHelper(header *types.Header) func(uint64) types.Hash {
 	return func(u uint64) types.Hash {
-		v, _ := rawdb.ReadCanonicalHash(s.blockDB, u)
+		v, _ := rawdb.ReadCanonicalHash(s.chainDB, u)
 
 		return v
 	}
@@ -320,7 +325,7 @@ func (s *Server) setupBlockchain() error {
 		s.logger,
 		s.config.Chain,
 		nil,
-		kvstorage.NewKeyValueStorage(s.blockDB),
+		kvstorage.NewKeyValueStorage(s.chainDB),
 		s.executor,
 		s.serverMetrics.blockchain,
 	)
@@ -371,7 +376,7 @@ func (s *Server) setupStateDB() error {
 		return err
 	}
 
-	s.stateDB = db
+	s.trieDB = db
 
 	st := itrie.NewStateDB(db, logger, s.serverMetrics.trie)
 	s.state = st
@@ -401,7 +406,7 @@ func (s *Server) setupBlockchainDB() error {
 		return err
 	}
 
-	s.blockDB = db
+	s.chainDB = db
 
 	return nil
 }
@@ -860,7 +865,7 @@ func (s *Server) setupGRPC() error {
 
 // Chain returns the chain object of the client
 func (s *Server) Chain() *chain.Chain {
-	return s.chain
+	return s.config.Chain
 }
 
 // JoinPeer attempts to add a new peer to the networking server
@@ -910,14 +915,14 @@ func (s *Server) Close() {
 	s.logger.Info("close state storage")
 
 	// Close the state storage
-	if err := s.stateDB.Close(); err != nil {
+	if err := s.trieDB.Close(); err != nil {
 		s.logger.Error("failed to close storage for trie", "err", err)
 	}
 
 	s.logger.Info("close blockchain storage")
 
 	// Close the blockchain storage
-	if err := s.blockDB.Close(); err != nil {
+	if err := s.chainDB.Close(); err != nil {
 		s.logger.Error("failed to close storage for blockchain", "err", err)
 	}
 
