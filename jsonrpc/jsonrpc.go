@@ -45,6 +45,7 @@ type JSONRPC struct {
 	config     *Config
 	dispatcher dispatcher
 	metrics    *Metrics
+	server *http.Server
 }
 
 type dispatcher interface {
@@ -102,6 +103,17 @@ func NewJSONRPC(logger hclog.Logger, config *Config) (*JSONRPC, error) {
 	return srv, nil
 }
 
+func (j *JSONRPC) Close() error {
+	if j.server == nil {
+		return nil
+	}
+
+	err := j.server.Close()
+	j.server = nil
+
+	return err
+}
+
 func (j *JSONRPC) setupHTTP() error {
 	j.logger.Info("http server started", "addr", j.config.Addr.String())
 
@@ -130,10 +142,12 @@ func (j *JSONRPC) setupHTTP() error {
 		mux.HandleFunc("/ws", j.handleWs)
 	}
 
-	srv := http.Server{
+	srv := &http.Server{
 		Handler:           mux,
 		ReadHeaderTimeout: time.Minute,
 	}
+
+	j.server = srv
 
 	go func() {
 		if err := srv.Serve(lis); err != nil {

@@ -912,6 +912,18 @@ func (s *Server) Close() {
 		s.logger.Error("failed to close blockchain", "err", err)
 	}
 
+	s.logger.Info("close http servers")
+
+	// Close jsonrpc server
+	if err := s.jsonrpcServer.Close(); err != nil {
+		s.logger.Error("failed to close jsonrpc server", "err", err)
+	}
+
+	// Close graphql server
+	if err := s.graphqlServer.Close(); err != nil {
+		s.logger.Error("failed to close graphql server", "err", err)
+	}
+
 	s.logger.Info("close state storage")
 
 	// Close the state storage

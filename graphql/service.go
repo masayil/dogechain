@@ -18,6 +18,7 @@ type GraphQLService struct {
 	config  *Config
 	ui      *GraphiQL
 	handler *handler
+	server  *http.Server
 }
 
 type Config struct {
@@ -91,10 +92,12 @@ func (svc *GraphQLService) setupHTTP() error {
 	mux.Handle("/graphql", middlewareFactory(svc.config)(graphqlHandler))
 	mux.Handle("/graphql/", middlewareFactory(svc.config)(graphqlHandler))
 
-	srv := http.Server{
+	srv := &http.Server{
 		Handler:           mux,
 		ReadHeaderTimeout: time.Minute,
 	}
+
+	svc.server = srv
 
 	go func() {
 		if err := srv.Serve(lis); err != nil {
@@ -103,6 +106,17 @@ func (svc *GraphQLService) setupHTTP() error {
 	}()
 
 	return nil
+}
+
+func (svc *GraphQLService) Close() error {
+	if svc.server == nil {
+		return nil
+	}
+
+	err := svc.server.Close()
+	svc.server = nil
+
+	return err
 }
 
 type handler struct {
