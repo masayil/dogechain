@@ -45,7 +45,7 @@ type JSONRPC struct {
 	config     *Config
 	dispatcher dispatcher
 	metrics    *Metrics
-	server *http.Server
+	server     *http.Server
 }
 
 type dispatcher interface {
