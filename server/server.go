@@ -335,18 +335,21 @@ func (s *Server) setupBlockchain() error {
 
 func (s *Server) setupExecutor() error {
 	logger := s.logger.Named("executor")
-	s.executor = state.NewExecutor(s.config.Chain.Params, s.state, logger)
+	executor := state.NewExecutor(s.config.Chain.Params, s.state, logger)
 	// other properties
-	s.executor.SetRuntime(precompiled.NewPrecompiled())
-	s.executor.SetRuntime(evm.NewEVM())
-	s.executor.GetHash = s.GetHashHelper
+	executor.SetRuntime(precompiled.NewPrecompiled())
+	executor.SetRuntime(evm.NewEVM())
+	executor.GetHash = s.GetHashHelper
 
 	// compute the genesis root state
 	// TODO: weird to commit every restart
-	genesisRoot, err := s.executor.WriteGenesis(s.config.Chain.Genesis.Alloc)
+	genesisRoot, err := executor.WriteGenesis(s.config.Chain.Genesis.Alloc)
 	if err != nil {
 		return err
 	}
+
+	// set executor
+	s.executor = executor
 
 	// update genesis state root
 	s.config.Chain.Genesis.StateRoot = genesisRoot
