@@ -11,6 +11,7 @@ import (
 	"github.com/dogechain-lab/dogechain/blockchain/storage/kvstorage"
 	"github.com/dogechain-lab/dogechain/chain"
 	"github.com/dogechain-lab/dogechain/helper/kvdb/memorydb"
+	"github.com/dogechain-lab/dogechain/helper/rawdb"
 	"github.com/dogechain-lab/dogechain/state"
 	"github.com/dogechain-lab/dogechain/types"
 	"github.com/stretchr/testify/assert"
@@ -487,7 +488,7 @@ func TestInsertHeaders(t *testing.T) {
 			assert.Equal(t, head.Hash, expected.Hash)
 
 			forks, err := b.GetForks()
-			if err != nil && !errors.Is(err, storage.ErrNotFound) {
+			if err != nil && (err.Error() != rawdb.ErrNotFound.Error()) {
 				t.Fatal(err)
 			}
 

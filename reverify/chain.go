@@ -8,7 +8,7 @@ import (
 	"github.com/dogechain-lab/dogechain/blockchain/storage/kvstorage"
 	"github.com/dogechain-lab/dogechain/chain"
 	"github.com/dogechain-lab/dogechain/consensus"
-	"github.com/dogechain-lab/dogechain/helper/kvdb/leveldb"
+	"github.com/dogechain-lab/dogechain/helper/kvdb"
 	"github.com/dogechain-lab/dogechain/network"
 	"github.com/dogechain-lab/dogechain/secrets"
 	"github.com/dogechain-lab/dogechain/server"
@@ -28,8 +28,8 @@ func createConsensus(
 	dataDir string,
 ) (consensus.Consensus, error) {
 	engineName := genesis.Params.GetEngine()
-	engine, ok := server.GetConsensusBackend(engineName)
 
+	engine, ok := server.GetConsensusBackend(engineName)
 	if !ok {
 		return nil, fmt.Errorf("consensus engine '%s' not found", engineName)
 	}
@@ -91,6 +91,7 @@ func createConsensus(
 }
 
 func createBlockchain(
+	db kvdb.KVBatchStorage,
 	logger hclog.Logger,
 	genesis *chain.Chain,
 	st itrie.StateDB,
@@ -106,14 +107,6 @@ func createBlockchain(
 	}
 
 	genesis.Genesis.StateRoot = genesisRoot
-
-	db, err := leveldb.New(
-		blockchainDir(dataDir),
-		leveldb.SetLogger(logger),
-	)
-	if err != nil {
-		return nil, nil, err
-	}
 
 	chain, err := blockchain.NewBlockchain(
 		logger,

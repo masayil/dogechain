@@ -85,6 +85,7 @@ func TestReverify(t *testing.T) {
 
 	resvr := framework.NewTestServer(t, svrRootDir, func(config *framework.TestServerConfig) {
 		*config = *svr.Config
+		config.Seal = false
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)

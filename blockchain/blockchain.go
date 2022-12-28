@@ -14,6 +14,7 @@ import (
 	"github.com/dogechain-lab/dogechain/contracts/upgrader"
 	"github.com/dogechain-lab/dogechain/contracts/validatorset"
 	"github.com/dogechain-lab/dogechain/helper/common"
+	"github.com/dogechain-lab/dogechain/helper/rawdb"
 	"github.com/dogechain-lab/dogechain/state"
 	"github.com/dogechain-lab/dogechain/types"
 	"github.com/dogechain-lab/dogechain/types/buildroot"
@@ -1290,7 +1291,8 @@ func (b *Blockchain) writeHeaderImpl(evnt *Event, header *types.Header) error {
 func (b *Blockchain) writeFork(header *types.Header) error {
 	forks, err := b.db.ReadForks()
 	if err != nil {
-		if errors.Is(err, storage.ErrNotFound) {
+		// too many error types
+		if err.Error() == rawdb.ErrNotFound.Error() {
 			forks = []types.Hash{}
 		} else {
 			return err
