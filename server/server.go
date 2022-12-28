@@ -23,6 +23,7 @@ import (
 	"github.com/dogechain-lab/dogechain/helper/kvdb"
 	"github.com/dogechain-lab/dogechain/helper/kvdb/leveldb"
 	"github.com/dogechain-lab/dogechain/helper/progress"
+	"github.com/dogechain-lab/dogechain/helper/rawdb"
 	"github.com/dogechain-lab/dogechain/jsonrpc"
 	"github.com/dogechain-lab/dogechain/network"
 	"github.com/dogechain-lab/dogechain/secrets"
@@ -191,33 +192,9 @@ func NewServer(config *Config) (*Server, error) {
 	// setup executor
 	srv.setupExecutor()
 
-	{
-		// Setup blockchain
-		// compute the genesis root state
-		// TODO: weird to commit every restart
-		genesisRoot, err := srv.executor.WriteGenesis(config.Chain.Genesis.Alloc)
-		if err != nil {
-			return nil, err
-		}
-
-		config.Chain.Genesis.StateRoot = genesisRoot
-
-		// blockchain object
-		srv.blockchain, err = blockchain.NewBlockchain(
-			logger,
-			config.Chain,
-			nil,
-			kvstorage.NewKeyValueStorage(srv.blockDB),
-			srv.executor,
-			srv.serverMetrics.blockchain,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		// TODO: refactor the design. Executor and blockchain should not rely on each other.
-		// And it should not cache any header for the "Hotspot Invalid"
-		srv.executor.GetHash = srv.blockchain.GetHashHelper
+	// setup blockchain
+	if err := srv.setupBlockchain(); err != nil {
+		return nil, err
 	}
 
 	// Set up txpool
@@ -327,11 +304,49 @@ func (s *Server) setupTxpool() error {
 	return nil
 }
 
-func (s *Server) setupExecutor() {
+func (s *Server) GetHashHelper(header *types.Header) func(uint64) types.Hash {
+	return func(u uint64) types.Hash {
+		v, _ := rawdb.ReadCanonicalHash(s.blockDB, u)
+
+		return v
+	}
+}
+
+func (s *Server) setupBlockchain() error {
+	var err error
+
+	// blockchain object
+	s.blockchain, err = blockchain.NewBlockchain(
+		s.logger,
+		s.config.Chain,
+		nil,
+		kvstorage.NewKeyValueStorage(s.blockDB),
+		s.executor,
+		s.serverMetrics.blockchain,
+	)
+
+	return err
+}
+
+func (s *Server) setupExecutor() error {
 	logger := s.logger.Named("executor")
 	s.executor = state.NewExecutor(s.config.Chain.Params, s.state, logger)
+	// other properties
 	s.executor.SetRuntime(precompiled.NewPrecompiled())
 	s.executor.SetRuntime(evm.NewEVM())
+	s.executor.GetHash = s.GetHashHelper
+
+	// compute the genesis root state
+	// TODO: weird to commit every restart
+	genesisRoot, err := s.executor.WriteGenesis(s.config.Chain.Genesis.Alloc)
+	if err != nil {
+		return err
+	}
+
+	// update genesis state root
+	s.config.Chain.Genesis.StateRoot = genesisRoot
+
+	return nil
 }
 
 func (s *Server) setupStateDB() error {

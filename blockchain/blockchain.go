@@ -1171,34 +1171,6 @@ func (b *Blockchain) verifyGasLimit(header, parentHeader *types.Header) error {
 	return nil
 }
 
-// GetHashHelper is used by the EVM, so that the SC can get the hash of the header number
-func (b *Blockchain) GetHashHelper(header *types.Header) func(i uint64) (res types.Hash) {
-	return func(i uint64) (res types.Hash) {
-		num, hash := header.Number-1, header.ParentHash
-
-		for {
-			if num == i {
-				res = hash
-
-				return
-			}
-
-			h, ok := b.GetHeaderByHash(hash)
-			if !ok {
-				return
-			}
-
-			hash = h.ParentHash
-
-			if num == 0 {
-				return
-			}
-
-			num--
-		}
-	}
-}
-
 // GetHashByNumber returns the block hash using the block number
 func (b *Blockchain) GetHashByNumber(blockNumber uint64) types.Hash {
 	if b.isStopped() {

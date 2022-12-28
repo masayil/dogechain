@@ -9,10 +9,12 @@ import (
 	"github.com/dogechain-lab/dogechain/chain"
 	"github.com/dogechain-lab/dogechain/consensus"
 	"github.com/dogechain-lab/dogechain/helper/kvdb"
+	"github.com/dogechain-lab/dogechain/helper/rawdb"
 	"github.com/dogechain-lab/dogechain/network"
 	"github.com/dogechain-lab/dogechain/secrets"
 	"github.com/dogechain-lab/dogechain/server"
 	"github.com/dogechain-lab/dogechain/state"
+	"github.com/dogechain-lab/dogechain/types"
 	"github.com/hashicorp/go-hclog"
 
 	itrie "github.com/dogechain-lab/dogechain/state/immutable-trie"
@@ -91,6 +93,7 @@ func createConsensus(
 }
 
 func createBlockchain(
+	hub *DBHub,
 	db kvdb.KVBatchStorage,
 	logger hclog.Logger,
 	genesis *chain.Chain,
@@ -120,7 +123,7 @@ func createBlockchain(
 		return nil, nil, err
 	}
 
-	executor.GetHash = chain.GetHashHelper
+	executor.GetHash = hub.GetHashHelper
 
 	consensus, err := createConsensus(logger, genesis, chain, executor, dataDir)
 	if err != nil {
@@ -143,4 +146,16 @@ func createBlockchain(
 	}
 
 	return chain, consensus, nil
+}
+
+type DBHub struct {
+	chainDB kvdb.KVBatchStorage
+}
+
+func (d *DBHub) GetHashHelper(header *types.Header) func(uint64) types.Hash {
+	return func(u uint64) types.Hash {
+		v, _ := rawdb.ReadCanonicalHash(d.chainDB, u)
+
+		return v
+	}
 }

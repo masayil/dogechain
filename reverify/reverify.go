@@ -35,7 +35,7 @@ func ReverifyChain(
 	dataDir string,
 	startHeight uint64,
 ) error {
-	bdb, err := leveldb.New(
+	chainDB, err := leveldb.New(
 		blockchainDir(dataDir),
 		leveldb.SetLogger(logger),
 	)
@@ -43,7 +43,11 @@ func ReverifyChain(
 		return err
 	}
 
-	sdb, err := leveldb.New(
+	defer chainDB.Close()
+
+	hub := &DBHub{chainDB: chainDB}
+
+	trieDB, err := leveldb.New(
 		stateDir(dataDir),
 		leveldb.SetLogger(logger),
 	)
@@ -51,16 +55,14 @@ func ReverifyChain(
 		return err
 	}
 
-	defer func() {
-		bdb.Close()
-		sdb.Close()
-	}()
+	defer trieDB.Close()
 
 	blockchain, consensus, err := createBlockchain(
-		bdb,
+		hub,
+		chainDB,
 		logger,
 		chain,
-		itrie.NewStateDB(sdb, hclog.NewNullLogger(), itrie.NilMetrics()),
+		itrie.NewStateDB(trieDB, hclog.NewNullLogger(), itrie.NilMetrics()),
 		dataDir,
 	)
 	if err != nil {
