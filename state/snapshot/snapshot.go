@@ -247,14 +247,14 @@ func (t *Tree) Disable() {
 	// Delete all snapshot liveness information from the database
 	batch := t.diskdb.NewBatch()
 
-	// // TODO: delete snapshot in batch
-	// rawdb.WriteSnapshotDisabled(batch)
-	// rawdb.DeleteSnapshotRoot(batch)
-	// rawdb.DeleteSnapshotJournal(batch)
-	// rawdb.DeleteSnapshotGenerator(batch)
-	// rawdb.DeleteSnapshotRecoveryNumber(batch)
-	// // Note, we don't delete the sync progress
+	// delete snapshot in batch
+	rawdb.WriteSnapshotDisabled(batch)
+	rawdb.DeleteSnapshotRoot(batch)
+	rawdb.DeleteSnapshotJournal(batch)
+	rawdb.DeleteSnapshotGenerator(batch)
+	rawdb.DeleteSnapshotRecoveryNumber(batch)
 
+	// Note, we don't delete the sync progress
 	if err := batch.Write(); err != nil {
 		t.logger.Error("Failed to disable snapshots", "err", err)
 		os.Exit(1)
@@ -732,8 +732,8 @@ func (t *Tree) Journal(root types.Hash) (types.Hash, error) {
 		return types.Hash{}, err
 	}
 
-	// // TODO: Store the journal into the database and return
-	// rawdb.WriteSnapshotJournal(t.diskdb, journal.Bytes())
+	// Store the journal into the database and return
+	rawdb.WriteSnapshotJournal(t.diskdb, journal.Bytes())
 
 	return base, nil
 }
