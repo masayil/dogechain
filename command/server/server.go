@@ -350,6 +350,51 @@ func setFlags(cmd *cobra.Command) {
 		}
 	}
 
+	// cache flags
+	{
+		cmd.Flags().BoolVar(
+			&params.rawConfig.EnableSnapshot,
+			enableSnapshotFlag,
+			false,
+			"Enables snapshot-database mode",
+		)
+
+		cmd.Flags().IntVar(
+			&params.rawConfig.CacheConfig.Cache,
+			cacheFlag,
+			1024,
+			"Megabytes of memory allocated to internal caching",
+		)
+
+		cmd.Flags().IntVar(
+			&params.rawConfig.CacheConfig.SnapshotPercentage,
+			cacheSnapshotFlag,
+			40,
+			"Percentage of cache memory allowance to use for snapshot caching",
+		)
+
+		cmd.Flags().IntVar(
+			&params.rawConfig.CacheConfig.TrieCleanPercentage,
+			cacheTrieCleanFlag,
+			40,
+			"Percentage of cache memory allowance to use for trie caching",
+		)
+
+		cmd.Flags().StringVar(
+			&params.rawConfig.CacheConfig.TrieCleanCacheJournal,
+			cacheTrieCleanJournalFlag,
+			server.TrieCacheDir,
+			"Disk journal directory for trie cache to survive node restarts",
+		)
+
+		cmd.Flags().StringVar(
+			&params.rawConfig.CacheConfig.TrieCleanRejournalRaw,
+			cacheTrieCleanRejournalFlag,
+			"1h0m0s",
+			"Time interval to regenerate the trie cache journal",
+		)
+	}
+
 	setDevFlags(cmd)
 }
 

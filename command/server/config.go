@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"strings"
+	"time"
 
 	"github.com/dogechain-lab/dogechain/jsonrpc"
 	"github.com/dogechain-lab/dogechain/network"
@@ -14,29 +15,49 @@ import (
 
 // Config defines the server configuration params
 type Config struct {
-	GenesisPath              string     `json:"chain_config"`
-	SecretsConfigPath        string     `json:"secrets_config"`
-	DataDir                  string     `json:"data_dir"`
-	BlockGasTarget           string     `json:"block_gas_target"`
-	GRPCAddr                 string     `json:"grpc_addr"`
-	JSONRPCAddr              string     `json:"jsonrpc_addr"`
-	Telemetry                *Telemetry `json:"telemetry"`
-	Network                  *Network   `json:"network"`
-	ShouldSeal               bool       `json:"seal"`
-	TxPool                   *TxPool    `json:"tx_pool"`
-	LogLevel                 string     `json:"log_level"`
-	RestoreFile              string     `json:"restore_file"`
-	BlockTime                uint64     `json:"block_time_s"`
-	Headers                  *Headers   `json:"headers"`
-	LogFilePath              string     `json:"log_to"`
-	EnableGraphQL            bool       `json:"enable_graphql"`
-	GraphQLAddr              string     `json:"graphql_addr"`
-	JSONRPCBatchRequestLimit uint64     `json:"json_rpc_batch_request_limit" yaml:"json_rpc_batch_request_limit"`
-	JSONRPCBlockRangeLimit   uint64     `json:"json_rpc_block_range_limit" yaml:"json_rpc_block_range_limit"`
-	JSONNamespace            string     `json:"json_namespace" yaml:"json_namespace"`
-	EnableWS                 bool       `json:"enable_ws" yaml:"enable_ws"`
-	EnablePprof              bool       `json:"enable_pprof" yaml:"enable_pprof"`
-	BlockBroadcast           bool       `json:"enable_block_broadcast" yaml:"enable_block_broadcast"`
+	GenesisPath              string       `json:"chain_config"`
+	SecretsConfigPath        string       `json:"secrets_config"`
+	DataDir                  string       `json:"data_dir"`
+	BlockGasTarget           string       `json:"block_gas_target"`
+	GRPCAddr                 string       `json:"grpc_addr"`
+	JSONRPCAddr              string       `json:"jsonrpc_addr"`
+	Telemetry                *Telemetry   `json:"telemetry"`
+	Network                  *Network     `json:"network"`
+	ShouldSeal               bool         `json:"seal"`
+	TxPool                   *TxPool      `json:"tx_pool"`
+	LogLevel                 string       `json:"log_level"`
+	RestoreFile              string       `json:"restore_file"`
+	BlockTime                uint64       `json:"block_time_s"`
+	Headers                  *Headers     `json:"headers"`
+	LogFilePath              string       `json:"log_to"`
+	EnableGraphQL            bool         `json:"enable_graphql"`
+	GraphQLAddr              string       `json:"graphql_addr"`
+	JSONRPCBatchRequestLimit uint64       `json:"json_rpc_batch_request_limit" yaml:"json_rpc_batch_request_limit"`
+	JSONRPCBlockRangeLimit   uint64       `json:"json_rpc_block_range_limit" yaml:"json_rpc_block_range_limit"`
+	JSONNamespace            string       `json:"json_namespace" yaml:"json_namespace"`
+	EnableWS                 bool         `json:"enable_ws" yaml:"enable_ws"`
+	EnablePprof              bool         `json:"enable_pprof" yaml:"enable_pprof"`
+	BlockBroadcast           bool         `json:"enable_block_broadcast" yaml:"enable_block_broadcast"`
+	EnableSnapshot           bool         `json:"enable_snapshot" yaml:"enable_snapshot"`
+	CacheConfig              *CacheConfig `json:"cache_config" yaml:"cache_config"`
+}
+
+type CacheConfig struct {
+	Cache               int `json:"cache" yaml:"cache"`
+	SnapshotPercentage  int `json:"snapshot_percentage" yaml:"snapshot_percentage"`
+	TrieCleanPercentage int `json:"trie_clean_percentage" yaml:"trie_clean_percentage"`
+	// TrieDirtyPercentage   int    `json:"trie_dirty_percentage" yaml:"trie_dirty_percentage"`
+	TrieCleanRejournalRaw string `json:"trie_clean_rejournal_raw" yaml:"trie_clean_rejournal_raw"`
+	// TrieTimeoutRaw        string `json:"trie_timeout_raw" yaml:"trie_timeout_raw"`
+
+	SnapshotCache  int `json:"snapshot_cache" yaml:"snapshot_cache"`
+	TrieCleanCache int `json:"trie_clean_cache" yaml:"trie_clean_cache"`
+	// Disk journal directory for trie cache to survive node restarts
+	TrieCleanCacheJournal string `json:"trie_clean_cache_journal" yaml:"trie_clean_cache_journal"`
+	// Time interval to regenerate the journal for clean cache
+	TrieCleanCacheRejournal time.Duration `json:"trie_clean_cache_rejournal" yaml:"trie_clean_cache_rejournal"`
+	TrieDirtyCache          int           `json:"trie_dirty_cache" yaml:"trie_dirty_cache"`
+	TrieTimeout             time.Duration `json:"trie_timeout" yaml:"trie_timeout"`
 }
 
 // Telemetry holds the config details for metric services.

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"net"
+	"time"
 
 	"github.com/dogechain-lab/dogechain/network/common"
 
@@ -19,6 +20,8 @@ import (
 var (
 	errInvalidBlockTime       = errors.New("invalid block time specified")
 	errDataDirectoryUndefined = errors.New("data directory not defined")
+	errInvalidCacheSize       = errors.New("invalid cache size")
+	errInvalidPercentage      = errors.New("invalid cache percentage")
 )
 
 func (p *serverParams) initConfigFromFile() error {
@@ -59,7 +62,49 @@ func (p *serverParams) initRawParams() error {
 	p.initPeerLimits()
 	p.initLogFileLocation()
 
+	if err := p.initCacheConfigs(); err != nil {
+		return err
+	}
+
 	return p.initAddresses()
+}
+
+func (p *serverParams) initCacheConfigs() error {
+	if p.rawConfig.CacheConfig.Cache <= 0 {
+		return errInvalidCacheSize
+	}
+
+	// snapshot cache
+	if p.rawConfig.CacheConfig.SnapshotPercentage < 0 {
+		return errInvalidPercentage
+	} else {
+		p.rawConfig.CacheConfig.SnapshotCache = p.rawConfig.CacheConfig.Cache *
+			p.rawConfig.CacheConfig.SnapshotPercentage / 100
+	}
+
+	// trie clean cache
+	if p.rawConfig.CacheConfig.TrieCleanPercentage < 0 {
+		return errInvalidPercentage
+	} else {
+		p.rawConfig.CacheConfig.TrieCleanCache = p.rawConfig.CacheConfig.Cache *
+			p.rawConfig.CacheConfig.TrieCleanPercentage / 100
+	}
+
+	// trie dirty cache
+	p.rawConfig.CacheConfig.TrieDirtyCache = p.rawConfig.CacheConfig.Cache -
+		p.rawConfig.CacheConfig.SnapshotCache - p.rawConfig.CacheConfig.TrieCleanCache
+
+	// clean cache rejournal duration
+	d, err := time.ParseDuration(p.rawConfig.CacheConfig.TrieCleanRejournalRaw)
+	if err != nil {
+		return err
+	} else {
+		p.rawConfig.CacheConfig.TrieCleanCacheRejournal = d
+	}
+
+	p.rawConfig.CacheConfig.TrieTimeout = 5 * time.Minute
+
+	return nil
 }
 
 func (p *serverParams) initBlockTime() error {

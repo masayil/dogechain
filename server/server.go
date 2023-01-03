@@ -33,6 +33,7 @@ import (
 	"github.com/dogechain-lab/dogechain/state/runtime"
 	"github.com/dogechain-lab/dogechain/state/runtime/evm"
 	"github.com/dogechain-lab/dogechain/state/runtime/precompiled"
+	"github.com/dogechain-lab/dogechain/state/snapshot"
 	"github.com/dogechain-lab/dogechain/state/stypes"
 	"github.com/dogechain-lab/dogechain/txpool"
 	"github.com/dogechain-lab/dogechain/types"
@@ -64,6 +65,10 @@ type Server struct {
 	state state.State
 	// state executor
 	executor *state.Executor
+	// state snapshots
+	snaps *snapshot.Tree
+	// Cache configuration for pruning
+	cacheConfig *CacheConfig
 
 	// jsonrpc stack
 	jsonrpcServer *jsonrpc.JSONRPC
@@ -94,11 +99,13 @@ const (
 	loggerDomainName  = "dogechain"
 	BlockchainDataDir = "blockchain"
 	StateDataDir      = "trie"
+	TrieCacheDir      = "triecache"
 )
 
 var dirPaths = []string{
 	BlockchainDataDir,
 	StateDataDir,
+	TrieCacheDir,
 }
 
 // newFileLogger returns logger instance that writes all logs to a specified file.
@@ -154,8 +161,9 @@ func NewServer(config *Config) (*Server, error) {
 	}
 
 	srv := &Server{
-		logger: logger,
-		config: config,
+		logger:      logger,
+		config:      config,
+		cacheConfig: config.CacheConfig,
 		grpcServer: grpc.NewServer(
 			grpc.MaxRecvMsgSize(common.MaxGrpcMsgSize),
 			grpc.MaxSendMsgSize(common.MaxGrpcMsgSize),
@@ -194,7 +202,13 @@ func NewServer(config *Config) (*Server, error) {
 	}
 
 	// setup executor
-	srv.setupExecutor()
+	if err := srv.setupExecutor(); err != nil {
+		return nil, err
+	}
+
+	if err := srv.setupSnapshots(); err != nil {
+		return nil, err
+	}
 
 	// setup blockchain
 	if err := srv.setupBlockchain(); err != nil {
@@ -331,6 +345,51 @@ func (s *Server) setupBlockchain() error {
 	)
 
 	return err
+}
+
+func (s *Server) setupSnapshots() error {
+	// CacheConfig contains the configuration values for the trie database
+	// that's resident in a blockchain.
+	type CacheConfig struct {
+		TrieCleanLimit int           // Memory allowance (MB) to use for caching trie nodes in memory
+		TrieDirtyLimit int           // Memory limit (MB) at which to start flushing dirty trie nodes to disk
+		TrieTimeLimit  time.Duration // Time limit after which to flush the current in-memory trie to disk
+		SnapshotLimit  int           // Memory allowance (MB) to use for caching snapshot entries in memory
+		// Wait for snapshot construction on startup. TODO(karalabe): This is a dirty hack for testing, nuke it
+		SnapshotWait bool
+	}
+
+	// defaultCacheConfig are the default caching values if none are specified by the
+	// user (also used during testing).
+	var defaultCacheConfig = &CacheConfig{
+		TrieCleanLimit: 256,
+		TrieDirtyLimit: 256,
+		TrieTimeLimit:  5 * time.Minute,
+		SnapshotLimit:  256,
+		SnapshotWait:   true,
+	}
+
+	var (
+		logger  = s.logger.Named("snapshots")
+		snapCfg = snapshot.Config{
+			CacheSize:  defaultCacheConfig.SnapshotLimit,
+			Recovery:   false,
+			NoBuild:    false,
+			AsyncBuild: !defaultCacheConfig.SnapshotWait,
+		}
+		db = s.trieDB
+	)
+
+	rawdb.ReadSnapshotRoot(db)
+
+	snaps, err := snapshot.New(snapCfg, db, types.ZeroHash, logger)
+	if err != nil {
+		return err
+	}
+
+	s.snaps = snaps
+
+	return nil
 }
 
 func (s *Server) setupExecutor() error {
@@ -914,6 +973,56 @@ func (s *Server) Close() {
 	if err := s.blockchain.Close(); err != nil {
 		s.logger.Error("failed to close blockchain", "err", err)
 	}
+
+	// // Ensure that the entirety of the state snapshot is journalled to disk.
+	// var snapBase types.Hash
+
+	if s.snaps != nil {
+		var err error
+		if _, err = s.snaps.Journal(s.blockchain.Header().StateRoot); err != nil {
+			s.logger.Error("failed to journal state snapshot", "err", err)
+		}
+	}
+
+	// // Ensure the state of a recent block is also stored to disk before exiting.
+	// // We're writing different states to catch different restart scenarios:
+	// //  - HEAD:     So we don't need to reprocess any blocks in the general case
+	// //  - HEAD-127: So we have a hard limit on the number of blocks reexecuted
+	// if !s.cacheConfig.TrieDirtyDisabled {
+	// triedb := s.trieDB
+
+	// for _, offset := range []uint64{0, TriesInMemory - 1} {
+	// 	if number := s.blockchain.Header().Number; number > offset {
+	// 		recent, ok := s.blockchain.GetBlockByNumber(number-offset, true)
+	// 		if !ok {
+	// 			s.logger.Error("block not exists", "number", number-offset)
+	// 			os.Exit(1)
+	// 		}
+
+	// s.logger.Info("Writing cached state to disk",
+	// 	"block", recent.Number(),
+	// 	"hash", recent.Hash(),
+	// 	"root", recent.Header.StateRoot,
+	// )
+	// 		if err := triedb.Commit(recent.Header.StateRoot, true, nil); err != nil {
+	// 			s.logger.Error("Failed to commit recent state trie", "err", err)
+	// 		}
+	// 	}
+	// }
+
+	// if snapBase != types.ZeroHash {
+	// 	s.logger.Info("Writing snapshot state to disk", "root", snapBase)
+	// 	if err := triedb.Commit(snapBase, true, nil); err != nil {
+	// 		s.logger.Error("Failed to commit recent state trie", "err", err)
+	// 	}
+	// }
+	// }
+
+	// // Ensure all live cached entries be saved into disk, so that we can skip
+	// // cache warmup when node restarts.
+	// if s.cacheConfig.TrieCleanJournal != "" {
+	// 	s.trieDB.SaveCache(s.cacheConfig.TrieCleanJournal)
+	// }
 
 	s.logger.Info("close http servers")
 

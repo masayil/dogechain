@@ -53,6 +53,12 @@ const (
 	jsonrpcNamespaceFlag         = "json-rpc-namespace"
 	enableWSFlag                 = "enable-ws"
 	blockBroadcastFlag           = "block-broadcast"
+	enableSnapshotFlag           = "enable-snapshot"
+	cacheFlag                    = "cache"
+	cacheSnapshotFlag            = "cache.snapshot"
+	cacheTrieCleanFlag           = "cache.trie"
+	cacheTrieCleanJournalFlag    = "cache.trie.journal"
+	cacheTrieCleanRejournalFlag  = "cache.trie.rejournal"
 )
 
 const (
@@ -62,9 +68,10 @@ const (
 var (
 	params = &serverParams{
 		rawConfig: &Config{
-			Telemetry: &Telemetry{},
-			Network:   &Network{},
-			TxPool:    &TxPool{},
+			Telemetry:   &Telemetry{},
+			Network:     &Network{},
+			TxPool:      &TxPool{},
+			CacheConfig: &CacheConfig{},
 		},
 	}
 )
@@ -262,5 +269,13 @@ func (p *serverParams) generateConfig() *server.Config {
 		Daemon:         p.isDaemon,
 		ValidatorKey:   p.validatorKey,
 		BlockBroadcast: p.rawConfig.BlockBroadcast,
+		CacheConfig: &server.CacheConfig{
+			TrieCleanLimit:     p.rawConfig.CacheConfig.TrieCleanCache,
+			TrieCleanJournal:   p.rawConfig.CacheConfig.TrieCleanCacheJournal,
+			TrieCleanRejournal: p.rawConfig.CacheConfig.TrieCleanCacheRejournal,
+			TrieDirtyLimit:     p.rawConfig.CacheConfig.TrieDirtyCache,
+			TrieTimeLimit:      p.rawConfig.CacheConfig.TrieTimeout,
+			SnapshotLimit:      p.rawConfig.CacheConfig.SnapshotCache,
+		},
 	}
 }
