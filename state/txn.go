@@ -432,7 +432,7 @@ func (txn *Txn) GetState(addr types.Address, key types.Hash) types.Hash {
 
 	object.trTxn = txn // reference for look up snapshots
 
-	return object.GetCommitedState(types.BytesToHash(k))
+	return object.GetCommittedState(types.BytesToHash(k))
 }
 
 // Nonce
@@ -568,7 +568,7 @@ func (txn *Txn) GetCommittedState(addr types.Address, key types.Hash) types.Hash
 
 	obj.trTxn = txn // reference for look up snapshots
 
-	return obj.GetCommitedState(types.BytesToHash(txn.hashit(key.Bytes())))
+	return obj.GetCommittedState(types.BytesToHash(txn.hashit(key.Bytes())))
 }
 
 func (txn *Txn) TouchAccount(addr types.Address) {

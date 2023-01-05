@@ -43,7 +43,7 @@ func (s *StateObject) Empty() bool {
 
 var stateStateParserPool fastrlp.ParserPool
 
-func (s *StateObject) GetCommitedState(key types.Hash) types.Hash {
+func (s *StateObject) GetCommittedState(key types.Hash) types.Hash {
 	var (
 		val []byte
 		err error
