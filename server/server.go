@@ -201,12 +201,13 @@ func NewServer(config *Config) (*Server, error) {
 		return nil, err
 	}
 
-	// setup executor
-	if err := srv.setupExecutor(); err != nil {
+	// setup world state snapshots
+	if err := srv.setupSnapshots(); err != nil {
 		return nil, err
 	}
 
-	if err := srv.setupSnapshots(); err != nil {
+	// setup executor
+	if err := srv.setupExecutor(); err != nil {
 		return nil, err
 	}
 
@@ -332,10 +333,7 @@ func (s *Server) GetHashHelper(header *types.Header) func(uint64) types.Hash {
 }
 
 func (s *Server) setupBlockchain() error {
-	var err error
-
-	// blockchain object
-	s.blockchain, err = blockchain.NewBlockchain(
+	bc, err := blockchain.NewBlockchain(
 		s.logger,
 		s.config.Chain,
 		nil,
@@ -343,8 +341,14 @@ func (s *Server) setupBlockchain() error {
 		s.executor,
 		s.serverMetrics.blockchain,
 	)
+	if err != nil {
+		return err
+	}
 
-	return err
+	// blockchain object
+	s.blockchain = bc
+
+	return nil
 }
 
 func (s *Server) setupSnapshots() error {
@@ -377,12 +381,24 @@ func (s *Server) setupSnapshots() error {
 			NoBuild:    false,
 			AsyncBuild: !defaultCacheConfig.SnapshotWait,
 		}
-		db = s.trieDB
+		db  = s.chainDB
+		sdb = s.trieDB
 	)
 
-	rawdb.ReadSnapshotRoot(db)
+	headHash, ok := rawdb.ReadHeadHash(db)
+	if !ok {
+		s.logger.Error("head hash not found")
 
-	snaps, err := snapshot.New(snapCfg, db, types.ZeroHash, logger)
+		return nil
+	}
+
+	header, err := rawdb.ReadHeader(db, headHash)
+	if err != nil {
+		s.logger.Error("get header failed", "err", err)
+		os.Exit(1)
+	}
+
+	snaps, err := snapshot.New(snapCfg, sdb, header.StateRoot, logger)
 	if err != nil {
 		return err
 	}
@@ -394,7 +410,12 @@ func (s *Server) setupSnapshots() error {
 
 func (s *Server) setupExecutor() error {
 	logger := s.logger.Named("executor")
-	executor := state.NewExecutor(s.config.Chain.Params, s.state, logger)
+	executor := state.NewExecutor(
+		s.config.Chain.Params,
+		logger,
+		s.state,
+		s.snaps,
+	)
 	// other properties
 	executor.SetRuntime(precompiled.NewPrecompiled())
 	executor.SetRuntime(evm.NewEVM())

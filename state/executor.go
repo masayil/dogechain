@@ -14,6 +14,7 @@ import (
 	"github.com/dogechain-lab/dogechain/crypto"
 	"github.com/dogechain-lab/dogechain/state/runtime"
 	"github.com/dogechain-lab/dogechain/state/runtime/evm"
+	"github.com/dogechain-lab/dogechain/state/snapshot"
 	"github.com/dogechain-lab/dogechain/types"
 	"github.com/hashicorp/go-hclog"
 )
@@ -34,23 +35,34 @@ type GetHashByNumberHelper = func(*types.Header) GetHashByNumber
 
 // Executor is the main entity
 type Executor struct {
-	logger   hclog.Logger
-	config   *chain.Params
+	config *chain.Params
+	logger hclog.Logger
+
 	runtimes []runtime.Runtime
 	state    State
 	GetHash  GetHashByNumberHelper
 	stopped  uint32 // atomic flag for stopping
 
+	// world state snapshots
+	snaps *snapshot.Tree
+
+	// post hook for testing
 	PostHook func(txn *Transition)
 }
 
 // NewExecutor creates a new executor
-func NewExecutor(config *chain.Params, s State, logger hclog.Logger) *Executor {
+func NewExecutor(
+	config *chain.Params,
+	logger hclog.Logger,
+	s State,
+	snaps *snapshot.Tree,
+) *Executor {
 	return &Executor{
-		logger:   logger,
 		config:   config,
+		logger:   logger,
 		runtimes: []runtime.Runtime{},
 		state:    s,
+		snaps:    snaps,
 	}
 }
 
@@ -222,6 +234,9 @@ func (e *Executor) BeginTxn(
 		evmLogger: runtime.NewDummyLogger(),
 	}
 
+	// Set the snapshots here, then no external setup is required
+	txn.SetSnapsRoot(e.snaps, parentRoot)
+
 	return txn, nil
 }
 
@@ -247,6 +262,21 @@ type Transition struct {
 	// then we wouldn't have to judge any tracing flag
 	evmLogger runtime.EVMLogger
 	needDebug bool
+
+	// snaps caches world state snapshots to reduce long reads from database
+	snaps *snapshot.Tree    // snapshot tree
+	snap  snapshot.Snapshot // current world state
+}
+
+// SetSnapsRoot sets snapshots and current snapshot at root
+func (t *Transition) SetSnapsRoot(snaps *snapshot.Tree, root types.Hash) {
+	t.snaps = snaps
+
+	if snaps != nil {
+		if t.snap = snaps.Snapshot(root); t.snap != nil {
+			t.txn.SetSnap(t.snap)
+		}
+	}
 }
 
 // SetEVMLogger sets a non nil tracer to it
@@ -453,6 +483,33 @@ func (t *Transition) Commit() (Snapshot, types.Hash, error) {
 		return nil, types.ZeroHash, err
 	}
 
+	// If snapshotting is enabled, update the snapshot tree with this new version
+	if t.snap != nil {
+		curroot := types.BytesToHash(root)
+		// Only update if there's a state transition (skip empty blocks)
+		if parent := t.snap.Root(); parent != curroot {
+			// get snap objects from txn
+			snapDestructs, snapAccounts, snapStorage := t.txn.GetSnapObjects()
+
+			if err := t.snaps.Update(curroot, parent,
+				snapDestructs, snapAccounts, snapStorage,
+				t.logger,
+			); err != nil {
+				t.logger.Warn("Failed to update snapshot tree", "from", parent, "to", root, "err", err)
+			}
+			// Keep 128 diff layers in the memory, persistent layer is 129th.
+			// - head layer is paired with HEAD state
+			// - head-1 layer is paired with HEAD-1 state
+			// - head-127 layer(bottom-most diff layer) is paired with HEAD-127 state
+			if err := t.snaps.Cap(curroot, 128); err != nil {
+				t.logger.Warn("Failed to cap snapshot tree", "root", root, "layers", 128, "err", err)
+			}
+		}
+
+		t.snap = nil
+		t.txn.CleanSnap()
+	}
+
 	return s2, types.BytesToHash(root), nil
 }
 
@@ -475,10 +532,6 @@ func (t *Transition) IncreaseSystemTransactionGas(amount uint64) {
 
 func (t *Transition) addGasPool(amount uint64) {
 	t.gasPool += amount
-}
-
-func (t *Transition) SetTxn(txn *Txn) {
-	t.txn = txn
 }
 
 func (t *Transition) Txn() *Txn {

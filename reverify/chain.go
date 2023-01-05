@@ -100,7 +100,13 @@ func createBlockchain(
 	st itrie.StateDB,
 	dataDir string,
 ) (*blockchain.Blockchain, consensus.Consensus, error) {
-	executor := state.NewExecutor(genesis.Params, st, logger)
+	executor := state.NewExecutor(
+		genesis.Params,
+		logger,
+		st,
+		nil, // do we need snapshots here?
+	)
+
 	executor.SetRuntime(precompiled.NewPrecompiled())
 	executor.SetRuntime(evm.NewEVM())
 

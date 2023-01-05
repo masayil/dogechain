@@ -112,7 +112,15 @@ func NewTestBlockchain(t *testing.T, headers []*types.Header) *Blockchain {
 		nil,
 	)
 
-	b, err := newBlockChain(config, state.NewExecutor(config.Params, st, hclog.NewNullLogger()))
+	b, err := newBlockChain(
+		config,
+		state.NewExecutor(
+			config.Params,
+			hclog.NewNullLogger(),
+			st,
+			nil, // no need to set up snapshot in test
+		),
+	)
 
 	if err != nil {
 		t.Fatal(err)

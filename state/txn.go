@@ -9,6 +9,7 @@ import (
 	"github.com/dogechain-lab/dogechain/crypto"
 	"github.com/dogechain-lab/dogechain/helper/keccak"
 	"github.com/dogechain-lab/dogechain/state/runtime"
+	"github.com/dogechain-lab/dogechain/state/snapshot"
 	"github.com/dogechain-lab/dogechain/state/stypes"
 	"github.com/dogechain-lab/dogechain/types"
 )
@@ -30,6 +31,11 @@ type Txn struct {
 	snapshots []*iradix.Tree
 	txn       *iradix.Txn
 	hash      *keccak.Keccak
+	// for caching world state
+	snap          snapshot.Snapshot
+	snapDestructs map[types.Hash]struct{}              // deleted and waiting for destruction
+	snapAccounts  map[types.Hash][]byte                // live snapshot accounts
+	snapStorage   map[types.Hash]map[types.Hash][]byte // live snapshot storages
 }
 
 func NewTxn(state State, snapshot Snapshot) *Txn {
@@ -45,6 +51,33 @@ func newTxn(state State, snapshot Snapshot) *Txn {
 		snapshots: []*iradix.Tree{},
 		txn:       i.Txn(),
 		hash:      keccak.NewKeccak256(),
+	}
+}
+
+// SetSnap sets up the world state snapshot
+func (txn *Txn) SetSnap(
+	snap snapshot.Snapshot,
+) {
+	txn.snap = snap
+	if txn.snap != nil {
+		txn.snapDestructs = make(map[types.Hash]struct{})
+		txn.snapAccounts = make(map[types.Hash][]byte)
+		txn.snapStorage = make(map[types.Hash]map[types.Hash][]byte)
+	}
+}
+
+func (txn *Txn) GetSnapObjects() (
+	snapDestructs map[types.Hash]struct{},
+	snapAccounts map[types.Hash][]byte,
+	snapStorage map[types.Hash]map[types.Hash][]byte,
+) {
+	return txn.snapDestructs, txn.snapAccounts, txn.snapStorage
+}
+
+// CleanSnap cleans current snapshots
+func (txn *Txn) CleanSnap() {
+	if txn.snap != nil {
+		txn.snap, txn.snapDestructs, txn.snapAccounts, txn.snapStorage = nil, nil, nil, nil
 	}
 }
 
@@ -100,30 +133,63 @@ func (txn *Txn) getStateObject(addr types.Address) (*StateObject, bool) {
 		return obj.Copy(), true
 	}
 
-	data, ok := txn.snapshot.Get(txn.hashit(addr.Bytes()))
-	if !ok {
-		return nil, false
+	var (
+		account  *stypes.Account
+		addrHash = txn.hashit(addr.Bytes())
+	)
+
+	// If no transient objects are available, attempt to use snapshots
+	if txn.snap != nil {
+		acc, err := txn.snap.Account(types.BytesToHash(addrHash))
+		if err == nil {
+			if acc == nil {
+				return nil, false
+			}
+
+			account = &stypes.Account{
+				Nonce:    acc.Nonce,
+				Balance:  acc.Balance,
+				CodeHash: acc.CodeHash,
+				Root:     acc.Root,
+			}
+
+			if len(account.CodeHash) == 0 {
+				account.CodeHash = emptyCodeHash
+			}
+
+			if account.Root == types.ZeroHash {
+				account.Root = types.EmptyRootHash
+			}
+		}
 	}
 
-	var err error
+	// If snapshot unavailable or reading from it failed, load from the database
+	if account == nil {
+		data, ok := txn.snapshot.Get(addrHash)
+		if !ok {
+			return nil, false
+		}
 
-	var account stypes.Account
-	if err = account.UnmarshalRlp(data); err != nil {
-		return nil, false
+		if err := account.UnmarshalRlp(data); err != nil {
+			return nil, false
+		}
 	}
 
 	// Load trie from memory if there is some state
 	if account.Root == emptyStateHash {
 		account.Trie = txn.state.NewSnapshot()
 	} else {
-		account.Trie, err = txn.state.NewSnapshotAt(account.Root)
+		trie, err := txn.state.NewSnapshotAt(account.Root)
 		if err != nil {
 			return nil, false
 		}
+
+		account.Trie = trie
 	}
 
 	obj := &StateObject{
-		Account: account.Copy(),
+		Account:  account.Copy(),
+		AddrHash: types.BytesToHash(addrHash),
 	}
 
 	return obj, true
@@ -139,6 +205,7 @@ func (txn *Txn) upsertAccount(addr types.Address, create bool, f func(object *St
 				CodeHash: emptyCodeHash,
 				Root:     emptyStateHash,
 			},
+			AddrHash: types.BytesToHash(txn.hashit(addr.Bytes())),
 		}
 	}
 
@@ -147,6 +214,15 @@ func (txn *Txn) upsertAccount(addr types.Address, create bool, f func(object *St
 
 	if object != nil {
 		txn.txn.Insert(addr.Bytes(), object)
+	}
+
+	if txn.snap != nil {
+		txn.snapAccounts[object.AddrHash] = snapshot.SlimAccountRLP(
+			object.Account.Nonce,
+			object.Account.Balance,
+			object.Account.Root,
+			object.Account.CodeHash,
+		)
 	}
 }
 
@@ -358,6 +434,8 @@ func (txn *Txn) GetState(addr types.Address, key types.Hash) types.Hash {
 	// If the object was not found in the radix trie due to no state update, we fetch it from the trie tre
 	k := txn.hashit(key.Bytes())
 
+	object.trTxn = txn // reference for look up snapshots
+
 	return object.GetCommitedState(types.BytesToHash(k))
 }
 
@@ -492,6 +570,8 @@ func (txn *Txn) GetCommittedState(addr types.Address, key types.Hash) types.Hash
 		return types.Hash{}
 	}
 
+	obj.trTxn = txn // reference for look up snapshots
+
 	return obj.GetCommitedState(types.BytesToHash(txn.hashit(key.Bytes())))
 }
 
@@ -537,11 +617,20 @@ func (txn *Txn) CreateAccount(addr types.Address) {
 			CodeHash: emptyCodeHash,
 			Root:     emptyStateHash,
 		},
+		AddrHash: types.BytesToHash(txn.hashit(addr.Bytes())),
 	}
 
 	prev, ok := txn.getStateObject(addr)
 	if ok {
 		obj.Account.Balance.SetBytes(prev.Account.Balance.Bytes())
+
+		if txn.snap != nil {
+			// destruct object when already deleted
+			_, prevdesctruct := txn.snapDestructs[prev.AddrHash]
+			if !prevdesctruct {
+				txn.snapDestructs[prev.AddrHash] = struct{}{}
+			}
+		}
 	}
 
 	txn.txn.Insert(addr.Bytes(), obj)
@@ -557,6 +646,15 @@ func (txn *Txn) CleanDeleteObjects(deleteEmptyObjects bool) {
 		}
 		if a.Suicide || a.Empty() && deleteEmptyObjects {
 			remove = append(remove, k)
+
+			// delete it from snapshot too
+			if txn.snap != nil {
+				// We need to maintain account deletions explicitly (will remain set indefinitely)
+				txn.snapDestructs[a.AddrHash] = struct{}{}
+				// Clear out any previously updated account and storage data (may be recreated via a resurrect)
+				delete(txn.snapAccounts, a.AddrHash)
+				delete(txn.snapStorage, a.AddrHash)
+			}
 		}
 
 		return false
