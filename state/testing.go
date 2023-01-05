@@ -40,40 +40,40 @@ type buildPreState func(p PreStates) (State, Snapshot)
 func TestState(t *testing.T, buildPreState buildPreState) {
 	t.Helper()
 
-	t.Run("", func(t *testing.T) {
+	t.Run("write state", func(t *testing.T) {
 		testWriteState(t, buildPreState)
 	})
-	t.Run("", func(t *testing.T) {
+	t.Run("write empty state", func(t *testing.T) {
 		testWriteEmptyState(t, buildPreState)
 	})
-	t.Run("", func(t *testing.T) {
+	t.Run("update state with empty", func(t *testing.T) {
 		testUpdateStateWithEmpty(t, buildPreState)
 	})
-	t.Run("", func(t *testing.T) {
+	t.Run("suicide account in prestate", func(t *testing.T) {
 		testSuicideAccountInPreState(t, buildPreState)
 	})
-	t.Run("", func(t *testing.T) {
+	t.Run("suicide account", func(t *testing.T) {
 		testSuicideAccount(t, buildPreState)
 	})
-	t.Run("", func(t *testing.T) {
+	t.Run("suicide account with data", func(t *testing.T) {
 		testSuicideAccountWithData(t, buildPreState)
 	})
-	t.Run("", func(t *testing.T) {
+	t.Run("suicide coinbase", func(t *testing.T) {
 		testSuicideCoinbase(t, buildPreState)
 	})
-	t.Run("", func(t *testing.T) {
+	t.Run("suicide with intermediate commit", func(t *testing.T) {
 		testSuicideWithIntermediateCommit(t, buildPreState)
 	})
-	t.Run("", func(t *testing.T) {
+	t.Run("restart refunds", func(t *testing.T) {
 		testRestartRefunds(t, buildPreState)
 	})
-	t.Run("", func(t *testing.T) {
+	t.Run("change prestate account balance to zero", func(t *testing.T) {
 		testChangePrestateAccountBalanceToZero(t, buildPreState)
 	})
-	t.Run("", func(t *testing.T) {
+	t.Run("change account balance to zero", func(t *testing.T) {
 		testChangeAccountBalanceToZero(t, buildPreState)
 	})
-	t.Run("", func(t *testing.T) {
+	t.Run("delete common state root", func(t *testing.T) {
 		testDeleteCommonStateRoot(t, buildPreState)
 	})
 }
@@ -116,7 +116,7 @@ func testWriteState(t *testing.T, buildPreState buildPreState) {
 	t.Helper()
 
 	state, snap := buildPreState(nil)
-	txn := newTxn(state, snap)
+	txn := NewTxn(state, snap)
 
 	txn.SetState(addr1, hash1, hash1)
 	txn.SetState(addr1, hash2, hash2)

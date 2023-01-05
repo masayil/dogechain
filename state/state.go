@@ -65,7 +65,7 @@ func (s *StateObject) GetCommitedState(key types.Hash) types.Hash {
 	}
 
 	// If the snapshot is unavailable or reading from it fails, load from the database.
-	if s.trTxn.snap == nil && err != nil {
+	if s.trTxn.snap == nil || err != nil {
 		v, ok := s.Account.Trie.Get(key.Bytes())
 		if !ok {
 			return types.Hash{}
