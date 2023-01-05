@@ -3,8 +3,6 @@ package state
 import (
 	"math/big"
 
-	iradix "github.com/hashicorp/go-immutable-radix"
-
 	"github.com/dogechain-lab/dogechain/chain"
 	"github.com/dogechain-lab/dogechain/crypto"
 	"github.com/dogechain-lab/dogechain/helper/keccak"
@@ -12,6 +10,7 @@ import (
 	"github.com/dogechain-lab/dogechain/state/snapshot"
 	"github.com/dogechain-lab/dogechain/state/stypes"
 	"github.com/dogechain-lab/dogechain/types"
+	iradix "github.com/hashicorp/go-immutable-radix"
 )
 
 var emptyStateHash = types.StringToHash("0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
@@ -123,8 +122,7 @@ func (txn *Txn) GetAccount(addr types.Address) (*stypes.Account, bool) {
 
 func (txn *Txn) getStateObject(addr types.Address) (*StateObject, bool) {
 	// Try to get state from radix tree which holds transient states during block processing first
-	val, exists := txn.txn.Get(addr.Bytes())
-	if exists {
+	if val, exists := txn.txn.Get(addr.Bytes()); exists {
 		obj := val.(*StateObject) //nolint:forcetypeassert
 		if obj.Deleted {
 			return nil, false
@@ -146,20 +144,16 @@ func (txn *Txn) getStateObject(addr types.Address) (*StateObject, bool) {
 				return nil, false
 			}
 
-			account = &stypes.Account{
-				Nonce:    acc.Nonce,
-				Balance:  acc.Balance,
-				CodeHash: acc.CodeHash,
-				Root:     acc.Root,
+			account = acc
+
+			if account.Root == types.ZeroHash {
+				account.Root = types.EmptyRootHash
 			}
 
 			if len(account.CodeHash) == 0 {
 				account.CodeHash = emptyCodeHash
 			}
 
-			if account.Root == types.ZeroHash {
-				account.Root = types.EmptyRootHash
-			}
 		}
 	}
 
@@ -169,6 +163,8 @@ func (txn *Txn) getStateObject(addr types.Address) (*StateObject, bool) {
 		if !ok {
 			return nil, false
 		}
+
+		account = new(stypes.Account)
 
 		if err := account.UnmarshalRlp(data); err != nil {
 			return nil, false
