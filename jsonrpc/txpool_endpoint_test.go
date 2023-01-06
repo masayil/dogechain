@@ -13,7 +13,7 @@ import (
 func TestContentEndpoint(t *testing.T) {
 	t.Run("returns empty ContentResponse if tx pool has no transactions", func(t *testing.T) {
 		mockStore := newMockTxPoolStore()
-		txPoolEndpoint := &TxPool{mockStore}
+		txPoolEndpoint := &TxPool{mockStore, NilMetrics()}
 
 		result, _ := txPoolEndpoint.Content()
 		response := result.(ContentResponse)
@@ -29,7 +29,7 @@ func TestContentEndpoint(t *testing.T) {
 		address1 := types.Address{0x1}
 		testTx := newTestTransaction(2, address1)
 		mockStore.pending[address1] = []*types.Transaction{testTx}
-		txPoolEndpoint := &TxPool{mockStore}
+		txPoolEndpoint := &TxPool{mockStore, NilMetrics()}
 
 		result, _ := txPoolEndpoint.Content()
 		response := result.(ContentResponse)
@@ -56,7 +56,7 @@ func TestContentEndpoint(t *testing.T) {
 		address1 := types.Address{0x1}
 		testTx := newTestTransaction(2, address1)
 		mockStore.queued[address1] = []*types.Transaction{testTx}
-		txPoolEndpoint := &TxPool{mockStore}
+		txPoolEndpoint := &TxPool{mockStore, NilMetrics()}
 
 		result, _ := txPoolEndpoint.Content()
 		response := result.(ContentResponse)
@@ -90,7 +90,7 @@ func TestContentEndpoint(t *testing.T) {
 		mockStore.pending[address2] = []*types.Transaction{testTx4}
 		mockStore.queued[address1] = []*types.Transaction{testTx3}
 		mockStore.queued[address2] = []*types.Transaction{testTx5}
-		txPoolEndpoint := &TxPool{mockStore}
+		txPoolEndpoint := &TxPool{mockStore, NilMetrics()}
 
 		result, _ := txPoolEndpoint.Content()
 		response := result.(ContentResponse)
@@ -107,7 +107,7 @@ func TestInspectEndpoint(t *testing.T) {
 	t.Run("returns empty InspectResponse if tx pool has no transactions", func(t *testing.T) {
 		mockStore := newMockTxPoolStore()
 		mockStore.maxSlots = 1024
-		txPoolEndpoint := &TxPool{mockStore}
+		txPoolEndpoint := &TxPool{mockStore, NilMetrics()}
 
 		result, _ := txPoolEndpoint.Inspect()
 		response := result.(InspectResponse)
@@ -125,7 +125,7 @@ func TestInspectEndpoint(t *testing.T) {
 		address1 := types.Address{0x1}
 		testTx := newTestTransaction(2, address1)
 		mockStore.queued[address1] = []*types.Transaction{testTx}
-		txPoolEndpoint := &TxPool{mockStore}
+		txPoolEndpoint := &TxPool{mockStore, NilMetrics()}
 
 		result, _ := txPoolEndpoint.Inspect()
 		response := result.(InspectResponse)
@@ -145,7 +145,7 @@ func TestInspectEndpoint(t *testing.T) {
 		testTx := newTestTransaction(2, address1)
 		testTx2 := newTestTransaction(3, address1)
 		mockStore.pending[address1] = []*types.Transaction{testTx, testTx2}
-		txPoolEndpoint := &TxPool{mockStore}
+		txPoolEndpoint := &TxPool{mockStore, NilMetrics()}
 
 		result, _ := txPoolEndpoint.Inspect()
 		response := result.(InspectResponse)
@@ -163,7 +163,7 @@ func TestInspectEndpoint(t *testing.T) {
 func TestStatusEndpoint(t *testing.T) {
 	t.Run("returns empty StatusResponse if tx pool has no transactions", func(t *testing.T) {
 		mockStore := newMockTxPoolStore()
-		txPoolEndpoint := &TxPool{mockStore}
+		txPoolEndpoint := &TxPool{mockStore, NilMetrics()}
 
 		result, _ := txPoolEndpoint.Status()
 		response := result.(StatusResponse)
@@ -185,7 +185,7 @@ func TestStatusEndpoint(t *testing.T) {
 		mockStore.pending[address2] = []*types.Transaction{testTx4}
 		mockStore.queued[address1] = []*types.Transaction{testTx3}
 		mockStore.queued[address2] = []*types.Transaction{testTx5}
-		txPoolEndpoint := &TxPool{mockStore}
+		txPoolEndpoint := &TxPool{mockStore, NilMetrics()}
 
 		result, _ := txPoolEndpoint.Status()
 		response := result.(StatusResponse)

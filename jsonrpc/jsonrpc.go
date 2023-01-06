@@ -85,6 +85,7 @@ func NewJSONRPC(logger hclog.Logger, config *Config) (*JSONRPC, error) {
 		config: config,
 		dispatcher: newDispatcher(
 			logger,
+			NewDummyMetrics(config.Metrics),
 			config.Store,
 			config.ChainID,
 			config.BatchLengthLimit,
@@ -144,7 +145,10 @@ func (j *JSONRPC) setupHTTP() error {
 
 	srv := &http.Server{
 		Handler:           mux,
+		ReadTimeout:       time.Minute,
 		ReadHeaderTimeout: time.Minute,
+		WriteTimeout:      time.Minute,
+		IdleTimeout:       2 * time.Minute,
 	}
 
 	j.server = srv
