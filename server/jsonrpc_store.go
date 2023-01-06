@@ -14,6 +14,7 @@ import (
 	"github.com/dogechain-lab/dogechain/network"
 	"github.com/dogechain-lab/dogechain/state"
 	"github.com/dogechain-lab/dogechain/state/runtime"
+	"github.com/dogechain-lab/dogechain/state/stypes"
 	"github.com/dogechain-lab/dogechain/txpool"
 	"github.com/dogechain-lab/dogechain/types"
 )
@@ -101,7 +102,7 @@ func (j *jsonRPCStore) GetPendingTx(txHash types.Hash) (*types.Transaction, bool
 }
 
 // jsonrpc.ethStateStore interface
-func (j *jsonRPCStore) GetAccount(root types.Hash, addr types.Address) (*state.Account, error) {
+func (j *jsonRPCStore) GetAccount(root types.Hash, addr types.Address) (*stypes.Account, error) {
 	j.metrics.GetAccountInc()
 
 	obj, err := j.getState(root, addr.Bytes())
@@ -109,7 +110,7 @@ func (j *jsonRPCStore) GetAccount(root types.Hash, addr types.Address) (*state.A
 		return nil, err
 	}
 
-	var account state.Account
+	var account stypes.Account
 	if err := account.UnmarshalRlp(obj); err != nil {
 		return nil, err
 	}

@@ -153,7 +153,6 @@ func (txn *Txn) getStateObject(addr types.Address) (*StateObject, bool) {
 			if len(account.CodeHash) == 0 {
 				account.CodeHash = emptyCodeHash
 			}
-
 		}
 	}
 
