@@ -24,14 +24,15 @@ import (
 	"github.com/dogechain-lab/dogechain/helper/kvdb"
 	"github.com/dogechain-lab/dogechain/helper/rawdb"
 	"github.com/dogechain-lab/dogechain/state/stypes"
+	"github.com/dogechain-lab/dogechain/trie"
 	"github.com/dogechain-lab/dogechain/types"
 )
 
 // diskLayer is a low level persistent snapshot built on top of a key-value store.
 type diskLayer struct {
 	diskdb kvdb.KVBatchStorage // Key-value store containing the base snapshot
-	// triedb *trie.Database      // Trie node cache for reconstruction purposes
-	cache *fastcache.Cache // Cache to avoid hitting the disk for direct access
+	triedb *trie.Database      // Trie node cache for reconstruction purposes
+	cache  *fastcache.Cache    // Cache to avoid hitting the disk for direct access
 
 	root  types.Hash // Root hash of the base snapshot
 	stale bool       // Signals that the layer became stale (state progressed)

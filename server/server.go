@@ -34,6 +34,7 @@ import (
 	"github.com/dogechain-lab/dogechain/state/runtime/precompiled"
 	"github.com/dogechain-lab/dogechain/state/snapshot"
 	"github.com/dogechain-lab/dogechain/state/stypes"
+	"github.com/dogechain-lab/dogechain/trie"
 	"github.com/dogechain-lab/dogechain/txpool"
 	"github.com/dogechain-lab/dogechain/types"
 	"github.com/hashicorp/go-hclog"
@@ -51,8 +52,9 @@ type Server struct {
 	logger hclog.Logger
 
 	// databases
-	trieDB  itrie.Storage
-	chainDB kvdb.Database
+	trieDB    itrie.Storage
+	chainDB   kvdb.Database
+	snpTrieDB *trie.Database // snapshots usage trie database
 
 	// consensus
 	consensus consensus.Consensus
@@ -199,6 +201,9 @@ func NewServer(config *Config) (*Server, error) {
 	if err := srv.setupStateDB(); err != nil {
 		return nil, err
 	}
+
+	// set up trie database
+	srv.setupSnpTrieDB(srv.trieDB)
 
 	// setup world state snapshots
 	if err := srv.setupSnapshots(); err != nil {
@@ -376,12 +381,11 @@ func (s *Server) setupSnapshots() error {
 		logger  = s.logger.Named("snapshots")
 		snapCfg = snapshot.Config{
 			CacheSize:  defaultCacheConfig.SnapshotLimit,
-			Recovery:   false,
+			Recovery:   true,
 			NoBuild:    false,
 			AsyncBuild: !defaultCacheConfig.SnapshotWait,
 		}
-		db  = s.chainDB
-		sdb = s.trieDB
+		db = s.chainDB
 	)
 
 	headHash, ok := rawdb.ReadHeadHash(db)
@@ -397,7 +401,7 @@ func (s *Server) setupSnapshots() error {
 		os.Exit(1)
 	}
 
-	snaps, err := snapshot.New(snapCfg, sdb, header.StateRoot, logger)
+	snaps, err := snapshot.New(snapCfg, s.trieDB, s.snpTrieDB, header.StateRoot, logger)
 	if err != nil {
 		return err
 	}
@@ -464,6 +468,19 @@ func (s *Server) setupStateDB() error {
 	s.state = st
 
 	return nil
+}
+
+func (s *Server) setupSnpTrieDB(trieDB kvdb.Database) {
+	cacheConfig := s.cacheConfig
+
+	s.snpTrieDB = trie.NewDatabaseWithConfig(
+		trieDB,
+		&trie.Config{
+			Cache:   cacheConfig.TrieCleanLimit,
+			Journal: cacheConfig.TrieCleanJournal,
+		},
+		s.logger.Named("snapshotTrieDB"),
+	)
 }
 
 func (s *Server) setupBlockchainDB() error {

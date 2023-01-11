@@ -13,6 +13,7 @@ import (
 	"github.com/dogechain-lab/dogechain/helper/rlp"
 	"github.com/dogechain-lab/dogechain/state/schema"
 	"github.com/dogechain-lab/dogechain/state/stypes"
+	"github.com/dogechain-lab/dogechain/trie"
 	"github.com/dogechain-lab/dogechain/types"
 )
 
@@ -112,9 +113,9 @@ type Config struct {
 // storage data to avoid expensive multi-level trie lookups; and to allow sorted,
 // cheap iteration of the account/storage tries for sync aid.
 type Tree struct {
-	config Config              // Snapshots configurations
-	diskdb kvdb.KVBatchStorage // Persistent database to store the snapshot
-	// triedb *trie.Database           // In-memory cache to access the trie through
+	config Config                  // Snapshots configurations
+	diskdb kvdb.KVBatchStorage     // Persistent database to store the snapshot
+	triedb *trie.Database          // In-memory cache to access the trie through
 	layers map[types.Hash]snapshot // Collection of all known layers
 	lock   sync.RWMutex
 
@@ -143,6 +144,7 @@ type Tree struct {
 func New(
 	config Config,
 	diskdb kvdb.KVBatchStorage,
+	triedb *trie.Database,
 	root types.Hash,
 	logger kvdb.Logger,
 ) (*Tree, error) {
@@ -150,13 +152,13 @@ func New(
 	snap := &Tree{
 		config: config,
 		diskdb: diskdb,
-		// triedb: triedb,
+		triedb: triedb,
 		layers: make(map[types.Hash]snapshot),
 		logger: logger,
 	}
 
 	// Attempt to load a previously persisted snapshot and rebuild one if failed
-	head, disabled, err := loadSnapshot(diskdb, root, config.CacheSize, config.Recovery, config.NoBuild)
+	head, disabled, err := loadSnapshot(logger, diskdb, triedb, root, config.CacheSize, config.Recovery, config.NoBuild)
 	if disabled {
 		snap.logger.Warn("Snapshot maintenance disabled (syncing)")
 
@@ -667,11 +669,10 @@ func diffToDisk(bottom *diffLayer) *diskLayer {
 	logger.Debug("Journalled disk layer", "root", bottom.root, "complete", base.genMarker == nil)
 
 	res := &diskLayer{
-		root:   bottom.root,
-		cache:  base.cache,
-		diskdb: base.diskdb,
-		// TODO: cached db
-		// triedb:     base.triedb,
+		root:       bottom.root,
+		cache:      base.cache,
+		diskdb:     base.diskdb,
+		triedb:     base.triedb,
 		genMarker:  base.genMarker,
 		genPending: base.genPending,
 		logger:     logger,
@@ -778,7 +779,7 @@ func (t *Tree) Rebuild(root types.Hash) {
 	t.logger.Info("Rebuilding state snapshot")
 
 	t.layers = map[types.Hash]snapshot{
-		root: generateSnapshot(t.diskdb, t.config.CacheSize, root, t.logger),
+		root: generateSnapshot(t.diskdb, t.triedb, t.config.CacheSize, root, t.logger),
 	}
 }
 
