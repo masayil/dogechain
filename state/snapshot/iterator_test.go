@@ -339,7 +339,6 @@ func TestAccountIteratorTraversalValues(t *testing.T) {
 		h = make(map[types.Hash][]byte)
 	)
 
-	//nolint:dupl
 	for i := byte(2); i < 0xff; i++ {
 		a[types.Hash{i}] = []byte(fmt.Sprintf("layer-%d, key %d", 0, i))
 		if i > 20 && i%2 == 0 {
@@ -443,7 +442,6 @@ func TestStorageIteratorTraversalValues(t *testing.T) {
 		h = make(map[types.Hash][]byte)
 	)
 
-	//nolint:dupl
 	for i := byte(2); i < 0xff; i++ {
 		a[types.Hash{i}] = []byte(fmt.Sprintf("layer-%d, key %d", 0, i))
 		if i > 20 && i%2 == 0 {
