@@ -51,11 +51,13 @@ issues:
   exclude-rules:
     - path: _test\.go
       linters:
+        - dupl
         - errorlint
         - forcetypeassert
         - gosec
         - lll
         - nlreturn
+        - prealloc
         - unparam
         - wsl
     - linters:
