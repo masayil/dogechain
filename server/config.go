@@ -55,7 +55,8 @@ type Config struct {
 
 	BlockBroadcast bool
 
-	CacheConfig *CacheConfig
+	EnableSnapshot bool
+	CacheConfig    *CacheConfig
 }
 
 // LeveldbOptions holds the leveldb options

@@ -210,6 +210,12 @@ func (p *serverParams) generateConfig() *server.Config {
 		ingoreCIDRs = append(ingoreCIDRs, ipnet)
 	}
 
+	if !p.rawConfig.EnableSnapshot {
+		cfg := p.rawConfig.CacheConfig
+		cfg.TrieCleanCache += cfg.SnapshotCache
+		cfg.SnapshotCache = 0 // Disable
+	}
+
 	return &server.Config{
 		Chain: chainCfg,
 		JSONRPC: &server.JSONRPC{
@@ -269,6 +275,7 @@ func (p *serverParams) generateConfig() *server.Config {
 		Daemon:         p.isDaemon,
 		ValidatorKey:   p.validatorKey,
 		BlockBroadcast: p.rawConfig.BlockBroadcast,
+		EnableSnapshot: p.rawConfig.EnableSnapshot,
 		CacheConfig: &server.CacheConfig{
 			TrieCleanLimit:     p.rawConfig.CacheConfig.TrieCleanCache,
 			TrieCleanJournal:   p.rawConfig.CacheConfig.TrieCleanCacheJournal,
