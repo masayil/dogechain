@@ -333,3 +333,7 @@ func (j *jsonRPCStore) SubscribeEvents() blockchain.Subscription {
 
 	return j.blockchain.SubscribeEvents()
 }
+
+func (j *jsonRPCStore) GetDDosContractList() map[string]map[types.Address]int {
+	return j.txpool.GetDDosContractList()
+}

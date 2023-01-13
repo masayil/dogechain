@@ -44,7 +44,7 @@ func newTestSyncPeerClient(network network.Network, blockchain Blockchain) *sync
 		id:                     network.AddrInfo().ID.String(),
 		peerStatusUpdateCh:     make(chan *NoForkPeer, 1),
 		peerConnectionUpdateCh: make(chan *event.PeerEvent, 1),
-		isClose:                atomic.NewBool(false),
+		isClosed:               atomic.NewBool(false),
 	}
 
 	// need to register protocol
@@ -84,6 +84,7 @@ func TestGetPeerStatus(t *testing.T) {
 		peerSrv,
 		network.DefaultBufferTimeout,
 		network.DefaultJoinTimeout,
+		false,
 	)
 
 	assert.NoError(t, err)
@@ -141,6 +142,7 @@ func TestGetConnectedPeerStatuses(t *testing.T) {
 				peerSrv,
 				network.DefaultBufferTimeout,
 				network.DefaultJoinTimeout,
+				false,
 			)
 
 			expected[idx] = &NoForkPeer{
@@ -195,6 +197,7 @@ func TestStatusPubSub(t *testing.T) {
 		peerSrv,
 		network.DefaultBufferTimeout,
 		network.DefaultJoinTimeout,
+		false,
 	)
 
 	assert.NoError(t, err)
@@ -504,6 +507,7 @@ func Test_syncPeerClient_GetBlocks(t *testing.T) {
 		peerSrv,
 		network.DefaultBufferTimeout,
 		network.DefaultJoinTimeout,
+		false,
 	)
 
 	assert.NoError(t, err)
@@ -569,6 +573,7 @@ func Test_newSyncPeerClient_forgetNonProtocolPeer(t *testing.T) {
 		peerSrv,
 		network.DefaultBufferTimeout,
 		network.DefaultJoinTimeout,
+		false,
 	)
 
 	assert.NoError(t, err)

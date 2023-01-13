@@ -1139,13 +1139,13 @@ func (i *Ibft) updateMetrics(block *types.Block) {
 
 	//Update the block interval metric
 	if block.Number() > 1 {
-		i.metrics.BlockInterval.Set(
+		i.metrics.SetBlockInterval(
 			headerTime.Sub(parentTime).Seconds(),
 		)
 	}
 
 	//Update the Number of transactions in the block metric
-	i.metrics.NumTxs.Set(float64(len(block.Body().Transactions)))
+	i.metrics.SetNumTxs(float64(len(block.Body().Transactions)))
 }
 
 func gatherCanonicalCommittedSeals(
@@ -1471,13 +1471,11 @@ func (i *Ibft) IsLastOfEpoch(number uint64) bool {
 
 // Close closes the IBFT consensus mechanism, and does write back to disk
 func (i *Ibft) Close() error {
-	if i.isClosed.Load() {
+	if !i.isClosed.CAS(false, true) {
 		i.logger.Error("IBFT consensus is Closed")
 
 		return nil
 	}
-
-	i.isClosed.Store(true)
 
 	close(i.closeCh)
 

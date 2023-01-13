@@ -41,8 +41,8 @@ var txnPairPool = sync.Pool{
 }
 
 func (pair *txnPair) Reset() {
-	pair.key = pair.key[:0]
-	pair.value = pair.value[:0]
+	pair.key = pair.key[0:0]
+	pair.value = pair.value[0:0]
 	pair.isCode = false
 }
 
@@ -64,8 +64,8 @@ func (tx *stateDBTxn) Set(k []byte, v []byte) error {
 		return errors.New("invalid type assertion")
 	}
 
-	pair.key = append(pair.key[:], k...)
-	pair.value = append(pair.value[:], v...)
+	pair.key = append(pair.key, k...)
+	pair.value = append(pair.value, v...)
 
 	tx.lock.Lock()
 	defer tx.lock.Unlock()
@@ -138,8 +138,8 @@ func (tx *stateDBTxn) SetCode(hash types.Hash, v []byte) error {
 		return errors.New("invalid type assertion")
 	}
 
-	pair.key = append(pair.key[:0], key...)
-	pair.value = append(pair.value[:0], v...)
+	pair.key = append(pair.key, key...)
+	pair.value = append(pair.value, v...)
 	pair.isCode = true
 
 	tx.lock.Lock()
@@ -193,10 +193,9 @@ func (tx *stateDBTxn) NewSnapshotAt(root types.Hash) (state.Snapshot, error) {
 		return nil, fmt.Errorf("state not found at hash %s", root)
 	}
 
-	t := &Trie{
-		root:    n,
-		stateDB: tx.stateDB,
-	}
+	t := NewTrie()
+	t.root = n
+	t.stateDB = tx.stateDB
 
 	return t, nil
 }
@@ -228,7 +227,7 @@ func (tx *stateDBTxn) Commit() error {
 		}
 
 		if !pair.isCode {
-			metrics.transactionWriteNodeSize(len(pair.value))
+			metrics.transactionWriteNodeSizeObserve(len(pair.value))
 		}
 	}
 

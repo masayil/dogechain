@@ -301,7 +301,7 @@ func (j *JSONRPC) handleWs(w http.ResponseWriter, req *http.Request) {
 }
 
 func (j *JSONRPC) handle(w http.ResponseWriter, req *http.Request) {
-	defer j.metrics.Requests.Add(1.0)
+	defer j.metrics.RequestsCounterInc()
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
@@ -318,7 +318,7 @@ func (j *JSONRPC) handle(w http.ResponseWriter, req *http.Request) {
 	case http.MethodOptions:
 		// nothing to return
 	default:
-		j.metrics.Errors.Add(1.0)
+		j.metrics.ErrorsCounterInc()
 		w.Write([]byte("method " + req.Method + " not allowed"))
 	}
 }
@@ -326,7 +326,7 @@ func (j *JSONRPC) handle(w http.ResponseWriter, req *http.Request) {
 func (j *JSONRPC) handleJSONRPCRequest(w http.ResponseWriter, req *http.Request) {
 	data, err := io.ReadAll(req.Body)
 	if err != nil {
-		j.metrics.Errors.Add(1.0)
+		j.metrics.ErrorsCounterInc()
 		w.Write([]byte(err.Error()))
 
 		return
@@ -340,10 +340,10 @@ func (j *JSONRPC) handleJSONRPCRequest(w http.ResponseWriter, req *http.Request)
 	// handle request
 	resp, err := j.dispatcher.Handle(data)
 
-	j.metrics.ResponseTime.Observe(time.Since(startT).Seconds())
+	j.metrics.ResponseTimeObserve(time.Since(startT).Seconds())
 
 	if err != nil {
-		j.metrics.Errors.Add(1.0)
+		j.metrics.ErrorsCounterInc()
 		w.Write([]byte(err.Error()))
 	} else {
 		w.Write(resp)
@@ -367,12 +367,12 @@ func (j *JSONRPC) handleGetRequest(writer io.Writer) {
 
 	resp, err := json.Marshal(data)
 	if err != nil {
-		j.metrics.Errors.Add(1.0)
+		j.metrics.ErrorsCounterInc()
 		writer.Write([]byte(err.Error()))
 	}
 
 	if _, err = writer.Write(resp); err != nil {
-		j.metrics.Errors.Add(1.0)
+		j.metrics.ErrorsCounterInc()
 		writer.Write([]byte(err.Error()))
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"hash"
 	"math/big"
+	"sync"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/dogechain-lab/dogechain/helper/hex"
@@ -193,9 +194,22 @@ func SigToPub(hash, sig []byte) (*ecdsa.PublicKey, error) {
 	return &ecdsa.PublicKey{Curve: S256, X: x, Y: y}, nil
 }
 
+var hasherPool = sync.Pool{
+	New: func() interface{} { return sha3.NewLegacyKeccak256() },
+}
+
 // Keccak256 calculates the Keccak256
 func Keccak256(v ...[]byte) []byte {
-	h := sha3.NewLegacyKeccak256()
+	h, ok := hasherPool.Get().(hash.Hash)
+	if !ok {
+		h = sha3.NewLegacyKeccak256()
+	}
+
+	defer func() {
+		h.Reset()
+		hasherPool.Put(h)
+	}()
+
 	for _, i := range v {
 		h.Write(i)
 	}

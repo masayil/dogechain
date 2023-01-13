@@ -4,11 +4,11 @@ import (
 	"bytes"
 	"errors"
 
+	"github.com/dogechain-lab/dogechain/crypto"
 	"github.com/dogechain-lab/dogechain/state"
 	"github.com/dogechain-lab/dogechain/state/stypes"
 	"github.com/dogechain-lab/dogechain/types"
 	"github.com/dogechain-lab/fastrlp"
-	"golang.org/x/crypto/sha3"
 )
 
 type Trie struct {
@@ -39,10 +39,7 @@ func addressKey(addr types.Address) []byte {
 }
 
 func hashit(k []byte) []byte {
-	h := sha3.NewLegacyKeccak256()
-	h.Write(k)
-
-	return h.Sum(nil)
+	return crypto.Keccak256(k)
 }
 
 var accountArenaPool fastrlp.ArenaPool
@@ -168,21 +165,19 @@ func (t *Trie) Commit(objs []*stypes.Object) (state.Snapshot, []byte, error) {
 		observe()
 
 		// dont use st here, we need to use the original stateDB
-		nTrie = &Trie{
-			stateDB: t.stateDB,
-			root:    tt.root,
-			epoch:   tt.epoch,
-		}
+		nTrie = NewTrie()
 		nTrie.stateDB = t.stateDB
+		nTrie.root = tt.root
+		nTrie.epoch = tt.epoch
 
 		// Commit all the entries to db
 		return st.Commit()
 	})
 
 	if err == nil {
-		metrics.transactionInsertCount(insertCount)
-		metrics.transactionDeleteCount(deleteCount)
-		metrics.transactionNewAccountCount(newSetCodeCount)
+		metrics.transactionInsertObserve(insertCount)
+		metrics.transactionDeleteObserve(deleteCount)
+		metrics.transactionNewAccountObserve(newSetCodeCount)
 	}
 
 	return nTrie, root, err
@@ -208,7 +203,7 @@ func (t *Trie) hashRoot() ([]byte, Node, error) {
 }
 
 func (t *Trie) Txn() *Txn {
-	return &Txn{root: t.root, epoch: t.epoch + 1, reader: t.stateDB}
+	return &Txn{reader: t.stateDB, root: t.root, epoch: t.epoch + 1}
 }
 
 func prefixLen(k1, k2 []byte) int {

@@ -885,7 +885,9 @@ type mockTxPool struct {
 
 func newMockTxPool(txs []*types.Transaction) *mockTxPool {
 	return &mockTxPool{
-		transactions: txs,
+		transactions:   txs,
+		nonceDecreased: make(map[*types.Transaction]bool),
+		ddosContracts:  make(map[types.Address]bool),
 	}
 }
 

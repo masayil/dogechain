@@ -15,7 +15,6 @@ import (
 	"github.com/dogechain-lab/dogechain/state"
 	"github.com/dogechain-lab/dogechain/txpool/proto"
 	"github.com/dogechain-lab/dogechain/types"
-	"github.com/go-kit/kit/metrics"
 	"github.com/golang/protobuf/ptypes/any"
 	"github.com/hashicorp/go-hclog"
 	"github.com/libp2p/go-libp2p-core/peer"
@@ -201,6 +200,7 @@ type TxPool struct {
 	ddosProtection      bool         // enable ddos protection
 	ddosReductionTicker *time.Ticker // ddos reduction ticker for releasing from imprisonment
 	ddosContracts       sync.Map     // ddos contract caching
+	ddosWhiteList       sync.Map     // ddos contract white list escaping
 
 	// close flag
 	isClosed *atomic.Bool
@@ -303,7 +303,8 @@ func (p *TxPool) getSealing() bool {
 // is invoked in a separate goroutine.
 func (p *TxPool) Start() {
 	// set default value of txpool transactions gauge
-	p.metrics.SetDefaultValue(0)
+	p.metrics.SetPendingTxs(0)
+	p.metrics.SetEnqueueTxs(0)
 
 	p.pruneAccountTicker = time.NewTicker(p.pruneTick)
 	p.ddosReductionTicker = time.NewTicker(_ddosReduceDuration)
@@ -336,13 +337,11 @@ func (p *TxPool) Start() {
 
 // Close shuts down the pool's main loop.
 func (p *TxPool) Close() {
-	if p.isClosed.Load() {
+	if !p.isClosed.CAS(false, true) {
 		p.logger.Error("txpool is Closed")
 
 		return
 	}
-
-	p.isClosed.Store(true)
 
 	p.ddosReductionTicker.Stop()
 
@@ -450,7 +449,7 @@ func (p *TxPool) RemoveExecuted(tx *types.Transaction) {
 	p.gauge.decrease(slotsRequired(tx))
 
 	// update metrics
-	p.metrics.PendingTxs.Add(-1)
+	p.metrics.AddPendingTxs(-1)
 
 	// update executables
 	if tx := account.promoted.peek(); tx != nil {
@@ -483,7 +482,7 @@ func (p *TxPool) DemoteAllPromoted(tx *types.Transaction, correctNonce uint64) {
 	txs := account.promoted.Clear()
 	p.index.remove(txs...)
 	// update metrics and gauge
-	p.metrics.PendingTxs.Add(-1 * float64(len(txs)))
+	p.metrics.AddPendingTxs(-1 * float64(len(txs)))
 	p.gauge.decrease(slotsRequired(txs...))
 	// signal events
 	p.eventManager.signalEvent(proto.EventType_DEMOTED, toHash(txs...)...)
@@ -532,14 +531,14 @@ func (p *TxPool) Drop(tx *types.Transaction) {
 	clearAccountQueue(dropped)
 
 	// update metrics
-	p.metrics.PendingTxs.Add(float64(-1 * len(dropped)))
+	p.metrics.AddPendingTxs(float64(-1 * len(dropped)))
 
 	// drop enqueued
 	dropped = account.enqueued.Clear()
 	clearAccountQueue(dropped)
 
 	// update metrics
-	p.metrics.EnqueueTxs.Add(float64(-1 * len(dropped)))
+	p.metrics.AddEnqueueTxs(float64(-1 * len(dropped)))
 
 	p.eventManager.signalEvent(proto.EventType_DROPPED, tx.Hash())
 	p.logger.Debug("dropped account txs",
@@ -711,63 +710,6 @@ func (p *TxPool) validateTx(tx *types.Transaction) error {
 	return nil
 }
 
-// IsDDOSTx returns whether a contract transaction marks as ddos attack
-func (p *TxPool) IsDDOSTx(tx *types.Transaction) bool {
-	if !p.ddosProtection || tx.To == nil {
-		return false
-	}
-
-	count, exists := p.ddosContracts.Load(*tx.To)
-	//nolint:forcetypeassert
-	if exists && count.(int) > _ddosThreshold {
-		return true
-	}
-
-	return false
-}
-
-// MarkDDOSTx marks resource consuming transaction as a might-be attack
-func (p *TxPool) MarkDDOSTx(tx *types.Transaction) {
-	if !p.ddosProtection || tx.To == nil {
-		return
-	}
-
-	// update its ddos count
-	v, _ := p.ddosContracts.Load(*tx.To)
-	count, _ := v.(int)
-	count++
-	p.ddosContracts.Store(*tx.To, count)
-
-	p.logger.Debug("increase ddos contract transaction count",
-		"address", tx.To,
-		"count", count,
-	)
-}
-
-// reduceDDOSCounts reduces might-be misunderstanding of ddos attack
-func (p *TxPool) reduceDDOSCounts() {
-	p.ddosContracts.Range(func(key, value interface{}) bool {
-		count, _ := value.(int)
-		if count <= 0 {
-			return true
-		}
-
-		count -= _ddosReduceCount
-		if count < 0 {
-			count = 0
-		}
-
-		p.ddosContracts.Store(key, count)
-
-		p.logger.Debug("decrease ddos contract transaction count",
-			"address", key,
-			"count", count,
-		)
-
-		return true
-	})
-}
-
 // addTx is the main entry point to the pool
 // for all new transactions. If the call is
 // successful, an account is created for this address
@@ -850,7 +792,7 @@ func (p *TxPool) handleEnqueueRequest(req enqueueRequest) {
 		p.index.remove(replacedTx)
 		// gauge, metrics, event
 		p.gauge.decrease(slotsRequired(replacedTx))
-		p.metrics.EnqueueTxs.Add(-1)
+		p.metrics.AddEnqueueTxs(-1)
 		p.eventManager.signalEvent(proto.EventType_REPLACED, replacedTx.Hash())
 	}
 
@@ -859,7 +801,7 @@ func (p *TxPool) handleEnqueueRequest(req enqueueRequest) {
 	// state
 	p.gauge.increase(slotsRequired(tx))
 	// metrics and event
-	p.increaseQueueGauge([]*types.Transaction{tx}, p.metrics.EnqueueTxs, proto.EventType_ENQUEUED)
+	p.increaseQueueGauge([]*types.Transaction{tx}, p.metrics.AddEnqueueTxs, proto.EventType_ENQUEUED)
 
 	if tx.Nonce > account.getNonce() {
 		// don't signal promotion for
@@ -892,12 +834,12 @@ func (p *TxPool) handlePromoteRequest(req promoteRequest) {
 		// state
 		p.gauge.decrease(slotsRequired(replaced...))
 		// metrics and event
-		p.decreaseQueueGauge(replaced, p.metrics.PendingTxs, proto.EventType_REPLACED)
+		p.decreaseQueueGauge(replaced, p.metrics.AddPendingTxs, proto.EventType_REPLACED)
 		p.logger.Debug("replaced transactions when promoting", "replaced", replaced)
 	}
 
 	// metrics and event
-	p.tranferQueueGauge(promoted, p.metrics.EnqueueTxs, p.metrics.PendingTxs, proto.EventType_PROMOTED)
+	p.tranferQueueGauge(promoted, p.metrics.AddEnqueueTxs, p.metrics.AddPendingTxs, proto.EventType_PROMOTED)
 }
 
 // pruneStaleAccounts would find out all need-to-prune transactions,
@@ -912,24 +854,29 @@ func (p *TxPool) pruneStaleAccounts() {
 	p.logger.Debug("pruned stale enqueued txs", "num", pruned)
 }
 
-func (p *TxPool) tranferQueueGauge(txs []*types.Transaction, src, dest metrics.Gauge, event proto.EventType) {
+func (p *TxPool) tranferQueueGauge(
+	txs []*types.Transaction,
+	enqueueGaugeAddFn, pendingGaugeAddFn func(v float64),
+	event proto.EventType,
+) {
 	// metrics switching
-	src.Add(-1 * float64(len(txs)))
-	dest.Add(float64(len(txs)))
+	enqueueGaugeAddFn(-1 * float64(len(txs)))
+	pendingGaugeAddFn(float64(len(txs)))
+
 	// event
 	p.eventManager.signalEvent(event, toHash(txs...)...)
 }
 
-func (p *TxPool) increaseQueueGauge(txs []*types.Transaction, destGauge metrics.Gauge, event proto.EventType) {
+func (p *TxPool) increaseQueueGauge(txs []*types.Transaction, gaugeAddFn func(v float64), event proto.EventType) {
 	// metrics
-	destGauge.Add(float64(len(txs)))
+	gaugeAddFn(float64(len(txs)))
 	// event
 	p.eventManager.signalEvent(event, toHash(txs...)...)
 }
 
-func (p *TxPool) decreaseQueueGauge(txs []*types.Transaction, destGauge metrics.Gauge, event proto.EventType) {
+func (p *TxPool) decreaseQueueGauge(txs []*types.Transaction, gaugeAddFn func(v float64), event proto.EventType) {
 	// metrics
-	destGauge.Add(-1 * float64(len(txs)))
+	gaugeAddFn(-1 * float64(len(txs)))
 	// event
 	p.eventManager.signalEvent(event, toHash(txs...)...)
 }
@@ -939,7 +886,7 @@ func (p *TxPool) pruneEnqueuedTxs(pruned []*types.Transaction) {
 	// state
 	p.gauge.decrease(slotsRequired(pruned...))
 	// metrics and event
-	p.decreaseQueueGauge(pruned, p.metrics.EnqueueTxs, proto.EventType_PRUNED_ENQUEUED)
+	p.decreaseQueueGauge(pruned, p.metrics.AddEnqueueTxs, proto.EventType_PRUNED_ENQUEUED)
 }
 
 // addGossipTx handles receiving transactions gossiped by the network.
@@ -1020,12 +967,12 @@ func (p *TxPool) resetAccounts(stateNonces map[types.Address]uint64) {
 	//	prune pool state
 	if len(allPrunedPromoted) > 0 {
 		cleanup(allPrunedPromoted...)
-		p.decreaseQueueGauge(allPrunedPromoted, p.metrics.PendingTxs, proto.EventType_PRUNED_PROMOTED)
+		p.decreaseQueueGauge(allPrunedPromoted, p.metrics.AddPendingTxs, proto.EventType_PRUNED_PROMOTED)
 	}
 
 	if len(allPrunedEnqueued) > 0 {
 		cleanup(allPrunedEnqueued...)
-		p.decreaseQueueGauge(allPrunedEnqueued, p.metrics.EnqueueTxs, proto.EventType_PRUNED_ENQUEUED)
+		p.decreaseQueueGauge(allPrunedEnqueued, p.metrics.AddEnqueueTxs, proto.EventType_PRUNED_ENQUEUED)
 	}
 }
 
