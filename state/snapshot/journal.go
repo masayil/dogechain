@@ -89,6 +89,7 @@ func loadSnapshot(
 		triedb: triedb,
 		cache:  fastcache.New(cache * 1024 * 1024),
 		root:   baseRoot,
+		logger: logger,
 	}
 
 	snapshot, generator, err := loadAndParseJournal(logger, diskdb, base)
@@ -144,6 +145,7 @@ func loadSnapshot(
 			accounts: generator.Accounts,
 			slots:    generator.Slots,
 			storage:  types.StorageSize(generator.Storage),
+			logger:   logger,
 		})
 	}
 

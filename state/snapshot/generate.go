@@ -47,7 +47,7 @@ func generateSnapshot(
 ) *diskLayer {
 	// Create a new disk layer with an initialized state marker at zero
 	var (
-		stats     = &generatorStats{start: time.Now()}
+		stats     = &generatorStats{start: time.Now(), logger: logger}
 		batch     = diskdb.NewBatch()
 		genMarker = []byte{} // Initialized but empty!
 	)
