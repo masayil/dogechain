@@ -200,6 +200,7 @@ type TxPool struct {
 	ddosProtection      bool         // enable ddos protection
 	ddosReductionTicker *time.Ticker // ddos reduction ticker for releasing from imprisonment
 	ddosContracts       sync.Map     // ddos contract caching
+	ddosWhiteList       sync.Map     // ddos contract white list escaping
 
 	// close flag
 	isClosed *atomic.Bool
@@ -707,63 +708,6 @@ func (p *TxPool) validateTx(tx *types.Transaction) error {
 	}
 
 	return nil
-}
-
-// IsDDOSTx returns whether a contract transaction marks as ddos attack
-func (p *TxPool) IsDDOSTx(tx *types.Transaction) bool {
-	if !p.ddosProtection || tx.To == nil {
-		return false
-	}
-
-	count, exists := p.ddosContracts.Load(*tx.To)
-	//nolint:forcetypeassert
-	if exists && count.(int) > _ddosThreshold {
-		return true
-	}
-
-	return false
-}
-
-// MarkDDOSTx marks resource consuming transaction as a might-be attack
-func (p *TxPool) MarkDDOSTx(tx *types.Transaction) {
-	if !p.ddosProtection || tx.To == nil {
-		return
-	}
-
-	// update its ddos count
-	v, _ := p.ddosContracts.Load(*tx.To)
-	count, _ := v.(int)
-	count++
-	p.ddosContracts.Store(*tx.To, count)
-
-	p.logger.Debug("increase ddos contract transaction count",
-		"address", tx.To,
-		"count", count,
-	)
-}
-
-// reduceDDOSCounts reduces might-be misunderstanding of ddos attack
-func (p *TxPool) reduceDDOSCounts() {
-	p.ddosContracts.Range(func(key, value interface{}) bool {
-		count, _ := value.(int)
-		if count <= 0 {
-			return true
-		}
-
-		count -= _ddosReduceCount
-		if count < 0 {
-			count = 0
-		}
-
-		p.ddosContracts.Store(key, count)
-
-		p.logger.Debug("decrease ddos contract transaction count",
-			"address", key,
-			"count", count,
-		)
-
-		return true
-	})
 }
 
 // addTx is the main entry point to the pool

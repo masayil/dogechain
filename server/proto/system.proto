@@ -27,6 +27,15 @@ service System {
 
   // Export returns blockchain data
   rpc Export(ExportRequest) returns (stream ExportEvent);
+
+  // WhitelistAdd adds some contracts to ddos white list
+  rpc WhitelistAddList(WhitelistAddListRequest) returns (WhitelistAddListResponse);
+
+  // whitelistDelete deletes some contracts from ddos white list
+  rpc WhitelistDeleteList(WhitelistDeleteListRequest) returns (WhitelistDeleteListResponse);
+
+  // query ddos contract list
+  rpc DDOSContractList(google.protobuf.Empty) returns (DDOSContractListResponse);
 }
 
 message BlockchainEvent {
@@ -96,4 +105,27 @@ message ExportEvent {
   uint64 to = 2;
   uint64 latest = 3;
   bytes data = 4;
+}
+
+message WhitelistAddListRequest {
+  repeated string contracts = 1;
+}
+
+message WhitelistAddListResponse {
+  int64 count = 1;
+  string message = 2;
+}
+
+message WhitelistDeleteListRequest {
+  repeated string contracts = 1;
+}
+
+message WhitelistDeleteListResponse {
+  int64 count = 1;
+  string message = 2;
+}
+
+message DDOSContractListResponse {
+  map<string, int64> blacklist = 1;
+  map<string, int64> whitelist = 2;
 }
