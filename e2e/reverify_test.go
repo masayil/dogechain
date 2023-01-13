@@ -27,7 +27,9 @@ func TestReverify(t *testing.T) {
 
 	errs := framework.WaitForServersToSeal(svrs, toBlock)
 	for _, err := range errs {
-		assert.NoError(t, err)
+		if !assert.NoError(t, err) {
+			t.FailNow()
+		}
 	}
 
 	svr := svrs[0]
@@ -35,16 +37,21 @@ func TestReverify(t *testing.T) {
 	svrRootDir := svr.Config.RootDir
 	// block number
 	currentBlockHeight, err := svr.JSONRPC().Eth().BlockNumber()
-	assert.NoError(t, err)
+	if !assert.NoError(t, err) {
+		t.FailNow()
+	}
+
 	// stop server to make some db corruption
 	svr.Stop()
 
-	// wait for new blocks
-	time.Sleep(time.Second * 2)
+	// wait for the process to return leveldb file lock
+	time.Sleep(3 * time.Second)
 
 	// open trie database
 	trie, err := leveldb.New(svr.StateDataDir())
-	assert.NoError(t, err)
+	if !assert.NoError(t, err) {
+		t.FailNow()
+	}
 
 	// corrupt data
 	{
@@ -60,19 +67,27 @@ func TestReverify(t *testing.T) {
 			}
 
 			err := trie.Set(iter.Key(), []byte("corrupted data"))
-			assert.NoError(t, err)
+			if !assert.NoError(t, err) {
+				t.FailNow()
+			}
 		}
 
-		assert.NoError(t, iter.Error())
+		if !assert.NoError(t, iter.Error()) {
+			t.FailNow()
+		}
 
 		iter.Release()
 
 		err := trie.Close()
-		assert.NoError(t, err)
+		if !assert.NoError(t, err) {
+			t.FailNow()
+		}
 	}
 
 	genesis, parseErr := chain.Import(svr.GenesisFile())
-	assert.NoError(t, parseErr)
+	if !assert.NoError(t, parseErr) {
+		t.FailNow()
+	}
 
 	err = reverify.ReverifyChain(
 		hclog.NewNullLogger(),
@@ -80,19 +95,25 @@ func TestReverify(t *testing.T) {
 		svrRootDir,
 		1,
 	)
+	if !assert.NoError(t, err) {
+		t.FailNow()
+	}
 
-	assert.NoError(t, err)
+	// wait for the process to return leveldb file lock
+	time.Sleep(3 * time.Second)
 
 	resvr := framework.NewTestServer(t, svrRootDir, func(config *framework.TestServerConfig) {
 		*config = *svr.Config
-		config.Seal = false
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	t.Cleanup(cancel)
 
 	err = resvr.Start(ctx)
-	assert.NoError(t, err)
+	if !assert.NoError(t, err) {
+		t.FailNow()
+	}
+
 	t.Cleanup(func() {
 		resvr.Stop()
 	})
