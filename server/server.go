@@ -205,13 +205,13 @@ func NewServer(config *Config) (*Server, error) {
 	// set up trie database
 	srv.setupSnpTrieDB(srv.trieDB)
 
-	// setup world state snapshots
-	if err := srv.setupSnapshots(); err != nil {
+	// setup executor
+	if err := srv.setupExecutor(); err != nil {
 		return nil, err
 	}
 
-	// setup executor
-	if err := srv.setupExecutor(); err != nil {
+	// setup world state snapshots
+	if err := srv.setupSnapshots(); err != nil {
 		return nil, err
 	}
 
@@ -362,30 +362,43 @@ func (s *Server) setupSnapshots() error {
 	}
 
 	var (
-		recover bool
-		logger  = s.logger.Named("snapshots")
-		chainDB = s.chainDB
-		trieDB  = s.trieDB
+		recover       bool
+		logger        = s.logger.Named("snapshots")
+		chainDB       = s.chainDB
+		trieDB        = s.trieDB
+		headStateRoot types.Hash
+		headNumber    uint64
+		isGenesis     bool
 	)
 
-	headHash, ok := rawdb.ReadHeadHash(chainDB)
-	if !ok {
-		s.logger.Error("head hash not found")
+	headHash, exists := rawdb.ReadHeadHash(chainDB)
+	if !exists {
+		s.logger.Warn("head hash not found, might generate from genesis")
+		isGenesis = true
 
-		return nil
+		// get genesis root
+		headStateRoot = s.config.Chain.Genesis.StateRoot
+		if headStateRoot == types.ZeroHash {
+			return nil
+		}
 	}
 
-	header, err := rawdb.ReadHeader(chainDB, headHash)
-	if err != nil {
-		s.logger.Error("get header failed", "err", err)
-		os.Exit(1)
+	if !isGenesis {
+		header, err := rawdb.ReadHeader(chainDB, headHash)
+		if err != nil {
+			s.logger.Error("get header failed", "err", err)
+			os.Exit(1)
+		}
+
+		headNumber = header.Number
+		headStateRoot = header.StateRoot
 	}
 
 	// If the chain was rewound past the snapshot persistent layer (causing a recovery
 	// block number to be persisted to disk), check if we're still in recovery mode
 	// and in that case, don't invalidate the snapshot on a head mismatch.
-	if layer := rawdb.ReadSnapshotRecoveryNumber(trieDB); layer != nil && *layer >= header.Number {
-		s.logger.Warn("Enabling snapshot recovery", "chainhead", header.Number, "diskbase", *layer)
+	if layer := rawdb.ReadSnapshotRecoveryNumber(trieDB); layer != nil && *layer >= headNumber {
+		s.logger.Warn("Enabling snapshot recovery", "chainhead", headNumber, "diskbase", *layer)
 		recover = true
 	}
 
@@ -397,12 +410,18 @@ func (s *Server) setupSnapshots() error {
 		AsyncBuild: !s.cacheConfig.SnapshotWait,
 	}
 
-	snaps, err := snapshot.New(snapCfg, trieDB, s.snpTrieDB, header.StateRoot, logger)
+	snaps, err := snapshot.New(snapCfg, trieDB, s.snpTrieDB, headStateRoot, logger)
 	if err != nil {
 		return err
 	}
 
+	// server snaps for rebuild and dump
 	s.snaps = snaps
+
+	// update executor's snaps
+	if s.executor != nil {
+		s.executor.SetSnaps(snaps)
+	}
 
 	return nil
 }
@@ -413,7 +432,6 @@ func (s *Server) setupExecutor() error {
 		s.config.Chain.Params,
 		logger,
 		s.state,
-		s.snaps,
 	)
 	// other properties
 	executor.SetRuntime(precompiled.NewPrecompiled())

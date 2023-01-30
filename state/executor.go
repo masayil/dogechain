@@ -55,15 +55,20 @@ func NewExecutor(
 	config *chain.Params,
 	logger hclog.Logger,
 	s State,
-	snaps *snapshot.Tree,
 ) *Executor {
 	return &Executor{
 		config:   config,
 		logger:   logger,
 		runtimes: []runtime.Runtime{},
 		state:    s,
-		snaps:    snaps,
 	}
+}
+
+// SetSnaps sets snapshots
+//
+// it should be enable only when snapshots is ready and validated
+func (e *Executor) SetSnaps(snaps *snapshot.Tree) {
+	e.snaps = snaps
 }
 
 func (e *Executor) WriteGenesis(alloc map[types.Address]*chain.GenesisAccount) (types.Hash, error) {

@@ -112,13 +112,13 @@ func NewTestBlockchain(t *testing.T, headers []*types.Header) *Blockchain {
 		nil,
 	)
 
+	// no need to set up snapshot in test
 	b, err := newBlockChain(
 		config,
 		state.NewExecutor(
 			config.Params,
 			hclog.NewNullLogger(),
 			st,
-			nil, // no need to set up snapshot in test
 		),
 	)
 

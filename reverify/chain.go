@@ -100,11 +100,11 @@ func createBlockchain(
 	st itrie.StateDB,
 	dataDir string,
 ) (*blockchain.Blockchain, consensus.Consensus, error) {
+	// do we need snapshots here?
 	executor := state.NewExecutor(
 		genesis.Params,
 		logger,
 		st,
-		nil, // do we need snapshots here?
 	)
 
 	executor.SetRuntime(precompiled.NewPrecompiled())
