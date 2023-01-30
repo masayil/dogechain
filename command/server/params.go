@@ -211,6 +211,7 @@ func (p *serverParams) generateConfig() *server.Config {
 	}
 
 	if !p.rawConfig.EnableSnapshot {
+		// no sync mode yet, simply disable snapshot cache
 		cfg := p.rawConfig.CacheConfig
 		cfg.TrieCleanCache += cfg.SnapshotCache
 		cfg.SnapshotCache = 0 // Disable

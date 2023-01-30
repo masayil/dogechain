@@ -55,8 +55,10 @@ type Config struct {
 
 	BlockBroadcast bool
 
+	// enable snapshots, disable by default
 	EnableSnapshot bool
-	CacheConfig    *CacheConfig
+	// cache config, mostly for snapshots
+	CacheConfig *CacheConfig
 }
 
 // LeveldbOptions holds the leveldb options
@@ -106,14 +108,4 @@ type CacheConfig struct {
 	SnapshotNoBuild bool // Whether the background generation is allowed
 	// Wait for snapshot construction on startup. TODO(karalabe): This is a dirty hack for testing, nuke it
 	SnapshotWait bool
-}
-
-// defaultCacheConfig are the default caching values if none are specified by the
-// user (also used during testing).
-var defaultCacheConfig = &CacheConfig{
-	TrieCleanLimit: 256,
-	TrieDirtyLimit: 256,
-	TrieTimeLimit:  5 * time.Minute,
-	SnapshotLimit:  256,
-	SnapshotWait:   true,
 }

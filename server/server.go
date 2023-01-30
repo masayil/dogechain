@@ -355,53 +355,49 @@ func (s *Server) setupBlockchain() error {
 	return nil
 }
 
+// Load any existing snapshot, regenerating it if loading failed
 func (s *Server) setupSnapshots() error {
-	// CacheConfig contains the configuration values for the trie database
-	// that's resident in a blockchain.
-	type CacheConfig struct {
-		TrieCleanLimit int           // Memory allowance (MB) to use for caching trie nodes in memory
-		TrieDirtyLimit int           // Memory limit (MB) at which to start flushing dirty trie nodes to disk
-		TrieTimeLimit  time.Duration // Time limit after which to flush the current in-memory trie to disk
-		SnapshotLimit  int           // Memory allowance (MB) to use for caching snapshot entries in memory
-		// Wait for snapshot construction on startup. TODO(karalabe): This is a dirty hack for testing, nuke it
-		SnapshotWait bool
-	}
-
-	// defaultCacheConfig are the default caching values if none are specified by the
-	// user (also used during testing).
-	var defaultCacheConfig = &CacheConfig{
-		TrieCleanLimit: 256,
-		TrieDirtyLimit: 256,
-		TrieTimeLimit:  5 * time.Minute,
-		SnapshotLimit:  256,
-		SnapshotWait:   true,
+	if s.cacheConfig.SnapshotLimit <= 0 {
+		return nil
 	}
 
 	var (
+		recover bool
 		logger  = s.logger.Named("snapshots")
-		snapCfg = snapshot.Config{
-			CacheSize:  defaultCacheConfig.SnapshotLimit,
-			Recovery:   true,
-			NoBuild:    false,
-			AsyncBuild: !defaultCacheConfig.SnapshotWait,
-		}
-		db = s.chainDB
+		chainDB = s.chainDB
+		trieDB  = s.trieDB
 	)
 
-	headHash, ok := rawdb.ReadHeadHash(db)
+	headHash, ok := rawdb.ReadHeadHash(chainDB)
 	if !ok {
 		s.logger.Error("head hash not found")
 
 		return nil
 	}
 
-	header, err := rawdb.ReadHeader(db, headHash)
+	header, err := rawdb.ReadHeader(chainDB, headHash)
 	if err != nil {
 		s.logger.Error("get header failed", "err", err)
 		os.Exit(1)
 	}
 
-	snaps, err := snapshot.New(snapCfg, s.trieDB, s.snpTrieDB, header.StateRoot, logger)
+	// If the chain was rewound past the snapshot persistent layer (causing a recovery
+	// block number to be persisted to disk), check if we're still in recovery mode
+	// and in that case, don't invalidate the snapshot on a head mismatch.
+	if layer := rawdb.ReadSnapshotRecoveryNumber(trieDB); layer != nil && *layer >= header.Number {
+		s.logger.Warn("Enabling snapshot recovery", "chainhead", header.Number, "diskbase", *layer)
+		recover = true
+	}
+
+	snapCfg := snapshot.Config{
+		CacheSize: s.cacheConfig.SnapshotLimit,
+		Recovery:  recover,
+		// background snapshots, if we use it in command line, it should be disabled
+		NoBuild:    !s.config.EnableSnapshot,
+		AsyncBuild: !s.cacheConfig.SnapshotWait,
+	}
+
+	snaps, err := snapshot.New(snapCfg, trieDB, s.snpTrieDB, header.StateRoot, logger)
 	if err != nil {
 		return err
 	}
