@@ -362,7 +362,7 @@ func (s *Server) setupSnapshots() error {
 	}
 
 	var (
-		recover       bool
+		needRecover   bool
 		logger        = s.logger.Named("snapshots")
 		chainDB       = s.chainDB
 		trieDB        = s.trieDB
@@ -374,6 +374,7 @@ func (s *Server) setupSnapshots() error {
 	headHash, exists := rawdb.ReadHeadHash(chainDB)
 	if !exists {
 		s.logger.Warn("head hash not found, might generate from genesis")
+
 		isGenesis = true
 
 		// get genesis root
@@ -397,14 +398,16 @@ func (s *Server) setupSnapshots() error {
 	// If the chain was rewound past the snapshot persistent layer (causing a recovery
 	// block number to be persisted to disk), check if we're still in recovery mode
 	// and in that case, don't invalidate the snapshot on a head mismatch.
+	// NOTE: It is impossible in pos chain, the only one exception is hacked database
 	if layer := rawdb.ReadSnapshotRecoveryNumber(trieDB); layer != nil && *layer >= headNumber {
 		s.logger.Warn("Enabling snapshot recovery", "chainhead", headNumber, "diskbase", *layer)
-		recover = true
+
+		needRecover = true
 	}
 
 	snapCfg := snapshot.Config{
 		CacheSize: s.cacheConfig.SnapshotLimit,
-		Recovery:  recover,
+		Recovery:  needRecover,
 		// background snapshots, if we use it in command line, it should be disabled
 		NoBuild:    !s.config.EnableSnapshot,
 		AsyncBuild: !s.cacheConfig.SnapshotWait,
