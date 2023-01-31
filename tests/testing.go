@@ -249,7 +249,7 @@ func buildState(
 
 	snap, root, err := snap.Commit(objs)
 	if err != nil {
-		return nil, nil, types.ZeroHash, err
+		return nil, nil, types.Hash{}, err
 	}
 
 	return s, snap, types.BytesToHash(root), nil

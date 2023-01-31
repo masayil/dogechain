@@ -52,13 +52,13 @@ type journalStorage struct {
 // Journal writes the memory layer contents into a buffer to be stored in the
 // database as the snapshot journal.
 func (dl *diffLayer) Journal(buffer *bytes.Buffer) (types.Hash, error) {
-	return types.ZeroHash, nil
+	return types.Hash{}, nil
 }
 
 // Journal terminates any in-progress snapshot generation, also implicitly pushing
 // the progress into the database.
 func (dl *diskLayer) Journal(buffer *bytes.Buffer) (types.Hash, error) {
-	return types.ZeroHash, nil
+	return types.Hash{}, nil
 }
 
 // loadSnapshot loads a pre-existing state snapshot backed by a key-value store.
@@ -80,7 +80,7 @@ func loadSnapshot(
 	// Retrieve the block number and hash of the snapshot, failing if no snapshot
 	// is present in the database (or crashed mid-update).
 	baseRoot := rawdb.ReadSnapshotRoot(diskdb)
-	if baseRoot == types.ZeroHash {
+	if baseRoot == (types.Hash{}) {
 		return nil, false, errors.New("missing or corrupted snapshot")
 	}
 

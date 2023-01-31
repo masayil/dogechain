@@ -50,7 +50,7 @@ type generatorStats struct {
 // from the internally maintained statistics.
 func (gs *generatorStats) Log(msg string, root types.Hash, marker []byte) {
 	var ctx []interface{}
-	if root != types.ZeroHash {
+	if root != (types.Hash{}) {
 		ctx = append(ctx, []interface{}{"root", root}...)
 	}
 

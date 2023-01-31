@@ -22,7 +22,7 @@ func WriteBody(db kvdb.KVWriter, hash types.Hash, body *types.Body) error {
 func ReadCanonicalHash(db kvdb.KVReader, number uint64) (types.Hash, bool) {
 	data, ok, err := db.Get(canonicalHashKey(number))
 	if err != nil || !ok {
-		return types.ZeroHash, false
+		return types.Hash{}, false
 	}
 
 	return types.BytesToHash(data), true
@@ -72,12 +72,12 @@ func WriteReceipts(db kvdb.KVWriter, hash types.Hash, receipts []*types.Receipt)
 func ReadTxLookup(db kvdb.KVReader, hash types.Hash) (types.Hash, bool) {
 	v, err := readRLP2(db, txLookupKey(hash))
 	if err != nil {
-		return types.ZeroHash, false
+		return types.Hash{}, false
 	}
 
 	blockHash, err := v.GetBytes(nil, 32)
 	if err != nil {
-		return types.ZeroHash, false
+		return types.Hash{}, false
 	}
 
 	return types.BytesToHash(blockHash), true
@@ -93,7 +93,7 @@ func WriteTxLookup(db kvdb.KVWriter, hash types.Hash, blockHash types.Hash) erro
 func ReadHeadHash(db kvdb.KVReader) (types.Hash, bool) {
 	data, ok, err := db.Get(headHashKey)
 	if err != nil || !ok {
-		return types.ZeroHash, false
+		return types.Hash{}, false
 	}
 
 	return types.BytesToHash(data), true

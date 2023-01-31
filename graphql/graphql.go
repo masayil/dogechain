@@ -44,7 +44,7 @@ func (a *Account) getStateRoot(ctx context.Context) (types.Hash, error) {
 
 	header, err := a.getHeaderFromBlockNumberOrHash(&a.blockNrOrHash)
 	if err != nil {
-		return types.ZeroHash, errFetchingHeader
+		return types.Hash{}, errFetchingHeader
 	}
 
 	return header.StateRoot, nil
@@ -170,17 +170,17 @@ func (a *Account) Code(ctx context.Context) (argtype.Bytes, error) {
 func (a *Account) Storage(ctx context.Context, args struct{ Slot types.Hash }) (types.Hash, error) {
 	root, err := a.getStateRoot(ctx)
 	if err != nil {
-		return types.ZeroHash, err
+		return types.Hash{}, err
 	}
 
 	// Get the storage for the passed in location
 	result, err := a.backend.GetStorage(root, a.address, args.Slot)
 	if err != nil {
 		if errors.Is(err, rpc.ErrStateNotFound) {
-			return types.ZeroHash, nil
+			return types.Hash{}, nil
 		}
 
-		return types.ZeroHash, err
+		return types.Hash{}, err
 	}
 
 	// Parse the RLP value
@@ -188,12 +188,12 @@ func (a *Account) Storage(ctx context.Context, args struct{ Slot types.Hash }) (
 
 	v, err := p.Parse(result)
 	if err != nil {
-		return types.ZeroHash, nil
+		return types.Hash{}, nil
 	}
 
 	data, err := v.Bytes()
 	if err != nil {
-		return types.ZeroHash, nil
+		return types.Hash{}, nil
 	}
 
 	return types.BytesToHash(data), nil
@@ -743,7 +743,7 @@ func (b *Block) Number(ctx context.Context) (argtype.Long, error) {
 
 func (b *Block) Hash(ctx context.Context) (types.Hash, error) {
 	if _, err := b.resolveHeader(ctx); err != nil {
-		return types.ZeroHash, err
+		return types.Hash{}, err
 	}
 
 	return b.hash, nil
@@ -814,7 +814,7 @@ func (b *Block) Nonce(ctx context.Context) (argtype.Bytes, error) {
 
 func (b *Block) MixHash(ctx context.Context) (types.Hash, error) {
 	if _, err := b.resolveHeader(ctx); err != nil {
-		return types.ZeroHash, err
+		return types.Hash{}, err
 	}
 
 	return b.header.MixHash, nil
@@ -822,7 +822,7 @@ func (b *Block) MixHash(ctx context.Context) (types.Hash, error) {
 
 func (b *Block) TransactionsRoot(ctx context.Context) (types.Hash, error) {
 	if _, err := b.resolveHeader(ctx); err != nil {
-		return types.ZeroHash, err
+		return types.Hash{}, err
 	}
 
 	return b.header.TxRoot, nil
@@ -830,7 +830,7 @@ func (b *Block) TransactionsRoot(ctx context.Context) (types.Hash, error) {
 
 func (b *Block) StateRoot(ctx context.Context) (types.Hash, error) {
 	if _, err := b.resolveHeader(ctx); err != nil {
-		return types.ZeroHash, err
+		return types.Hash{}, err
 	}
 
 	return b.header.StateRoot, nil
@@ -838,7 +838,7 @@ func (b *Block) StateRoot(ctx context.Context) (types.Hash, error) {
 
 func (b *Block) ReceiptsRoot(ctx context.Context) (types.Hash, error) {
 	if _, err := b.resolveHeader(ctx); err != nil {
-		return types.ZeroHash, err
+		return types.Hash{}, err
 	}
 
 	return b.header.ReceiptsRoot, nil

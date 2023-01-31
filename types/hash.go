@@ -10,6 +10,8 @@ import (
 
 var (
 	// ZeroHash is all zero hash
+	// It is used as a constant for comparison.
+	// Do not return its slice, otherwise it might be overwritten.
 	ZeroHash = Hash{}
 
 	// EmptyRootHash is the root when there are no transactions

@@ -58,7 +58,7 @@ func (s *StateObject) GetCommittedState(key types.Hash) types.Hash {
 		//      have been handles outsite.
 		//   2) we don't have new values, and can deliver empty response back
 		if _, destructed := s.trTxn.snapDestructs[s.AddrHash]; destructed {
-			return types.ZeroHash
+			return types.Hash{}
 		}
 
 		val, err = s.trTxn.snap.Storage(s.AddrHash, key)

@@ -51,7 +51,7 @@ func DeleteSnapshotDisabled(db kvdb.KVWriter) {
 func ReadSnapshotRoot(db kvdb.KVReader) types.Hash {
 	data, _, _ := db.Get(schema.SnapshotRootKey)
 	if len(data) != types.HashLength {
-		return types.ZeroHash
+		return types.Hash{}
 	}
 
 	return types.BytesToHash(data)

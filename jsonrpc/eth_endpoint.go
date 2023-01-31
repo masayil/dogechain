@@ -439,7 +439,7 @@ func (e *Eth) GetStorageAt(
 	result, err := e.store.GetStorage(header.StateRoot, address, index)
 	if err != nil {
 		if errors.Is(err, ErrStateNotFound) {
-			return argBytesPtr(types.ZeroHash[:]), nil
+			return argBytesPtr(types.Hash{}.Bytes()), nil
 		}
 
 		return nil, err
@@ -449,13 +449,13 @@ func (e *Eth) GetStorageAt(
 
 	v, err := p.Parse(result)
 	if err != nil {
-		return argBytesPtr(types.ZeroHash[:]), nil
+		return argBytesPtr(types.Hash{}.Bytes()), nil
 	}
 
 	data, err := v.Bytes()
 
 	if err != nil {
-		return argBytesPtr(types.ZeroHash[:]), nil
+		return argBytesPtr(types.Hash{}.Bytes()), nil
 	}
 
 	// Pad to return 32 bytes data

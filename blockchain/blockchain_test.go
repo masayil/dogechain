@@ -701,8 +701,8 @@ func TestBlockchain_VerifyBlockParent(t *testing.T) {
 	t.Parallel()
 
 	emptyHeader := &types.Header{
-		Hash:       types.ZeroHash,
-		ParentHash: types.ZeroHash,
+		Hash:       types.Hash{},
+		ParentHash: types.Hash{},
 	}
 	emptyHeader.ComputeHash()
 
@@ -726,7 +726,7 @@ func TestBlockchain_VerifyBlockParent(t *testing.T) {
 		// Create a dummy block
 		block := &types.Block{
 			Header: &types.Header{
-				ParentHash: types.ZeroHash,
+				ParentHash: types.Hash{},
 			},
 		}
 
@@ -852,8 +852,8 @@ func TestBlockchain_VerifyBlockBody(t *testing.T) {
 	t.Parallel()
 
 	emptyHeader := &types.Header{
-		Hash:       types.ZeroHash,
-		ParentHash: types.ZeroHash,
+		Hash:       types.Hash{},
+		ParentHash: types.Hash{},
 	}
 
 	t.Run("Invalid SHA3 Uncles root", func(t *testing.T) {
@@ -866,7 +866,7 @@ func TestBlockchain_VerifyBlockBody(t *testing.T) {
 
 		block := &types.Block{
 			Header: &types.Header{
-				Sha3Uncles: types.ZeroHash,
+				Sha3Uncles: types.Hash{},
 			},
 		}
 

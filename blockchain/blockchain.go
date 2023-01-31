@@ -1122,7 +1122,7 @@ func (b *Blockchain) writeBody(block *types.Block) error {
 // ReadTxLookup returns the block hash using the transaction hash
 func (b *Blockchain) ReadTxLookup(hash types.Hash) (types.Hash, bool) {
 	if b.isStopped() {
-		return types.ZeroHash, false
+		return types.Hash{}, false
 	}
 
 	v, ok := b.db.ReadTxLookup(hash)
@@ -1174,12 +1174,12 @@ func (b *Blockchain) verifyGasLimit(header, parentHeader *types.Header) error {
 // GetHashByNumber returns the block hash using the block number
 func (b *Blockchain) GetHashByNumber(blockNumber uint64) types.Hash {
 	if b.isStopped() {
-		return types.ZeroHash
+		return types.Hash{}
 	}
 
 	block, ok := b.GetBlockByNumber(blockNumber, false)
 	if !ok {
-		return types.ZeroHash
+		return types.Hash{}
 	}
 
 	return block.Hash()
