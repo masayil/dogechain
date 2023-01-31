@@ -20,11 +20,13 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"math/big"
 	"sort"
 	"sync"
 	"sync/atomic"
 
 	"github.com/dogechain-lab/dogechain/helper/kvdb"
+	"github.com/dogechain-lab/dogechain/helper/rlp"
 	"github.com/dogechain-lab/dogechain/state/stypes"
 	"github.com/dogechain-lab/dogechain/types"
 	bloomfilter "github.com/holiman/bloomfilter/v2"
@@ -205,12 +207,21 @@ func (dl *diffLayer) Account(hash types.Hash) (*stypes.Account, error) {
 		return nil, nil
 	}
 
-	account := new(stypes.Account)
-	if err := account.UnmarshalRlp(data); err != nil {
+	// slim account
+	var slimAccount Account
+	if err := rlp.DecodeBytes(data, &slimAccount); err != nil {
 		panic(err)
 	}
 
-	return account, nil
+	// copy balance to heap
+	balance := new(big.Int).Set(slimAccount.Balance)
+
+	return &stypes.Account{
+		Nonce:    slimAccount.Nonce,
+		Balance:  balance,
+		Root:     types.BytesToHash(slimAccount.Root),
+		CodeHash: slimAccount.CodeHash,
+	}, nil
 }
 
 // AccountRLP directly retrieves the account RLP associated with a particular
