@@ -6,8 +6,8 @@ import (
 	"sync"
 
 	"github.com/VictoriaMetrics/fastcache"
+	"github.com/dogechain-lab/dogechain/helper/rawdb"
 	"github.com/dogechain-lab/dogechain/state"
-	"github.com/dogechain-lab/dogechain/state/schema"
 	"github.com/dogechain-lab/dogechain/types"
 	"github.com/hashicorp/go-hclog"
 	"go.uber.org/atomic"
@@ -105,7 +105,7 @@ func (db *stateDBImpl) Get(k []byte) ([]byte, bool, error) {
 }
 
 func (db *stateDBImpl) GetCode(hash types.Hash) ([]byte, bool) {
-	key := schema.CodeKey(hash)
+	key := rawdb.CodeKey(hash)
 	if enc := db.codeCache.Get(nil, key); enc != nil {
 		db.metrics.codeCacheHitInc()
 

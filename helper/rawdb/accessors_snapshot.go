@@ -21,27 +21,26 @@ import (
 	"log"
 
 	"github.com/dogechain-lab/dogechain/helper/kvdb"
-	"github.com/dogechain-lab/dogechain/state/schema"
 	"github.com/dogechain-lab/dogechain/types"
 )
 
 // ReadSnapshotDisabled retrieves if the snapshot maintenance is disabled.
 func ReadSnapshotDisabled(db kvdb.KVReader) bool {
-	disabled, _ := db.Has(schema.SnapshotDisabledKey)
+	disabled, _ := db.Has(snapshotDisabledKey)
 
 	return disabled
 }
 
 // WriteSnapshotDisabled stores the snapshot pause flag.
 func WriteSnapshotDisabled(db kvdb.KVWriter) {
-	if err := db.Set(schema.SnapshotDisabledKey, []byte("42")); err != nil {
+	if err := db.Set(snapshotDisabledKey, []byte("42")); err != nil {
 		logCrit("Failed to store snapshot disabled flag", "err", err)
 	}
 }
 
 // DeleteSnapshotDisabled deletes the flag keeping the snapshot maintenance disabled.
 func DeleteSnapshotDisabled(db kvdb.KVWriter) {
-	if err := db.Delete(schema.SnapshotDisabledKey); err != nil {
+	if err := db.Delete(snapshotDisabledKey); err != nil {
 		logCrit("Failed to remove snapshot disabled flag", "err", err)
 	}
 }
@@ -49,7 +48,7 @@ func DeleteSnapshotDisabled(db kvdb.KVWriter) {
 // ReadSnapshotRoot retrieves the root of the block whose state is contained in
 // the persisted snapshot.
 func ReadSnapshotRoot(db kvdb.KVReader) types.Hash {
-	data, _, _ := db.Get(schema.SnapshotRootKey)
+	data, _, _ := db.Get(snapshotRootKey)
 	if len(data) != types.HashLength {
 		return types.Hash{}
 	}
@@ -60,7 +59,7 @@ func ReadSnapshotRoot(db kvdb.KVReader) types.Hash {
 // WriteSnapshotRoot stores the root of the block whose state is contained in
 // the persisted snapshot.
 func WriteSnapshotRoot(db kvdb.KVWriter, root types.Hash) {
-	if err := db.Set(schema.SnapshotRootKey, root[:]); err != nil {
+	if err := db.Set(snapshotRootKey, root[:]); err != nil {
 		logCrit("Failed to store snapshot root", "err", err)
 	}
 }
@@ -70,49 +69,49 @@ func WriteSnapshotRoot(db kvdb.KVWriter, root types.Hash) {
 // be used during updates, so a crash or failure will mark the entire snapshot
 // invalid.
 func DeleteSnapshotRoot(db kvdb.KVWriter) {
-	if err := db.Delete(schema.SnapshotRootKey); err != nil {
+	if err := db.Delete(snapshotRootKey); err != nil {
 		logCrit("Failed to remove snapshot root", "err", err)
 	}
 }
 
 // ReadAccountSnapshot retrieves the snapshot entry of an account trie leaf.
 func ReadAccountSnapshot(db kvdb.KVReader, hash types.Hash) []byte {
-	data, _, _ := db.Get(schema.SnapshotAccountKey(hash))
+	data, _, _ := db.Get(snapshotAccountKey(hash))
 
 	return data
 }
 
 // WriteAccountSnapshot stores the snapshot entry of an account trie leaf.
 func WriteAccountSnapshot(db kvdb.KVWriter, hash types.Hash, entry []byte) {
-	if err := db.Set(schema.SnapshotAccountKey(hash), entry); err != nil {
+	if err := db.Set(snapshotAccountKey(hash), entry); err != nil {
 		logCrit("Failed to store account snapshot", "err", err)
 	}
 }
 
 // DeleteAccountSnapshot removes the snapshot entry of an account trie leaf.
 func DeleteAccountSnapshot(db kvdb.KVWriter, hash types.Hash) {
-	if err := db.Delete(schema.SnapshotAccountKey(hash)); err != nil {
+	if err := db.Delete(snapshotAccountKey(hash)); err != nil {
 		logCrit("Failed to delete account snapshot", "err", err)
 	}
 }
 
 // ReadStorageSnapshot retrieves the snapshot entry of an storage trie leaf.
 func ReadStorageSnapshot(db kvdb.KVReader, accountHash, storageHash types.Hash) []byte {
-	data, _, _ := db.Get(schema.SnapshotStorageKey(accountHash, storageHash))
+	data, _, _ := db.Get(snapshotStorageKey(accountHash, storageHash))
 
 	return data
 }
 
 // WriteStorageSnapshot stores the snapshot entry of an storage trie leaf.
 func WriteStorageSnapshot(db kvdb.KVWriter, accountHash, storageHash types.Hash, entry []byte) {
-	if err := db.Set(schema.SnapshotStorageKey(accountHash, storageHash), entry); err != nil {
+	if err := db.Set(snapshotStorageKey(accountHash, storageHash), entry); err != nil {
 		logCrit("Failed to store storage snapshot", "err", err)
 	}
 }
 
 // DeleteStorageSnapshot removes the snapshot entry of an storage trie leaf.
 func DeleteStorageSnapshot(db kvdb.KVWriter, accountHash, storageHash types.Hash) {
-	if err := db.Delete(schema.SnapshotStorageKey(accountHash, storageHash)); err != nil {
+	if err := db.Delete(snapshotStorageKey(accountHash, storageHash)); err != nil {
 		logCrit("Failed to delete storage snapshot", "err", err)
 	}
 }
@@ -121,15 +120,15 @@ func DeleteStorageSnapshot(db kvdb.KVWriter, accountHash, storageHash types.Hash
 // space of a specific account.
 func IterateStorageSnapshots(db kvdb.Iteratee, accountHash types.Hash) kvdb.Iterator {
 	return NewKeyLengthIterator(
-		db.NewIterator(schema.SnapshotsStorageKey(accountHash), nil),
-		len(schema.SnapshotStoragePrefix)+2*types.HashLength,
+		db.NewIterator(SnapshotsStorageKey(accountHash), nil),
+		SnapshotPrefixLength+2*types.HashLength,
 	)
 }
 
 // ReadSnapshotJournal retrieves the serialized in-memory diff layers saved at
 // the last shutdown. The blob is expected to be max a few 10s of megabytes.
 func ReadSnapshotJournal(db kvdb.KVReader) []byte {
-	data, _, _ := db.Get(schema.SnapshotJournalKey)
+	data, _, _ := db.Get(snapshotJournalKey)
 
 	return data
 }
@@ -137,7 +136,7 @@ func ReadSnapshotJournal(db kvdb.KVReader) []byte {
 // WriteSnapshotJournal stores the serialized in-memory diff layers to save at
 // shutdown. The blob is expected to be max a few 10s of megabytes.
 func WriteSnapshotJournal(db kvdb.KVWriter, journal []byte) {
-	if err := db.Set(schema.SnapshotJournalKey, journal); err != nil {
+	if err := db.Set(snapshotJournalKey, journal); err != nil {
 		logCrit("Failed to store snapshot journal", "err", err)
 	}
 }
@@ -145,7 +144,7 @@ func WriteSnapshotJournal(db kvdb.KVWriter, journal []byte) {
 // DeleteSnapshotJournal deletes the serialized in-memory diff layers saved at
 // the last shutdown
 func DeleteSnapshotJournal(db kvdb.KVWriter) {
-	if err := db.Delete(schema.SnapshotJournalKey); err != nil {
+	if err := db.Delete(snapshotJournalKey); err != nil {
 		logCrit("Failed to remove snapshot journal", "err", err)
 	}
 }
@@ -153,7 +152,7 @@ func DeleteSnapshotJournal(db kvdb.KVWriter) {
 // ReadSnapshotGenerator retrieves the serialized snapshot generator saved at
 // the last shutdown.
 func ReadSnapshotGenerator(db kvdb.KVReader) []byte {
-	data, _, _ := db.Get(schema.SnapshotGeneratorKey)
+	data, _, _ := db.Get(snapshotGeneratorKey)
 
 	return data
 }
@@ -161,7 +160,7 @@ func ReadSnapshotGenerator(db kvdb.KVReader) []byte {
 // WriteSnapshotGenerator stores the serialized snapshot generator to save at
 // shutdown.
 func WriteSnapshotGenerator(db kvdb.KVWriter, generator []byte) {
-	if err := db.Set(schema.SnapshotGeneratorKey, generator); err != nil {
+	if err := db.Set(snapshotGeneratorKey, generator); err != nil {
 		logCrit("Failed to store snapshot generator", "err", err)
 	}
 }
@@ -169,7 +168,7 @@ func WriteSnapshotGenerator(db kvdb.KVWriter, generator []byte) {
 // DeleteSnapshotGenerator deletes the serialized snapshot generator saved at
 // the last shutdown
 func DeleteSnapshotGenerator(db kvdb.KVWriter) {
-	if err := db.Delete(schema.SnapshotGeneratorKey); err != nil {
+	if err := db.Delete(snapshotGeneratorKey); err != nil {
 		logCrit("Failed to remove snapshot generator", "err", err)
 	}
 }
@@ -177,7 +176,7 @@ func DeleteSnapshotGenerator(db kvdb.KVWriter) {
 // ReadSnapshotRecoveryNumber retrieves the block number of the last persisted
 // snapshot layer.
 func ReadSnapshotRecoveryNumber(db kvdb.KVReader) *uint64 {
-	data, _, _ := db.Get(schema.SnapshotRecoveryKey)
+	data, _, _ := db.Get(snapshotRecoveryKey)
 	if len(data) == 0 {
 		return nil
 	}
@@ -198,7 +197,7 @@ func WriteSnapshotRecoveryNumber(db kvdb.KVWriter, number uint64) {
 
 	binary.BigEndian.PutUint64(buf[:], number)
 
-	if err := db.Set(schema.SnapshotRecoveryKey, buf[:]); err != nil {
+	if err := db.Set(snapshotRecoveryKey, buf[:]); err != nil {
 		logCrit("Failed to store snapshot recovery number", "err", err)
 	}
 }
@@ -206,21 +205,21 @@ func WriteSnapshotRecoveryNumber(db kvdb.KVWriter, number uint64) {
 // DeleteSnapshotRecoveryNumber deletes the block number of the last persisted
 // snapshot layer.
 func DeleteSnapshotRecoveryNumber(db kvdb.KVWriter) {
-	if err := db.Delete(schema.SnapshotRecoveryKey); err != nil {
+	if err := db.Delete(snapshotRecoveryKey); err != nil {
 		logCrit("Failed to remove snapshot recovery number", "err", err)
 	}
 }
 
 // ReadSnapshotSyncStatus retrieves the serialized sync status saved at shutdown.
 func ReadSnapshotSyncStatus(db kvdb.KVReader) []byte {
-	data, _, _ := db.Get(schema.SnapshotSyncStatusKey)
+	data, _, _ := db.Get(snapshotSyncStatusKey)
 
 	return data
 }
 
 // WriteSnapshotSyncStatus stores the serialized sync status to save at shutdown.
 func WriteSnapshotSyncStatus(db kvdb.KVWriter, status []byte) {
-	if err := db.Set(schema.SnapshotSyncStatusKey, status); err != nil {
+	if err := db.Set(snapshotSyncStatusKey, status); err != nil {
 		logCrit("Failed to store snapshot sync status", "err", err)
 	}
 }

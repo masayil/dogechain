@@ -11,7 +11,6 @@ import (
 	"github.com/dogechain-lab/dogechain/helper/kvdb"
 	"github.com/dogechain-lab/dogechain/helper/rawdb"
 	"github.com/dogechain-lab/dogechain/helper/rlp"
-	"github.com/dogechain-lab/dogechain/state/schema"
 	"github.com/dogechain-lab/dogechain/state/stypes"
 	"github.com/dogechain-lab/dogechain/trie"
 	"github.com/dogechain-lab/dogechain/types"
@@ -578,7 +577,7 @@ func diffToDisk(bottom *diffLayer) *diskLayer {
 			key := it.Key()
 			batch.Delete(key)
 			// delete all cache snapshot key
-			base.cache.Del(key[schema.SnapshotPrefixLength:])
+			base.cache.Del(key[rawdb.SnapshotPrefixLength:])
 
 			// TODO: flush storage item Counter
 

@@ -39,7 +39,7 @@ func ReadCode(db kvdb.KVReader, hash types.Hash) []byte {
 // The main difference between this function and ReadCode is this function
 // will only check the existence with latest scheme(with prefix).
 func ReadCodeWithPrefix(db kvdb.KVReader, hash types.Hash) []byte {
-	data, _, _ := db.Get(codeKey(hash))
+	data, _, _ := db.Get(CodeKey(hash))
 
 	return data
 }
@@ -69,7 +69,7 @@ func HasCode(db kvdb.KVReader, hash types.Hash) bool {
 // provided code hash is present in the db. This function will only check
 // presence using the prefix-scheme.
 func HasCodeWithPrefix(db kvdb.KVReader, hash types.Hash) bool {
-	ok, _ := db.Has(codeKey(hash))
+	ok, _ := db.Has(CodeKey(hash))
 
 	return ok
 }
@@ -83,7 +83,7 @@ func HasTrieNode(db kvdb.KVReader, hash types.Hash) bool {
 
 // WriteCode writes the provided contract code database.
 func WriteCode(db kvdb.KVWriter, hash types.Hash, code []byte) error {
-	return db.Set(codeKey(hash), code)
+	return db.Set(CodeKey(hash), code)
 }
 
 // WriteTrieNode writes the provided trie node database.
@@ -93,7 +93,7 @@ func WriteTrieNode(db kvdb.KVWriter, hash types.Hash, node []byte) error {
 
 // DeleteCode deletes the specified contract code from the database.
 func DeleteCode(db kvdb.KVWriter, hash types.Hash) error {
-	return db.Delete(codeKey(hash))
+	return db.Delete(CodeKey(hash))
 }
 
 // DeleteTrieNode deletes the specified trie node from the database.

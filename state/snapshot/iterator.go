@@ -22,7 +22,7 @@ import (
 	"sort"
 
 	"github.com/dogechain-lab/dogechain/helper/kvdb"
-	"github.com/dogechain-lab/dogechain/state/schema"
+	"github.com/dogechain-lab/dogechain/helper/rawdb"
 	"github.com/dogechain-lab/dogechain/types"
 )
 
@@ -184,7 +184,7 @@ func (dl *diskLayer) AccountIterator(seek types.Hash) AccountIterator {
 
 	return &diskAccountIterator{
 		layer: dl,
-		it:    dl.diskdb.NewIterator(schema.SnapshotAccountPrefix, pos),
+		it:    dl.diskdb.NewIterator(rawdb.SnapshotAccountPrefix, pos),
 	}
 }
 
@@ -206,8 +206,8 @@ func (it *diskAccountIterator) Next() bool {
 
 		key := it.it.Key()
 		// strict match
-		if len(key) == schema.SnapshotPrefixLength+types.HashLength &&
-			bytes.Equal(key[:schema.SnapshotPrefixLength], schema.SnapshotAccountPrefix) {
+		if len(key) == rawdb.SnapshotPrefixLength+types.HashLength &&
+			bytes.Equal(key[:rawdb.SnapshotPrefixLength], rawdb.SnapshotAccountPrefix) {
 			break
 		}
 	}
@@ -375,7 +375,7 @@ func (dl *diskLayer) StorageIterator(account types.Hash, seek types.Hash) (Stora
 	return &diskStorageIterator{
 		layer:   dl,
 		account: account,
-		it:      dl.diskdb.NewIterator(schema.SnapshotsStorageKey(account), pos),
+		it:      dl.diskdb.NewIterator(rawdb.SnapshotsStorageKey(account), pos),
 	}, false
 }
 
@@ -396,8 +396,8 @@ func (it *diskStorageIterator) Next() bool {
 
 		key := it.it.Key()
 		// strict match
-		if (len(key) == schema.SnapshotPrefixLength+types.HashLength+types.HashLength) &&
-			bytes.Equal(key[:schema.SnapshotPrefixLength], schema.SnapshotStoragePrefix) {
+		if (len(key) == rawdb.SnapshotPrefixLength+types.HashLength+types.HashLength) &&
+			bytes.Equal(key[:rawdb.SnapshotPrefixLength], rawdb.SnapshotStoragePrefix) {
 			break
 		}
 	}

@@ -75,8 +75,8 @@ func decodeUint(b []byte) uint64 {
 	return binary.BigEndian.Uint64(b[:])
 }
 
-// codeKey = CodePrefix + hash
-func codeKey(hash types.Hash) []byte {
+// CodeKey = CodePrefix + hash
+func CodeKey(hash types.Hash) []byte {
 	return append(codePrefix, hash.Bytes()...)
 }
 
@@ -90,8 +90,8 @@ func snapshotStorageKey(accountHash, storageHash types.Hash) []byte {
 	return append(append(SnapshotStoragePrefix, accountHash.Bytes()...), storageHash.Bytes()...)
 }
 
-// snapshotsStorageKey = SnapshotStoragePrefix + account hash (+ storage hash)
-func snapshotsStorageKey(accountHash types.Hash) []byte {
+// SnapshotsStorageKey = SnapshotStoragePrefix + account hash (+ storage hash)
+func SnapshotsStorageKey(accountHash types.Hash) []byte {
 	return append(SnapshotStoragePrefix, accountHash.Bytes()...)
 }
 

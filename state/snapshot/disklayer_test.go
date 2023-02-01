@@ -24,7 +24,6 @@ import (
 	"github.com/dogechain-lab/dogechain/helper/kvdb/memorydb"
 	"github.com/dogechain-lab/dogechain/helper/rawdb"
 	"github.com/dogechain-lab/dogechain/helper/rlp"
-	"github.com/dogechain-lab/dogechain/state/schema"
 	"github.com/dogechain-lab/dogechain/types"
 	"github.com/hashicorp/go-hclog"
 )
@@ -583,7 +582,7 @@ func TestDiskSeek(t *testing.T) {
 	}
 
 	// Add an 'higher' key, with incorrect (higher) prefix
-	highKey := []byte{schema.SnapshotAccountPrefix[0] + 1, schema.SnapshotAccountPrefix[1]}
+	highKey := []byte{rawdb.SnapshotAccountPrefix[0] + 1, rawdb.SnapshotAccountPrefix[1]}
 	db.Set(highKey, []byte{0xff, 0xff})
 
 	baseRoot := randomHash()

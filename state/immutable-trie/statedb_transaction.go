@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/dogechain-lab/dogechain/helper/rawdb"
 	"github.com/dogechain-lab/dogechain/state"
-	"github.com/dogechain-lab/dogechain/state/schema"
 	"github.com/dogechain-lab/dogechain/types"
 	"go.uber.org/atomic"
 )
@@ -130,7 +130,7 @@ func (tx *stateDBTxn) Get(k []byte) ([]byte, bool, error) {
 
 func (tx *stateDBTxn) SetCode(hash types.Hash, v []byte) error {
 	// active code key is different from account key (hash)
-	key := schema.CodeKey(hash)
+	key := rawdb.CodeKey(hash)
 	keyStr := byteKeyToTxnKey(key)
 
 	pair, ok := txnPairPool.Get().(*txnPair)
@@ -151,7 +151,7 @@ func (tx *stateDBTxn) SetCode(hash types.Hash, v []byte) error {
 }
 
 func (tx *stateDBTxn) GetCode(hash types.Hash) ([]byte, bool) {
-	key := byteKeyToTxnKey(schema.CodeKey(hash))
+	key := byteKeyToTxnKey(rawdb.CodeKey(hash))
 
 	tx.lock.Lock()
 
