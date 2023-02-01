@@ -199,7 +199,11 @@ func (ctx *generatorContext) removeStorageBefore(account types.Hash) {
 	for iter.Next() {
 		key := iter.Key()
 
-		if bytes.Compare(key[1:1+types.HashLength], account.Bytes()) >= 0 {
+		// the key length already set, dont worry about slice out of bound
+		if bytes.Compare(
+			key[rawdb.SnapshotPrefixLength:rawdb.SnapshotPrefixLength+types.HashLength],
+			account.Bytes(),
+		) >= 0 {
 			iter.Hold()
 
 			break
@@ -232,7 +236,11 @@ func (ctx *generatorContext) removeStorageAt(account types.Hash) error {
 
 	for iter.Next() {
 		key := iter.Key()
-		cmp := bytes.Compare(key[1:1+types.HashLength], account.Bytes())
+		// the key length already set, dont worry about slice out of bound
+		cmp := bytes.Compare(
+			key[rawdb.SnapshotPrefixLength:rawdb.SnapshotPrefixLength+types.HashLength],
+			account.Bytes(),
+		)
 
 		if cmp < 0 {
 			return errors.New("invalid iterator position")

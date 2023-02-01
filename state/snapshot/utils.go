@@ -46,7 +46,7 @@ func checkDanglingDiskStorage(chaindb kvdb.KVBatchStorage, logger kvdb.Logger) e
 		lastKey    []byte
 		it         = rawdb.NewKeyLengthIterator(
 			chaindb.NewIterator(rawdb.SnapshotStoragePrefix, nil),
-			1+2*types.HashLength,
+			rawdb.SnapshotPrefixLength+2*types.HashLength,
 		)
 	)
 
@@ -56,7 +56,7 @@ func checkDanglingDiskStorage(chaindb kvdb.KVBatchStorage, logger kvdb.Logger) e
 
 	for it.Next() {
 		k := it.Key()
-		accKey := k[1:33]
+		accKey := k[rawdb.SnapshotPrefixLength : rawdb.SnapshotPrefixLength+types.HashLength]
 
 		if bytes.Equal(accKey, lastKey) {
 			// No need to look up for every slot
@@ -148,7 +148,7 @@ func CheckJournalAccount(db kvdb.KVBatchStorage, hash types.Hash, logger kvdb.Lo
 	{
 		it := rawdb.NewKeyLengthIterator(
 			db.NewIterator(append(rawdb.SnapshotStoragePrefix, hash.Bytes()...), nil),
-			1+2*types.HashLength,
+			rawdb.SnapshotPrefixLength+2*types.HashLength,
 		)
 		fmt.Printf("\tStorage:\n")
 

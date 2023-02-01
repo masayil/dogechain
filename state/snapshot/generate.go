@@ -213,7 +213,7 @@ func generateAccounts(ctx *generatorContext, dl *diskLayer, accMarker []byte) er
 				rawdb.WriteAccountSnapshot(ctx.batch, account, data)
 			}
 
-			ctx.stats.storage += types.StorageSize(1 + types.HashLength + dataLen)
+			ctx.stats.storage += types.StorageSize(rawdb.SnapshotPrefixLength + types.HashLength + dataLen)
 			ctx.stats.accounts++
 		}
 
@@ -427,7 +427,11 @@ func (dl *diskLayer) proveRange(
 				// Here append the original value to ensure that the number of key and
 				// value are aligned.
 				vals = append(vals, types.CopyBytes(iter.Value()))
-				dl.logger.Error("Failed to convert account state data", "err", err)
+				dl.logger.Error("Failed to convert account state data",
+					"err", err,
+					"kind", kind,
+					"prefix", hex.EncodeToHex(prefix),
+				)
 			} else {
 				vals = append(vals, val)
 			}
@@ -451,7 +455,7 @@ func (dl *diskLayer) proveRange(
 			return &proofResult{
 				keys:     keys,
 				vals:     vals,
-				proofErr: fmt.Errorf("wrong root: have %#x want %#x", gotRoot, root),
+				proofErr: fmt.Errorf("wrong root: have %s want %s", gotRoot, root),
 			}, nil
 		}
 
@@ -561,6 +565,13 @@ func (dl *diskLayer) generateRange(
 		// Only abort the iteration when both database and trie are exhausted
 		return !result.diskMore && !result.trieMore, last, nil
 	}
+
+	// ctx.stats.logger.Debug("Detected outdated state range",
+	// 	"kind", kind,
+	// 	"prefix", hex.EncodeToHex(prefix),
+	// 	"last", hex.EncodeToHex(last),
+	// 	"err", result.proofErr,
+	// )
 
 	// TODO: failed range proof Counter
 
@@ -693,10 +704,10 @@ func (dl *diskLayer) generateRange(
 
 	dl.logger.Debug("Regenerated state range",
 		"kind", kind,
-		"prefix", hex.EncodeToString(prefix),
-		"origin", hex.EncodeToString(origin),
+		"prefix", hex.EncodeToHex(prefix),
+		"origin", hex.EncodeToHex(origin),
 		"root", trieID.Root,
-		"last", hex.EncodeToString(last),
+		"last", hex.EncodeToHex(last),
 		"count", count,
 		"created", created,
 		"updated", updated,
@@ -785,7 +796,7 @@ func generateStorages(
 			// TODO: recovered storage Counter
 		}
 
-		ctx.stats.storage += types.StorageSize(1 + 2*types.HashLength + len(val))
+		ctx.stats.storage += types.StorageSize(rawdb.SnapshotPrefixLength + 2*types.HashLength + len(val))
 		ctx.stats.slots++
 
 		// If we've exceeded our batch allowance or termination was requested, flush to disk
