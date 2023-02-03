@@ -57,7 +57,7 @@ func FullAccount(data []byte) (Account, error) {
 	}
 
 	if len(account.Root) == 0 {
-		account.Root = types.EmptyCodeHash.Bytes()
+		account.Root = types.EmptyRootHash.Bytes()
 	}
 
 	if len(account.CodeHash) == 0 {
