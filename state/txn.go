@@ -205,6 +205,7 @@ func (txn *Txn) upsertAccount(addr types.Address, create bool, f func(object *St
 		txn.txn.Insert(addr.Bytes(), object)
 	}
 
+	// cache snapshots
 	if txn.snap != nil {
 		txn.snapAccounts[object.AddrHash] = snapshot.SlimAccountRLP(
 			object.Account.Nonce,

@@ -52,15 +52,8 @@ func TestGeneration(t *testing.T) {
 	helper.addTrieAccount("acc-2", &Account{Balance: big.NewInt(2), Root: types.EmptyRootHash.Bytes(), CodeHash: types.EmptyCodeHash.Bytes()})
 	helper.addTrieAccount("acc-3", &Account{Balance: big.NewInt(3), Root: stRoot, CodeHash: types.EmptyCodeHash.Bytes()})
 
-	acc1 := "acc-1"
-	hacc1 := hashData([]byte(acc1))
-	stRoot2 := helper.makeStorageTrie(types.Hash{}, hacc1, []string{"key-1", "key-2", "key-3"}, []string{"val-1", "val-2", "val-3"}, true)
-	helper.logger.Info("stRoot2", "root", hex.EncodeToHex(stRoot2), "account", acc1, "hash", hacc1)
-
-	acc3 := "acc-3"
-	hacc3 := hashData([]byte(acc3))
-	stRoot3 := helper.makeStorageTrie(types.Hash{}, hacc3, []string{"key-1", "key-2", "key-3"}, []string{"val-1", "val-2", "val-3"}, true)
-	helper.logger.Info("stRoot3", "root", hex.EncodeToHex(stRoot3), "account", acc3, "hash", hacc3)
+	helper.makeStorageTrie(types.Hash{}, hashData([]byte("acc-1")), []string{"key-1", "key-2", "key-3"}, []string{"val-1", "val-2", "val-3"}, true)
+	helper.makeStorageTrie(types.Hash{}, hashData([]byte("acc-3")), []string{"key-1", "key-2", "key-3"}, []string{"val-1", "val-2", "val-3"}, true)
 
 	root, snap := helper.CommitAndGenerate()
 	if have, want := root, types.StringToHash("0xe3712f1a226f3782caca78ca770ccc19ee000552813a9f59d479f8611db9b1fd"); have != want {
@@ -120,7 +113,7 @@ func TestGenerateExistentState(t *testing.T) {
 func checkSnapRoot(t *testing.T, snap *diskLayer, trieRoot types.Hash) {
 	t.Helper()
 
-	logger := hclog.NewNullLogger()
+	logger := snap.logger
 
 	accIt := snap.AccountIterator(types.Hash{})
 	defer accIt.Release()
@@ -157,7 +150,7 @@ type testHelper struct {
 
 func newHelper() *testHelper {
 	diskdb := rawdb.NewMemoryDatabase()
-	logger := hclog.Default()
+	logger := hclog.NewNullLogger()
 	triedb := trie.NewDatabase(diskdb, logger)
 	accTrie, _ := trie.NewStateTrie(trie.StateTrieID(types.Hash{}), triedb, logger)
 
