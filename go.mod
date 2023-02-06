@@ -52,19 +52,19 @@ require (
 	github.com/ipfs/go-cid v0.1.0 // indirect
 	github.com/klauspost/compress v1.15.10
 	github.com/mattn/go-colorable v0.1.12 // indirect
-	github.com/umbracle/fastrlp v0.0.0-20220527094140-59d5dd30e722 // indirect
+	github.com/umbracle/fastrlp v0.0.0-20220527094140-59d5dd30e722
 	github.com/valyala/fastjson v1.6.3 // indirect
 	go.uber.org/zap v1.20.0 // indirect
-	golang.org/x/sync v0.0.0-20220722155255-886fb9371eb4
+	golang.org/x/sync v0.1.0
 	golang.org/x/sys v0.1.0 // indirect
-	golang.org/x/tools v0.1.12 // indirect
+	golang.org/x/tools v0.1.12
 	google.golang.org/genproto v0.0.0-20211208223120-3a66f561d7aa // indirect
 	lukechampine.com/blake3 v1.1.7 // indirect
 )
 
 require go.uber.org/atomic v1.9.0
 
-require github.com/holiman/bloomfilter/v2 v2.0.3 // indirect
+require github.com/holiman/bloomfilter/v2 v2.0.3
 
 require (
 	github.com/VictoriaMetrics/fastcache v1.6.0
@@ -74,7 +74,7 @@ require (
 	github.com/cespare/xxhash/v2 v2.1.2 // indirect
 	github.com/cheekybits/genny v1.0.0 // indirect
 	github.com/coreos/go-systemd/v22 v22.3.2 // indirect
-	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/davecgh/go-spew v1.1.1
 	github.com/davidlazar/go-crypto v0.0.0-20200604182044-b73af7476f6c // indirect
 	github.com/docker/go-units v0.4.0 // indirect
 	github.com/flynn/noise v1.0.0 // indirect
@@ -186,7 +186,6 @@ require (
 	golang.org/x/term v0.1.0 // indirect
 	golang.org/x/text v0.4.0 // indirect
 	golang.org/x/time v0.0.0-20210723032227-1f47c861a9ac // indirect
-	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1 // indirect
 	gopkg.in/square/go-jose.v2 v2.5.1 // indirect
 	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
