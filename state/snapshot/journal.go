@@ -111,7 +111,7 @@ func loadSnapshot(
 		// it's not in recovery mode, returns the error here for
 		// rebuilding the entire snapshot forcibly.
 		if !recovery {
-			return nil, false, fmt.Errorf("head doesn't match snapshot: have %#x, want %#x", head, root)
+			return nil, false, fmt.Errorf("head doesn't match snapshot: have %s, want %s", head, root)
 		}
 		// It's in snapshot recovery, the assumption is held that
 		// the disk layer is always higher than chain head. It can
