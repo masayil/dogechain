@@ -853,52 +853,67 @@ func (s *Server) Close() {
 		s.logger.Error("failed to close consensus", "err", err)
 	}
 
-	s.logger.Info("close txpool")
-
 	// close the txpool's main loop
-	s.txpool.Close()
-
-	s.logger.Info("close network layer")
-
-	// Close the networking layer
-	if err := s.network.Close(); err != nil {
-		s.logger.Error("failed to close networking", "err", err)
+	if s.txpool != nil {
+		s.logger.Info("close txpool")
+		s.txpool.Close()
 	}
 
-	s.logger.Info("close blockchain")
+	// Close the networking layer
+	if s.network != nil {
+		s.logger.Info("close network layer")
+
+		if err := s.network.Close(); err != nil {
+			s.logger.Error("failed to close networking", "err", err)
+		}
+	}
 
 	// Journal state snapshot and flush caches
 	s.journalSnapshots()
 
-	// Close the blockchain layer
-	if err := s.blockchain.Close(); err != nil {
-		s.logger.Error("failed to close blockchain", "err", err)
+	if s.blockchain != nil {
+		s.logger.Info("close blockchain")
+
+		// Close the blockchain layer
+		if err := s.blockchain.Close(); err != nil {
+			s.logger.Error("failed to close blockchain", "err", err)
+		}
 	}
 
-	s.logger.Info("close http servers")
-
 	// Close jsonrpc server
-	if err := s.jsonrpcServer.Close(); err != nil {
-		s.logger.Error("failed to close jsonrpc server", "err", err)
+	if s.jsonrpcServer != nil {
+		s.logger.Info("close rpc server")
+
+		if err := s.jsonrpcServer.Close(); err != nil {
+			s.logger.Error("failed to close jsonrpc server", "err", err)
+		}
 	}
 
 	// Close graphql server
-	if err := s.graphqlServer.Close(); err != nil {
-		s.logger.Error("failed to close graphql server", "err", err)
-	}
+	if s.graphqlServer != nil {
+		s.logger.Info("close graphql server")
 
-	s.logger.Info("close state storage")
+		if err := s.graphqlServer.Close(); err != nil {
+			s.logger.Error("failed to close graphql server", "err", err)
+		}
+	}
 
 	// Close the state storage
-	if err := s.trieDB.Close(); err != nil {
-		s.logger.Error("failed to close storage for trie", "err", err)
+	if s.trieDB != nil {
+		s.logger.Info("close state storage")
+
+		if err := s.trieDB.Close(); err != nil {
+			s.logger.Error("failed to close storage for trie", "err", err)
+		}
 	}
 
-	s.logger.Info("close blockchain storage")
+	if s.chainDB != nil {
+		s.logger.Info("close blockchain storage")
 
-	// Close the blockchain storage
-	if err := s.chainDB.Close(); err != nil {
-		s.logger.Error("failed to close storage for blockchain", "err", err)
+		// Close the blockchain storage
+		if err := s.chainDB.Close(); err != nil {
+			s.logger.Error("failed to close storage for blockchain", "err", err)
+		}
 	}
 
 	if s.prometheusServer != nil {
