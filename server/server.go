@@ -867,60 +867,13 @@ func (s *Server) Close() {
 
 	s.logger.Info("close blockchain")
 
+	// Journal state snapshot and flush caches
+	s.journalSnapshots()
+
 	// Close the blockchain layer
 	if err := s.blockchain.Close(); err != nil {
 		s.logger.Error("failed to close blockchain", "err", err)
 	}
-
-	// // Ensure that the entirety of the state snapshot is journalled to disk.
-	// var snapBase types.Hash
-
-	if s.snaps != nil {
-		var err error
-		if _, err = s.snaps.Journal(s.blockchain.Header().StateRoot); err != nil {
-			s.logger.Error("failed to journal state snapshot", "err", err)
-		}
-	}
-
-	// // Ensure the state of a recent block is also stored to disk before exiting.
-	// // We're writing different states to catch different restart scenarios:
-	// //  - HEAD:     So we don't need to reprocess any blocks in the general case
-	// //  - HEAD-127: So we have a hard limit on the number of blocks reexecuted
-	// if !s.cacheConfig.TrieDirtyDisabled {
-	// triedb := s.trieDB
-
-	// for _, offset := range []uint64{0, TriesInMemory - 1} {
-	// 	if number := s.blockchain.Header().Number; number > offset {
-	// 		recent, ok := s.blockchain.GetBlockByNumber(number-offset, true)
-	// 		if !ok {
-	// 			s.logger.Error("block not exists", "number", number-offset)
-	// 			os.Exit(1)
-	// 		}
-
-	// s.logger.Info("Writing cached state to disk",
-	// 	"block", recent.Number(),
-	// 	"hash", recent.Hash(),
-	// 	"root", recent.Header.StateRoot,
-	// )
-	// 		if err := triedb.Commit(recent.Header.StateRoot, true, nil); err != nil {
-	// 			s.logger.Error("Failed to commit recent state trie", "err", err)
-	// 		}
-	// 	}
-	// }
-
-	// if snapBase != types.ZeroHash {
-	// 	s.logger.Info("Writing snapshot state to disk", "root", snapBase)
-	// 	if err := triedb.Commit(snapBase, true, nil); err != nil {
-	// 		s.logger.Error("Failed to commit recent state trie", "err", err)
-	// 	}
-	// }
-	// }
-
-	// // Ensure all live cached entries be saved into disk, so that we can skip
-	// // cache warmup when node restarts.
-	// if s.cacheConfig.TrieCleanJournal != "" {
-	// 	s.trieDB.SaveCache(s.cacheConfig.TrieCleanJournal)
-	// }
 
 	s.logger.Info("close http servers")
 
@@ -952,6 +905,64 @@ func (s *Server) Close() {
 		if err := s.prometheusServer.Shutdown(context.Background()); err != nil {
 			s.logger.Error("Prometheus server shutdown error", err)
 		}
+	}
+}
+
+func (s *Server) journalSnapshots() {
+	// Snapshot base layer root, used in journalling when restarted.
+	var snapBase types.Hash
+	// Ensure that the entirety of the state snapshot is journalled to disk.
+	if s.snaps != nil {
+		s.logger.Info("Journal state snapshots to disk")
+
+		var err error
+		if snapBase, err = s.snaps.Journal(s.blockchain.Header().StateRoot); err != nil {
+			s.logger.Error("failed to journal state snapshot", "err", err)
+		}
+	}
+
+	// Ensure the state of a recent block is also stored to disk before exiting.
+	// We're writing different states to catch different restart scenarios:
+	//  - HEAD:     So we don't need to reprocess any blocks in the general case
+	//  - HEAD-1:   So we don't do large reorgs if our HEAD becomes an uncle
+	//  - HEAD-127: So we have a hard limit on the number of blocks reexecuted
+	//
+	// Disable it in "archive" mode only
+	// if !s.cacheConfig.TrieDirtyDisabled
+	triedb := s.snpTrieDB
+
+	for _, offset := range []uint64{0, 1, TriesInMemory - 1} {
+		if number := s.blockchain.Header().Number; number > offset {
+			recent, ok := s.blockchain.GetBlockByNumber(number-offset, true)
+			if !ok {
+				s.logger.Error("block not exists", "number", number-offset)
+
+				continue
+			}
+
+			s.logger.Info("Writing cached state to disk",
+				"block", recent.Number(),
+				"hash", recent.Hash(),
+				"root", recent.Header.StateRoot,
+			)
+			if err := triedb.Commit(recent.Header.StateRoot, true, nil); err != nil {
+				s.logger.Error("Failed to commit recent state trie", "err", err)
+			}
+		}
+	}
+
+	// Update snapshot state root
+	if snapBase != types.ZeroHash {
+		s.logger.Info("Writing snapshot state to disk", "root", snapBase)
+		if err := triedb.Commit(snapBase, true, nil); err != nil {
+			s.logger.Error("Failed to commit recent state trie", "err", err)
+		}
+	}
+
+	// Ensure all live cached entries be saved into disk, so that we can skip
+	// cache warmup when node restarts.
+	if s.cacheConfig.TrieCleanJournal != "" {
+		s.snpTrieDB.SaveCache(s.cacheConfig.TrieCleanJournal)
 	}
 }
 
