@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log"
 	"net"
+	"path"
 	"strings"
 
 	"github.com/hashicorp/go-hclog"
@@ -217,6 +218,9 @@ func (p *serverParams) generateConfig() *server.Config {
 		cfg.SnapshotCache = 0 // Disable
 	}
 
+	// trie journal dir
+	trieJournalDir := path.Join(p.rawConfig.DataDir, p.rawConfig.CacheConfig.TrieCleanCacheJournal)
+
 	return &server.Config{
 		Chain: chainCfg,
 		JSONRPC: &server.JSONRPC{
@@ -279,7 +283,7 @@ func (p *serverParams) generateConfig() *server.Config {
 		EnableSnapshot: p.rawConfig.EnableSnapshot,
 		CacheConfig: &server.CacheConfig{
 			TrieCleanLimit:     p.rawConfig.CacheConfig.TrieCleanCache,
-			TrieCleanJournal:   p.rawConfig.CacheConfig.TrieCleanCacheJournal,
+			TrieCleanJournal:   trieJournalDir,
 			TrieCleanRejournal: p.rawConfig.CacheConfig.TrieCleanCacheRejournal,
 			TrieDirtyLimit:     p.rawConfig.CacheConfig.TrieDirtyCache,
 			TrieTimeLimit:      p.rawConfig.CacheConfig.TrieTimeout,
