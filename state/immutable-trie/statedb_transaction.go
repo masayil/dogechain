@@ -98,8 +98,9 @@ func (tx *stateDBTxn) SetCode(hash types.Hash, v []byte) error {
 		return errors.New("invalid type assertion")
 	}
 
-	pair.key = append(pair.key, perfix...)
-	pair.value = append(pair.value, v...)
+	// overwrite them
+	pair.key = append(pair.key[:0], perfix...)
+	pair.value = append(pair.value[:0], v...)
 	pair.isCode = true
 
 	tx.db[txnKey(hex.EncodeToString(perfix))] = pair
@@ -138,20 +139,16 @@ func (tx *stateDBTxn) NewSnapshotAt(root types.Hash) (state.Snapshot, error) {
 	// user exclusive transaction to get state
 	// use non-commit state
 	n, ok, err := GetNode(root.Bytes(), tx)
-
 	if err != nil {
-		return nil, err
-	}
-
-	if !ok {
+		return nil, fmt.Errorf("failed to get storage root %s: %w", root, err)
+	} else if !ok {
 		return nil, fmt.Errorf("state not found at hash %s", root)
 	}
 
 	t := NewTrie()
 	t.root = n
-	t.stateDB = tx.stateDB
 
-	return t, nil
+	return &Snapshot{state: tx.stateDB, trie: t}, nil
 }
 
 func (tx *stateDBTxn) Commit() error {
