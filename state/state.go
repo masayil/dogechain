@@ -33,8 +33,6 @@ type StateObject struct {
 
 	// for quick search
 	AddrHash types.Hash
-	// for data search
-	trTxn *Txn
 }
 
 func (s *StateObject) Empty() bool {
