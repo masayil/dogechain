@@ -35,7 +35,7 @@ type ethStateStore interface {
 	GetAccount(root types.Hash, addr types.Address) (*stypes.Account, error)
 	GetStorage(root types.Hash, addr types.Address, slot types.Hash) ([]byte, error)
 	GetForksInTime(blockNumber uint64) chain.ForksInTime
-	GetCode(hash types.Hash) ([]byte, error)
+	GetCode(stateRoot types.Hash, accoun types.Address) ([]byte, error)
 }
 
 type ethBlockchainStore interface {
@@ -139,7 +139,7 @@ func (e *Eth) Syncing() (interface{}, error) {
 			SyncingPeer:   syncProgression.SyncingPeer,
 			StartingBlock: hex.EncodeUint64(syncProgression.StartingBlock),
 			CurrentBlock:  hex.EncodeUint64(syncProgression.CurrentBlock),
-			HighestBlock:  hex.EncodeUint64(syncProgression.HighestBlock),
+			HighestBlock:  hex.EncodeUint64(syncProgression.HighestBlock.Load()),
 		}, nil
 	}
 
@@ -831,20 +831,14 @@ func (e *Eth) GetCode(address types.Address, filter BlockNumberOrHash) (interfac
 	}
 
 	emptySlice := []byte{}
-	acc, err := e.store.GetAccount(header.StateRoot, address)
 
+	code, err := e.store.GetCode(header.StateRoot, address)
 	if errors.Is(err, ErrStateNotFound) {
 		// If the account doesn't exist / is not initialized yet,
 		// return the default value
 		return "0x", nil
 	} else if err != nil {
 		return argBytesPtr(emptySlice), err
-	}
-
-	code, err := e.store.GetCode(types.BytesToHash(acc.CodeHash))
-	if err != nil {
-		// TODO This is just a workaround. Figure out why CodeHash is populated for regular accounts
-		return argBytesPtr(emptySlice), nil
 	}
 
 	return argBytesPtr(code), nil

@@ -5,7 +5,6 @@ import (
 
 	"github.com/dogechain-lab/dogechain/state/stypes"
 	"github.com/dogechain-lab/dogechain/types"
-	"github.com/dogechain-lab/fastrlp"
 	iradix "github.com/hashicorp/go-immutable-radix"
 )
 
@@ -18,7 +17,8 @@ type State interface {
 }
 
 type Snapshot interface {
-	Get(k []byte) ([]byte, bool)
+	snapshotReader
+
 	Commit(objs []*stypes.Object) (Snapshot, []byte, error)
 }
 
@@ -39,55 +39,6 @@ type StateObject struct {
 
 func (s *StateObject) Empty() bool {
 	return s.Account.Nonce == 0 && s.Account.Balance.Sign() == 0 && bytes.Equal(s.Account.CodeHash, emptyCodeHash)
-}
-
-var stateStateParserPool fastrlp.ParserPool
-
-func (s *StateObject) GetCommittedState(key types.Hash) types.Hash {
-	var (
-		val []byte
-		err error
-	)
-
-	// attempt to use snapshots
-	if s.trTxn.snap != nil {
-		// If the object was destructed in *this* block (and potentially resurrected),
-		// the storage has been cleared out, and we should *not* consult the previous
-		// snapshot about any storage values. The only possible alternatives are:
-		//   1) resurrect happened, and new slot values were set -- those should
-		//      have been handles outsite.
-		//   2) we don't have new values, and can deliver empty response back
-		if _, destructed := s.trTxn.snapDestructs[s.AddrHash]; destructed {
-			return types.Hash{}
-		}
-
-		val, err = s.trTxn.snap.Storage(s.AddrHash, key)
-	}
-
-	// If the snapshot is unavailable or reading from it fails, load from the database.
-	if s.trTxn.snap == nil || err != nil {
-		v, ok := s.Account.Trie.Get(key.Bytes())
-		if !ok {
-			return types.Hash{}
-		}
-
-		val = v
-	}
-
-	p := stateStateParserPool.Get()
-	defer stateStateParserPool.Put(p)
-
-	v, err := p.Parse(val)
-	if err != nil {
-		return types.Hash{}
-	}
-
-	res := []byte{}
-	if res, err = v.GetBytes(res[:0]); err != nil {
-		return types.Hash{}
-	}
-
-	return types.BytesToHash(res)
 }
 
 // Copy makes a copy of the state object

@@ -8,18 +8,12 @@ import (
 	"github.com/dogechain-lab/fastrlp"
 )
 
-// account trie
-type accountTrie interface {
-	Get(k []byte) ([]byte, bool)
-}
-
 // Account is the account reference in the ethereum state
 type Account struct {
 	Nonce    uint64
 	Balance  *big.Int
 	Root     types.Hash
 	CodeHash []byte
-	Trie     accountTrie
 }
 
 func (a *Account) MarshalWith(ar *fastrlp.Arena) *fastrlp.Value {
@@ -89,7 +83,6 @@ func (a *Account) Copy() *Account {
 	aa.Nonce = a.Nonce
 	aa.CodeHash = a.CodeHash
 	aa.Root = a.Root
-	aa.Trie = a.Trie
 
 	return aa
 }

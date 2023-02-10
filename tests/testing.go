@@ -229,7 +229,7 @@ func buildState(
 	s := itrie.NewStateDB(memorydb.New(), hclog.NewNullLogger(), nil)
 	snap := s.NewSnapshot()
 
-	txn := state.NewTxn(s, snap)
+	txn := state.NewTxn(snap)
 
 	for addr, alloc := range allocs {
 		txn.CreateAccount(addr)

@@ -478,7 +478,13 @@ func opSload(c *state) {
 		return
 	}
 
-	val := c.host.GetStorage(c.msg.Address, bigToHash(loc))
+	val, err := c.host.GetStorage(c.msg.Address, bigToHash(loc))
+	if err != nil {
+		c.exit(err)
+
+		return
+	}
+
 	loc.SetBytes(val.Bytes())
 }
 
@@ -532,6 +538,11 @@ func opSStore(c *state) {
 
 	case runtime.StorageDeleted:
 		cost = 5000
+
+	case runtime.StorageReadFailed:
+		c.exit(errStorageReadFailed)
+
+		return
 	}
 
 	if !c.consumeGas(cost) {

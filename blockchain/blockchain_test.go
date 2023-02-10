@@ -460,6 +460,9 @@ func TestInsertHeaders(t *testing.T) {
 
 			// we need to subscribe just after the genesis and history
 			sub := b.SubscribeEvents()
+			t.Cleanup(func() {
+				sub.Unsubscribe()
+			})
 
 			// run the history
 			for i := 1; i < len(cc.History); i++ {
@@ -468,7 +471,7 @@ func TestInsertHeaders(t *testing.T) {
 				}
 
 				// get the event
-				evnt := sub.GetEvent()
+				evnt := <-sub.GetEvent()
 				checkEvents(cc.History[i].event.NewChain, evnt.NewChain)
 				checkEvents(cc.History[i].event.OldChain, evnt.OldChain)
 
