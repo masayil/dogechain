@@ -79,7 +79,12 @@ func (a *Account) String() string {
 func (a *Account) Copy() *Account {
 	aa := new(Account)
 
-	aa.Balance = big.NewInt(1).SetBytes(a.Balance.Bytes())
+	if a.Balance == nil {
+		aa.Balance = new(big.Int)
+	} else {
+		aa.Balance = big.NewInt(1).SetBytes(a.Balance.Bytes())
+	}
+
 	aa.Nonce = a.Nonce
 	aa.CodeHash = a.CodeHash
 	aa.Root = a.Root

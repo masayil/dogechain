@@ -155,7 +155,9 @@ func (txn *Txn) getStateObject(addr types.Address) (*StateObject, bool) {
 
 	// If snapshot unavailable or reading from it failed, load from the database
 	if account == nil {
-		account, err := txn.snapshot.GetAccount(addr)
+		var err error
+
+		account, err = txn.snapshot.GetAccount(addr)
 		if err != nil {
 			return nil, false
 		} else if account == nil {
