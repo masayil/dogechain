@@ -32,7 +32,7 @@ type ethTxPoolStore interface {
 
 type ethStateStore interface {
 	GetAccount(stateRoot types.Hash, addr types.Address) (*stypes.Account, error)
-	GetStorage(stateRoot types.Hash, addr types.Address, slot types.Hash) ([]byte, error)
+	GetStorage(stateRoot types.Hash, addr types.Address, slot types.Hash) (types.Hash, error)
 	GetForksInTime(blockNumber uint64) chain.ForksInTime
 	GetCode(stateRoot types.Hash, accoun types.Address) ([]byte, error)
 }
@@ -438,17 +438,13 @@ func (e *Eth) GetStorageAt(
 	result, err := e.store.GetStorage(header.StateRoot, address, index)
 	if err != nil {
 		if errors.Is(err, ErrStateNotFound) {
-			return argBytesPtr(types.Hash{}.Bytes()), nil
+			return argBytesPtr(result.Bytes()), nil
 		}
 
 		return nil, err
 	}
 
-	if result == nil {
-		return argBytesPtr(types.Hash{}.Bytes()), nil
-	}
-
-	return argBytesPtr(result), nil
+	return argBytesPtr(result.Bytes()), nil
 }
 
 // GasPrice returns the average gas price based on the last x blocks

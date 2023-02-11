@@ -806,19 +806,19 @@ func (m *mockSpecialStore) GetNonce(addr types.Address) uint64 {
 	return 1
 }
 
-func (m *mockSpecialStore) GetStorage(stateRoot types.Hash, addr types.Address, slot types.Hash) ([]byte, error) {
+func (m *mockSpecialStore) GetStorage(stateRoot types.Hash, addr types.Address, slot types.Hash) (types.Hash, error) {
 	if m.account.address != addr {
-		return nil, ErrStateNotFound
+		return types.Hash{}, ErrStateNotFound
 	}
 
 	acct := m.account
-	val, ok := acct.storage[slot]
 
+	val, ok := acct.storage[slot]
 	if !ok {
-		return nil, ErrStateNotFound
+		return types.Hash{}, ErrStateNotFound
 	}
 
-	return val, nil
+	return types.BytesToHash(val), nil
 }
 
 func (m *mockSpecialStore) GetCode(stateRoot types.Hash, addr types.Address) ([]byte, error) {

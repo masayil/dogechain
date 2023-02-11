@@ -169,19 +169,11 @@ func (a *Account) Storage(ctx context.Context, args struct{ Slot types.Hash }) (
 
 	// Get the storage for the passed in location
 	result, err := a.backend.GetStorage(root, a.address, args.Slot)
-	if err != nil {
-		if errors.Is(err, rpc.ErrStateNotFound) {
-			return types.Hash{}, nil
-		}
-
-		return types.Hash{}, err
+	if err != nil && errors.Is(err, rpc.ErrStateNotFound) {
+		return result, nil
 	}
 
-	if result == nil {
-		return types.Hash{}, nil
-	}
-
-	return types.BytesToHash(result), nil
+	return result, err
 }
 
 // Log represents an individual log message. All arguments are mandatory.

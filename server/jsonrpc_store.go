@@ -87,26 +87,21 @@ func (j *jsonRPCStore) GetAccount(stateRoot types.Hash, addr types.Address) (*st
 	return getAccountImpl(j.state, stateRoot, addr)
 }
 
-func (j *jsonRPCStore) GetStorage(stateRoot types.Hash, addr types.Address, slot types.Hash) ([]byte, error) {
+func (j *jsonRPCStore) GetStorage(stateRoot types.Hash, addr types.Address, slot types.Hash) (types.Hash, error) {
 	j.metrics.GetStorageInc()
 
 	account, err := getAccountImpl(j.state, stateRoot, addr)
 	if err != nil {
-		return nil, err
+		return types.Hash{}, err
 	}
 
 	// make a snapshot at root
 	snap, err := j.state.NewSnapshotAt(stateRoot)
 	if err != nil {
-		return nil, err
+		return types.Hash{}, err
 	}
 
-	resp, err := snap.GetStorage(addr, account.Root, slot)
-	if err != nil {
-		return nil, err
-	}
-
-	return resp.Bytes(), nil
+	return snap.GetStorage(addr, account.Root, slot)
 }
 
 // GetForksInTime returns the active forks at the given block height
