@@ -13,7 +13,6 @@ import (
 	"github.com/dogechain-lab/dogechain/state/stypes"
 	"github.com/dogechain-lab/dogechain/types"
 	"github.com/hashicorp/go-hclog"
-	"github.com/umbracle/fastrlp"
 )
 
 const (
@@ -444,22 +443,12 @@ func (e *Eth) GetStorageAt(
 
 		return nil, err
 	}
-	// Parse the RLP value
-	p := &fastrlp.Parser{}
 
-	v, err := p.Parse(result)
-	if err != nil {
+	if result == nil {
 		return argBytesPtr(types.Hash{}.Bytes()), nil
 	}
 
-	data, err := v.Bytes()
-
-	if err != nil {
-		return argBytesPtr(types.Hash{}.Bytes()), nil
-	}
-
-	// Pad to return 32 bytes data
-	return argBytesPtr(types.BytesToHash(data).Bytes()), nil
+	return argBytesPtr(result), nil
 }
 
 // GasPrice returns the average gas price based on the last x blocks

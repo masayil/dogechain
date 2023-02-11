@@ -11,7 +11,6 @@ import (
 	"github.com/dogechain-lab/dogechain/graphql/argtype"
 	rpc "github.com/dogechain-lab/dogechain/jsonrpc"
 	"github.com/dogechain-lab/dogechain/types"
-	"github.com/dogechain-lab/fastrlp"
 )
 
 var (
@@ -178,20 +177,11 @@ func (a *Account) Storage(ctx context.Context, args struct{ Slot types.Hash }) (
 		return types.Hash{}, err
 	}
 
-	// Parse the RLP value
-	p := &fastrlp.Parser{}
-
-	v, err := p.Parse(result)
-	if err != nil {
+	if result == nil {
 		return types.Hash{}, nil
 	}
 
-	data, err := v.Bytes()
-	if err != nil {
-		return types.Hash{}, nil
-	}
-
-	return types.BytesToHash(data), nil
+	return types.BytesToHash(result), nil
 }
 
 // Log represents an individual log message. All arguments are mandatory.
