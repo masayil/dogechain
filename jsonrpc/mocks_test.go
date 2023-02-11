@@ -88,7 +88,7 @@ func (m *mockStore) emitEvent(evnt *mockEvent) {
 	m.subscription.Push(bEvnt)
 }
 
-func (m *mockStore) GetAccount(root types.Hash, addr types.Address) (*stypes.Account, error) {
+func (m *mockStore) GetAccount(stateRoot types.Hash, addr types.Address) (*stypes.Account, error) {
 	if acc, ok := m.accounts[addr]; ok {
 		return acc, nil
 	}

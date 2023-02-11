@@ -782,7 +782,7 @@ func (m *mockSpecialStore) GetBlockByHash(hash types.Hash, full bool) (*types.Bl
 	return m.block, true
 }
 
-func (m *mockSpecialStore) GetAccount(root types.Hash, addr types.Address) (*stypes.Account, error) {
+func (m *mockSpecialStore) GetAccount(stateRoot types.Hash, addr types.Address) (*stypes.Account, error) {
 	if m.account.address != addr {
 		return nil, ErrStateNotFound
 	}
@@ -806,7 +806,7 @@ func (m *mockSpecialStore) GetNonce(addr types.Address) uint64 {
 	return 1
 }
 
-func (m *mockSpecialStore) GetStorage(root types.Hash, addr types.Address, slot types.Hash) ([]byte, error) {
+func (m *mockSpecialStore) GetStorage(stateRoot types.Hash, addr types.Address, slot types.Hash) ([]byte, error) {
 	if m.account.address != addr {
 		return nil, ErrStateNotFound
 	}

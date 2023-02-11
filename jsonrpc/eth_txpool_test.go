@@ -82,7 +82,7 @@ func (m *mockStoreTxn) Header() *types.Header {
 	return &types.Header{}
 }
 
-func (m *mockStoreTxn) GetAccount(root types.Hash, addr types.Address) (*stypes.Account, error) {
+func (m *mockStoreTxn) GetAccount(stateRoot types.Hash, addr types.Address) (*stypes.Account, error) {
 	acct, ok := m.accounts[addr]
 	if !ok {
 		return nil, ErrStateNotFound

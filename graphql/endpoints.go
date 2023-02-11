@@ -23,8 +23,8 @@ type ethTxPoolStore interface {
 }
 
 type ethStateStore interface {
-	GetAccount(root types.Hash, addr types.Address) (*stypes.Account, error)
-	GetStorage(root types.Hash, addr types.Address, slot types.Hash) ([]byte, error)
+	GetAccount(stateRoot types.Hash, addr types.Address) (*stypes.Account, error)
+	GetStorage(stateRoot types.Hash, addr types.Address, slot types.Hash) ([]byte, error)
 	GetForksInTime(blockNumber uint64) chain.ForksInTime
 	GetCode(stateRoot types.Hash, account types.Address) ([]byte, error)
 }

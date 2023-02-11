@@ -81,22 +81,22 @@ func (j *jsonRPCStore) GetPendingTx(txHash types.Hash) (*types.Transaction, bool
 }
 
 // jsonrpc.ethStateStore interface
-func (j *jsonRPCStore) GetAccount(root types.Hash, addr types.Address) (*stypes.Account, error) {
+func (j *jsonRPCStore) GetAccount(stateRoot types.Hash, addr types.Address) (*stypes.Account, error) {
 	j.metrics.GetAccountInc()
 
-	return getAccountImpl(j.state, root, addr)
+	return getAccountImpl(j.state, stateRoot, addr)
 }
 
-func (j *jsonRPCStore) GetStorage(root types.Hash, addr types.Address, slot types.Hash) ([]byte, error) {
+func (j *jsonRPCStore) GetStorage(stateRoot types.Hash, addr types.Address, slot types.Hash) ([]byte, error) {
 	j.metrics.GetStorageInc()
 
-	account, err := getAccountImpl(j.state, root, addr)
+	account, err := getAccountImpl(j.state, stateRoot, addr)
 	if err != nil {
 		return nil, err
 	}
 
 	// make a snapshot at root
-	snap, err := j.state.NewSnapshotAt(root)
+	snap, err := j.state.NewSnapshotAt(stateRoot)
 	if err != nil {
 		return nil, err
 	}
