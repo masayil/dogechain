@@ -13,7 +13,7 @@ import (
 	"github.com/dogechain-lab/dogechain/protocol/proto"
 	"github.com/dogechain-lab/dogechain/types"
 	"github.com/hashicorp/go-hclog"
-	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/atomic"
 )
@@ -352,9 +352,14 @@ func TestPeerConnectionUpdateEventCh(t *testing.T) {
 
 	go func() {
 		defer wgForConnectingStatus.Done()
+		wgForGossip.Wait()
 
 		for status := range client.GetPeerStatusUpdateCh() {
 			newStatuses = append(newStatuses, status)
+
+			if len(newStatuses) > 0 {
+				break
+			}
 		}
 	}()
 
@@ -376,9 +381,6 @@ func TestPeerConnectionUpdateEventCh(t *testing.T) {
 
 	// wait until 2 messages are propagated
 	wgForGossip.Wait()
-
-	// close to terminate goroutine
-	close(client.peerStatusUpdateCh)
 
 	// wait until collecting routine is done
 	wgForConnectingStatus.Wait()
