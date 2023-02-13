@@ -52,13 +52,92 @@ type journalStorage struct {
 // Journal writes the memory layer contents into a buffer to be stored in the
 // database as the snapshot journal.
 func (dl *diffLayer) Journal(buffer *bytes.Buffer) (types.Hash, error) {
-	return types.Hash{}, nil
+	// Journal the parent first
+	base, err := dl.parent.Journal(buffer)
+	if err != nil {
+		return types.Hash{}, err
+	}
+
+	// Ensure the layer didn't get stale
+	dl.lock.RLock()
+	defer dl.lock.RUnlock()
+
+	if dl.Stale() {
+		return types.Hash{}, ErrSnapshotStale
+	}
+
+	// Everything below was journalled, persist this layer too
+	if err := rlp.Encode(buffer, dl.root); err != nil {
+		return types.Hash{}, err
+	}
+
+	destructs := make([]journalDestruct, 0, len(dl.destructSet))
+	for hash := range dl.destructSet {
+		destructs = append(destructs, journalDestruct{Hash: hash})
+	}
+
+	if err := rlp.Encode(buffer, destructs); err != nil {
+		return types.Hash{}, err
+	}
+
+	accounts := make([]journalAccount, 0, len(dl.accountData))
+	for hash, blob := range dl.accountData {
+		accounts = append(accounts, journalAccount{Hash: hash, Blob: blob})
+	}
+
+	if err := rlp.Encode(buffer, accounts); err != nil {
+		return types.Hash{}, err
+	}
+
+	storage := make([]journalStorage, 0, len(dl.storageData))
+
+	for hash, slots := range dl.storageData {
+		keys := make([]types.Hash, 0, len(slots))
+		vals := make([][]byte, 0, len(slots))
+		for key, val := range slots {
+			keys = append(keys, key)
+			vals = append(vals, val)
+		}
+		storage = append(storage, journalStorage{Hash: hash, Keys: keys, Vals: vals})
+	}
+
+	if err := rlp.Encode(buffer, storage); err != nil {
+		return types.Hash{}, err
+	}
+
+	dl.logger.Debug("Journalled diff layer", "root", dl.root, "parent", dl.parent.Root())
+
+	return base, nil
 }
 
 // Journal terminates any in-progress snapshot generation, also implicitly pushing
 // the progress into the database.
 func (dl *diskLayer) Journal(buffer *bytes.Buffer) (types.Hash, error) {
-	return types.Hash{}, nil
+	// If the snapshot is currently being generated, abort it
+	var stats *generatorStats
+	if dl.genAbort != nil {
+		abort := make(chan *generatorStats)
+		dl.genAbort <- abort
+
+		if stats = <-abort; stats != nil {
+			stats.Log("Journalling in-progress snapshot", dl.root, dl.genMarker)
+		}
+	}
+
+	// Ensure the layer didn't get stale
+	dl.lock.RLock()
+	defer dl.lock.RUnlock()
+
+	if dl.stale {
+		return types.Hash{}, ErrSnapshotStale
+	}
+
+	// Ensure the generator stats is written even if none was ran this cycle
+	journalProgress(dl.diskdb, dl.genMarker, stats, dl.logger)
+
+	dl.logger.Debug("Journalled disk layer", "root", dl.root)
+
+	return dl.root, nil
 }
 
 // loadSnapshot loads a pre-existing state snapshot backed by a key-value store.
