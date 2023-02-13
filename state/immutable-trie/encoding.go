@@ -47,11 +47,13 @@ func encodeCompact(hex []byte) []byte {
 // (with terminator flag). Prefix flag is not removed.
 func bytesToHexNibbles(bytes []byte) []byte {
 	nibbles := make([]byte, len(bytes)*2+1)
+	// bytes to hex num slice
 	for i, b := range bytes {
 		nibbles[i*2] = b / 16
 		nibbles[i*2+1] = b % 16
 	}
 
+	// prefix ending
 	nibbles[len(nibbles)-1] = 16
 
 	return nibbles

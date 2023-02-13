@@ -40,17 +40,17 @@ var (
 
 // blockchain key prefix
 var (
-	// bodyPrefix is the prefix for bodies
+	// bodyPrefix + header hash -> body
 	bodyPrefix = []byte("b")
-	// canonicalPrefix is the prefix for the canonical chain numbers
+	// canonicalPrefix + block number (big endian uint64) -> canonical block(header) hash
 	canonicalPrefix = []byte("c")
-	// difficultyPrefix is the difficulty prefix
+	// difficultyPrefix + header hash -> difficulty
 	difficultyPrefix = []byte("d")
-	// headerPrefix is the header prefix
+	// headerPrefix + header hash -> header
 	headerPrefix = []byte("h")
-	// receiptsPrefix is the prefix for receipts
+	// receiptsPrefix + transaction hash -> receipt
 	receiptsPrefix = []byte("r")
-	// txLookupPrefix is the prefix for transaction lookups
+	// txLookupPrefix + transaction hash -> block hash
 	txLookupPrefix = []byte("l")
 )
 
