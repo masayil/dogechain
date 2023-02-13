@@ -94,10 +94,12 @@ func (dl *diffLayer) Journal(buffer *bytes.Buffer) (types.Hash, error) {
 	for hash, slots := range dl.storageData {
 		keys := make([]types.Hash, 0, len(slots))
 		vals := make([][]byte, 0, len(slots))
+
 		for key, val := range slots {
 			keys = append(keys, key)
 			vals = append(vals, val)
 		}
+
 		storage = append(storage, journalStorage{Hash: hash, Keys: keys, Vals: vals})
 	}
 
@@ -115,6 +117,7 @@ func (dl *diffLayer) Journal(buffer *bytes.Buffer) (types.Hash, error) {
 func (dl *diskLayer) Journal(buffer *bytes.Buffer) (types.Hash, error) {
 	// If the snapshot is currently being generated, abort it
 	var stats *generatorStats
+
 	if dl.genAbort != nil {
 		abort := make(chan *generatorStats)
 		dl.genAbort <- abort

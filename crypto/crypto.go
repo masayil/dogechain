@@ -199,7 +199,6 @@ var hasherPool = sync.Pool{
 }
 
 func NewKeccakState() KeccakState {
-	//nolint:forcetypeassert
 	hasher, ok := hasherPool.Get().(KeccakState)
 	if !ok {
 		//nolint:forcetypeassert
