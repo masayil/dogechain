@@ -198,23 +198,51 @@ var hasherPool = sync.Pool{
 	New: func() interface{} { return sha3.NewLegacyKeccak256() },
 }
 
-// Keccak256 calculates the Keccak256
-func Keccak256(v ...[]byte) []byte {
-	h, ok := hasherPool.Get().(hash.Hash)
+func NewKeccakState() KeccakState {
+	//nolint:forcetypeassert
+	hasher, ok := hasherPool.Get().(KeccakState)
 	if !ok {
-		h = sha3.NewLegacyKeccak256()
+		//nolint:forcetypeassert
+		hasher = sha3.NewLegacyKeccak256().(KeccakState)
 	}
 
+	return hasher
+}
+
+// Keccak256 calculates the Keccak256
+func Keccak256(v ...[]byte) []byte {
+	b := make([]byte, 32)
+	hasher := NewKeccakState()
+
 	defer func() {
-		h.Reset()
-		hasherPool.Put(h)
+		hasher.Reset()
+		hasherPool.Put(hasher)
 	}()
 
 	for _, i := range v {
-		h.Write(i)
+		hasher.Write(i)
 	}
 
-	return h.Sum(nil)
+	hasher.Read(b)
+
+	return b
+}
+
+func Keccak256Hash(v ...[]byte) (h types.Hash) {
+	hasher := NewKeccakState()
+
+	defer func() {
+		hasher.Reset()
+		hasherPool.Put(hasher)
+	}()
+
+	for _, i := range v {
+		hasher.Write(i)
+	}
+
+	hasher.Read(h[:])
+
+	return h
 }
 
 // PubKeyToAddress returns the Ethereum address of a public key
