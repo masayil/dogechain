@@ -502,6 +502,7 @@ func (t *Transition) Commit() (Snapshot, types.Hash, error) {
 			}
 		}
 
+		// clear current snap since the state is useless
 		t.snap = nil
 		t.txn.CleanSnap()
 	}

@@ -163,7 +163,7 @@ func (db *stateDBImpl) GetCode(hash types.Hash) ([]byte, bool) {
 }
 
 func (db *stateDBImpl) NewSnapshot() state.Snapshot {
-	return &Snapshot{state: db, trie: db.newTrie()}
+	return newSnapshotImpl(db, db.newTrie())
 }
 
 func (db *stateDBImpl) NewSnapshotAt(root types.Hash) (state.Snapshot, error) {
@@ -172,7 +172,7 @@ func (db *stateDBImpl) NewSnapshotAt(root types.Hash) (state.Snapshot, error) {
 		return nil, err
 	}
 
-	return &Snapshot{state: db, trie: t}, nil
+	return newSnapshotImpl(db, t), nil
 }
 
 var stateTxnPool = sync.Pool{

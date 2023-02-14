@@ -176,7 +176,7 @@ func generateAccounts(ctx *generatorContext, dl *diskLayer, accMarker []byte) er
 
 		if needDelete {
 			rawdb.DeleteAccountSnapshot(ctx.batch, account)
-			//TODO: wiped account Counter, account write nanosecond Counter
+			//NOTE: wiped account Counter, account write nanosecond Counter
 			ctx.removeStorageAt(account)
 
 			return nil
@@ -202,14 +202,14 @@ func generateAccounts(ctx *generatorContext, dl *diskLayer, accMarker []byte) er
 					dataLen -= 32
 				}
 
-				//TODO: recovered account Counter
+				//NOTE: recovered account Counter
 				if acc.Root == types.EmptyRootHash {
 					dataLen -= 32
 				}
 			} else {
 				data := SlimAccountRLP(acc.Nonce, acc.Balance, acc.Root, acc.CodeHash)
 				dataLen = len(data)
-				//TODO: generated account Counter
+				//NOTE: generated account Counter
 				rawdb.WriteAccountSnapshot(ctx.batch, account, data)
 			}
 
@@ -229,7 +229,7 @@ func generateAccounts(ctx *generatorContext, dl *diskLayer, accMarker []byte) er
 			return err
 		}
 
-		//TODO: account write nanosecond Counter
+		//NOTE: account write nanosecond Counter
 
 		// If the iterated account is the contract, create a further loop to
 		// verify or regenerate the contract storage.
@@ -438,7 +438,7 @@ func (dl *diskLayer) proveRange(
 		}
 	}
 
-	//TODO: storage snap read nanosecond Counter, account snap read nanosecond Counter
+	//NOTE: storage snap read nanosecond Counter, account snap read nanosecond Counter
 	//      storage prove nanosecond Counter, account prove nanosecond Counter
 	// Update metrics for database iteration and merkle proving
 
@@ -553,7 +553,7 @@ func (dl *diskLayer) generateRange(
 
 	// The range prover says the range is correct, skip trie iteration
 	if result.valid() {
-		//TODO: successful range proof Count
+		//NOTE: successful range proof Count
 		//
 		// The verification is passed, process each state with the given
 		// callback function. If this state represents a contract, the
@@ -573,7 +573,7 @@ func (dl *diskLayer) generateRange(
 	// 	"err", result.proofErr,
 	// )
 
-	// TODO: failed range proof Counter
+	// NOTE: failed range proof Counter
 
 	// // Special case, the entire trie is missing. In the original trie scheme,
 	// // all the duplicated subtries will be filtered out (only one copy of data
@@ -581,7 +581,7 @@ func (dl *diskLayer) generateRange(
 	// // belong to different contracts will be kept even they are duplicated.
 	// // Track it to a certain extent remove the noise data used for statistics.
 	// if origin == nil && last == nil {
-	// 	//TODO: miss all account Counter, miss all storage Counter
+	// 	//NOTE: miss all account Counter, miss all storage Counter
 	// }
 
 	// We use the snap data to build up a cache which can be used by the
@@ -695,7 +695,7 @@ func (dl *diskLayer) generateRange(
 		deleted += 1
 	}
 
-	//TODO: Update metrics for counting trie iteration
+	//NOTE: Update metrics for counting trie iteration
 	// if kind == snapStorage {
 	// 	// storage trie read nanosecond Counter
 	// } else {
@@ -782,18 +782,18 @@ func generateStorages(
 	storeMarker []byte,
 ) error {
 	onStorage := func(key []byte, val []byte, write bool, needDelete bool) error {
-		//TODO: storage write nanosecond Counter
+		//NOTE: storage write nanosecond Counter
 		if needDelete {
 			rawdb.DeleteStorageSnapshot(ctx.batch, account, types.BytesToHash(key))
-			// TODO: wiped storage Counter
+			// NOTE: wiped storage Counter
 			return nil
 		}
 
 		if write {
-			// TODO: generated storage Counter
+			// NOTE: generated storage Counter
 			rawdb.WriteStorageSnapshot(ctx.batch, account, types.BytesToHash(key), val)
 		} else {
-			// TODO: recovered storage Counter
+			// NOTE: recovered storage Counter
 		}
 
 		ctx.stats.storage += types.StorageSize(rawdb.SnapshotPrefixLength + 2*types.HashLength + len(val))

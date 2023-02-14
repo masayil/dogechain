@@ -12,8 +12,15 @@ import (
 )
 
 type Snapshot struct {
-	state StateDB
-	trie  *Trie
+	stateDB StateDB
+	trie    *Trie
+}
+
+func newSnapshotImpl(stateDB StateDB, trie *Trie) *Snapshot {
+	return &Snapshot{
+		stateDB: stateDB,
+		trie:    trie,
+	}
 }
 
 func (s *Snapshot) GetStorage(addr types.Address, root types.Hash, rawkey types.Hash) (types.Hash, error) {
@@ -23,9 +30,10 @@ func (s *Snapshot) GetStorage(addr types.Address, root types.Hash, rawkey types.
 	)
 
 	if root == types.EmptyRootHash {
-		ss = s.state.NewSnapshot()
+		ss = s.stateDB.NewSnapshot()
 	} else {
-		ss, err = s.state.NewSnapshotAt(root)
+		// a new Snapshot on target contract state root
+		ss, err = s.stateDB.NewSnapshotAt(root)
 		if err != nil {
 			return types.Hash{}, err
 		}
@@ -40,7 +48,7 @@ func (s *Snapshot) GetStorage(addr types.Address, root types.Hash, rawkey types.
 	// slot to hash
 	key := crypto.Keccak256(rawkey.Bytes())
 
-	val, err := snapshot.trie.Get(key, s.state)
+	val, err := snapshot.trie.Get(key, s.stateDB)
 	if err != nil {
 		// something bad happen, should not continue
 		return types.Hash{}, err
@@ -67,7 +75,7 @@ func (s *Snapshot) GetStorage(addr types.Address, root types.Hash, rawkey types.
 func (s *Snapshot) GetAccount(addr types.Address) (*stypes.Account, error) {
 	key := crypto.Keccak256(addr.Bytes())
 
-	data, err := s.trie.Get(key, s.state)
+	data, err := s.trie.Get(key, s.stateDB)
 	if err != nil {
 		return nil, err
 	} else if data == nil {
@@ -84,7 +92,7 @@ func (s *Snapshot) GetAccount(addr types.Address) (*stypes.Account, error) {
 }
 
 func (s *Snapshot) GetCode(hash types.Hash) ([]byte, bool) {
-	return s.state.GetCode(hash)
+	return s.stateDB.GetCode(hash)
 }
 
 func (s *Snapshot) Commit(objs []*stypes.Object) (state.Snapshot, []byte, error) {
@@ -93,14 +101,14 @@ func (s *Snapshot) Commit(objs []*stypes.Object) (state.Snapshot, []byte, error)
 		nTrie *Trie  = nil
 
 		// metrics logger
-		metrics         = s.state.GetMetrics()
+		metrics         = s.stateDB.GetMetrics()
 		insertCount     = 0
 		deleteCount     = 0
 		newSetCodeCount = 0
 	)
 
 	// Create an insertion batch for all the entries
-	err := s.state.Transaction(func(st StateDBTransaction) error {
+	err := s.stateDB.Transaction(func(st StateDBTransaction) error {
 		defer st.Rollback()
 
 		tt := s.trie.Txn(st)
@@ -137,7 +145,7 @@ func (s *Snapshot) Commit(objs []*stypes.Object) (state.Snapshot, []byte, error)
 					// tricky, but necessary here
 					loadSnap, _ := rootsnap.(*Snapshot)
 					// create a new Txn since we don't know whether there is any cache in it
-					localTxn := loadSnap.trie.Txn(loadSnap.state)
+					localTxn := loadSnap.trie.Txn(loadSnap.stateDB)
 
 					for _, entry := range obj.Storage {
 						k := hashit(entry.Key)
@@ -220,5 +228,5 @@ func (s *Snapshot) Commit(objs []*stypes.Object) (state.Snapshot, []byte, error)
 		metrics.transactionNewAccountObserve(newSetCodeCount)
 	}
 
-	return &Snapshot{trie: nTrie, state: s.state}, root, err
+	return newSnapshotImpl(s.stateDB, nTrie), root, err
 }

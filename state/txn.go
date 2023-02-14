@@ -40,6 +40,9 @@ type Txn struct {
 	snapDestructs map[types.Hash]struct{}              // deleted and waiting for destruction
 	snapAccounts  map[types.Hash][]byte                // live snapshot accounts
 	snapStorage   map[types.Hash]map[types.Hash][]byte // live snapshot storages
+
+	// This map holds 'live' objects, which will get modified while processing a state transition.
+	stateObjects map[types.Address]*StateObject
 }
 
 func NewTxn(snapshot Snapshot) *Txn {
@@ -50,9 +53,10 @@ func newTxn(snapshot snapshotReader) *Txn {
 	i := iradix.New()
 
 	return &Txn{
-		snapshot:  snapshot,
-		snapshots: []*iradix.Tree{},
-		txn:       i.Txn(),
+		snapshot:     snapshot,
+		snapshots:    []*iradix.Tree{},
+		txn:          i.Txn(),
+		stateObjects: make(map[types.Address]*StateObject),
 	}
 }
 
@@ -117,15 +121,29 @@ func (txn *Txn) GetAccount(addr types.Address) (*stypes.Account, bool) {
 	return object.Account, true
 }
 
+func (txn *Txn) setStateObject(object *StateObject) {
+	txn.stateObjects[object.address] = object
+}
+
 func (txn *Txn) getStateObject(addr types.Address) (*StateObject, bool) {
+	if obj := txn.getDeletedStateObject(addr); obj != nil && !obj.Deleted {
+		return obj, true
+	}
+
+	return nil, false
+}
+
+func (txn *Txn) getDeletedStateObject(addr types.Address) *StateObject {
+	// Prefer live objects if any is available
+	if obj := txn.stateObjects[addr]; obj != nil {
+		return obj
+	}
+
 	// Try to get state from radix tree which holds transient states during block processing first
 	if val, exists := txn.txn.Get(addr.Bytes()); exists {
 		obj := val.(*StateObject) //nolint:forcetypeassert
-		if obj.Deleted {
-			return nil, false
-		}
 
-		return obj.Copy(), true
+		return obj.Copy()
 	}
 
 	var (
@@ -135,10 +153,9 @@ func (txn *Txn) getStateObject(addr types.Address) (*StateObject, bool) {
 
 	// If no transient objects are available, attempt to use snapshots
 	if txn.snap != nil {
-		acc, err := txn.snap.Account(types.BytesToHash(addrHash))
-		if err == nil {
+		if acc, err := txn.snap.Account(types.BytesToHash(addrHash)); err == nil { // got
 			if acc == nil {
-				return nil, false
+				return nil
 			}
 
 			account = acc
@@ -159,31 +176,24 @@ func (txn *Txn) getStateObject(addr types.Address) (*StateObject, bool) {
 
 		account, err = txn.snapshot.GetAccount(addr)
 		if err != nil {
-			return nil, false
+			return nil
 		} else if account == nil {
-			return nil, false
+			return nil
 		}
 	}
 
-	obj := &StateObject{
-		Account:  account.Copy(),
-		AddrHash: types.BytesToHash(addrHash),
-	}
+	// Insert into the live set
+	// the account is a new one, no need to copy it
+	obj := newStateObject(addr, account)
+	txn.setStateObject(obj)
 
-	return obj, true
+	return obj
 }
 
 func (txn *Txn) upsertAccount(addr types.Address, create bool, f func(object *StateObject)) {
 	object, exists := txn.getStateObject(addr)
 	if !exists && create {
-		object = &StateObject{
-			Account: &stypes.Account{
-				Balance:  big.NewInt(0),
-				CodeHash: emptyCodeHash,
-				Root:     emptyStateHash,
-			},
-			AddrHash: types.BytesToHash(txn.hashit(addr.Bytes())),
-		}
+		object = newStateObject(addr, &stypes.Account{})
 	}
 
 	// run the callback to modify the account
@@ -193,9 +203,12 @@ func (txn *Txn) upsertAccount(addr types.Address, create bool, f func(object *St
 		txn.txn.Insert(addr.Bytes(), object)
 	}
 
-	// cache snapshots
+	// If state snapshotting is active, cache the data til commit. Note, this
+	// update mechanism is not symmetric to the deletion, because whereas it is
+	// enough to track account updates at commit time, deletions need tracking
+	// at transaction boundary level to ensure we capture state clearing.
 	if txn.snap != nil {
-		txn.snapAccounts[object.AddrHash] = snapshot.SlimAccountRLP(
+		txn.snapAccounts[object.addrHash] = snapshot.SlimAccountRLP(
 			object.Account.Nonce,
 			object.Account.Balance,
 			object.Account.Root,
@@ -207,8 +220,10 @@ func (txn *Txn) upsertAccount(addr types.Address, create bool, f func(object *St
 func (txn *Txn) AddSealingReward(addr types.Address, balance *big.Int) {
 	txn.upsertAccount(addr, true, func(object *StateObject) {
 		if object.Suicide {
-			*object = *newStateObject(txn)
-			object.Account.Balance.SetBytes(balance.Bytes())
+			// create a only balance object if it suidcide
+			*object = *newStateObject(addr, &stypes.Account{
+				Balance: big.NewInt(0).SetBytes(balance.Bytes()),
+			})
 		} else {
 			object.Account.Balance.Add(object.Account.Balance, balance)
 		}
@@ -414,6 +429,17 @@ func (txn *Txn) GetState(addr types.Address, slot types.Hash) (types.Hash, error
 		}
 	}
 
+	// // get it from snapshot
+	// if txn.snap != nil {
+	// 	// live object
+	// 	v, err := txn.snap.Storage(object.addrHash, crypto.Keccak256Hash(slot.Bytes()))
+	// 	if err != nil {
+	// 		return types.Hash{}, err
+	// 	} else if len(v) > 0 {
+	// 		return types.BytesToHash(v), nil
+	// 	}
+	// }
+
 	// get it from storage
 	return txn.snapshot.GetStorage(addr, object.Account.Root, slot)
 }
@@ -549,6 +575,18 @@ func (txn *Txn) GetCommittedState(addr types.Address, key types.Hash) (types.Has
 		return types.Hash{}, nil
 	}
 
+	// // get it from snapshot
+	// if txn.snap != nil {
+	// 	// live object
+	// 	v, err := txn.snap.Storage(crypto.Keccak256Hash(addr.Bytes()),
+	// 		crypto.Keccak256Hash(key.Bytes()))
+	// 	if err != nil {
+	// 		return types.Hash{}, err
+	// 	} else if len(v) > 0 {
+	// 		return types.BytesToHash(v), nil
+	// 	}
+	// }
+
 	// obj.trTxn = txn // reference for look up snapshots
 	// return obj.GetCommittedState(types.BytesToHash(txn.hashit(key.Bytes())))
 
@@ -578,40 +616,33 @@ func (txn *Txn) Empty(addr types.Address) bool {
 	return obj.Empty()
 }
 
-func newStateObject(txn *Txn) *StateObject {
-	return &StateObject{
-		Account: &stypes.Account{
-			Balance:  big.NewInt(0),
-			CodeHash: emptyCodeHash,
-			Root:     emptyStateHash,
-		},
-	}
-}
-
 func (txn *Txn) CreateAccount(addr types.Address) {
-	obj := &StateObject{
-		Account: &stypes.Account{
-			Balance:  big.NewInt(0),
-			CodeHash: emptyCodeHash,
-			Root:     emptyStateHash,
-		},
-		AddrHash: types.BytesToHash(txn.hashit(addr.Bytes())),
-	}
+	// prev might have been deleted
+	prev := txn.getDeletedStateObject(addr)
 
-	prev, ok := txn.getStateObject(addr)
-	if ok {
-		obj.Account.Balance.SetBytes(prev.Account.Balance.Bytes())
-
-		if txn.snap != nil {
-			// destruct object when already deleted
-			_, prevdesctruct := txn.snapDestructs[prev.AddrHash]
-			if !prevdesctruct {
-				txn.snapDestructs[prev.AddrHash] = struct{}{}
-			}
+	var prevdesctruct bool
+	if txn.snap != nil {
+		// destruct object when already deleted
+		_, prevdesctruct = txn.snapDestructs[prev.addrHash]
+		if !prevdesctruct {
+			txn.snapDestructs[prev.addrHash] = struct{}{}
 		}
 	}
 
-	txn.txn.Insert(addr.Bytes(), obj)
+	// no trie in create account even if it is deleted.
+	newobj := newStateObject(addr, &stypes.Account{})
+
+	// TODO: journal CreateObjectChange
+
+	if prev != nil && !prev.Deleted {
+		newobj.Account.Balance = prev.Account.Balance
+	}
+
+	// cache object after balance update
+	txn.setStateObject(newobj)
+
+	// insert it to itrie
+	txn.txn.Insert(addr.Bytes(), newobj)
 }
 
 func (txn *Txn) CleanDeleteObjects(deleteEmptyObjects bool) {
@@ -628,10 +659,10 @@ func (txn *Txn) CleanDeleteObjects(deleteEmptyObjects bool) {
 			// delete it from snapshot too
 			if txn.snap != nil {
 				// We need to maintain account deletions explicitly (will remain set indefinitely)
-				txn.snapDestructs[a.AddrHash] = struct{}{}
+				txn.snapDestructs[a.addrHash] = struct{}{}
 				// Clear out any previously updated account and storage data (may be recreated via a resurrect)
-				delete(txn.snapAccounts, a.AddrHash)
-				delete(txn.snapStorage, a.AddrHash)
+				delete(txn.snapAccounts, a.addrHash)
+				delete(txn.snapStorage, a.addrHash)
 			}
 		}
 
@@ -675,9 +706,11 @@ func (txn *Txn) Commit(deleteEmptyObjects bool) []*stypes.Object {
 			return false
 		}
 
+		addr := types.BytesToAddress(k)
+
 		obj := &stypes.Object{
 			Nonce:     a.Account.Nonce,
-			Address:   types.BytesToAddress(k),
+			Address:   addr,
 			Balance:   a.Account.Balance,
 			Root:      a.Account.Root,
 			CodeHash:  types.BytesToHash(a.Account.CodeHash),
@@ -686,8 +719,16 @@ func (txn *Txn) Commit(deleteEmptyObjects bool) []*stypes.Object {
 		}
 		if a.Deleted {
 			obj.Deleted = true
+
+			if txn.snap != nil {
+				// We need to maintain account deletions explicitly (will remain set indefinitely)
+				txn.snapDestructs[a.addrHash] = struct{}{}
+				// Clear out any previously updated data (may be recreated via a resurrect)
+				delete(txn.snapAccounts, a.addrHash)
+				delete(txn.snapStorage, a.addrHash)
+			}
 		} else {
-			if a.Txn != nil {
+			if a.Txn != nil { // if it has a trie, we need to iterate it
 				a.Txn.Root().Walk(func(k []byte, v interface{}) bool {
 					store := &stypes.StorageObject{Key: k}
 					if v == nil {

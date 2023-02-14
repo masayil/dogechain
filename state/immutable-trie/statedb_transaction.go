@@ -194,7 +194,7 @@ func (tx *stateDBTxn) NewSnapshotAt(root types.Hash) (state.Snapshot, error) {
 	t := NewTrie()
 	t.root = n
 
-	return &Snapshot{state: tx.stateDB, trie: t}, nil
+	return newSnapshotImpl(tx.stateDB, t), nil
 }
 
 func (tx *stateDBTxn) Commit() error {

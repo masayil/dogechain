@@ -113,11 +113,11 @@ func (dl *diskLayer) AccountRLP(hash types.Hash) ([]byte, error) {
 	}
 
 	// If we're in the disk layer, all diff layers missed
-	// TODO: dirty account miss Counter
+	// NOTE: dirty account miss Counter
 
 	// Try to retrieve the account from the memory cache
 	if blob, found := dl.cache.HasGet(nil, hash[:]); found {
-		// TODO: clean account hit Counter, read data size Counter
+		// NOTE: clean account hit Counter, read data size Counter
 		return blob, nil
 	}
 
@@ -125,7 +125,7 @@ func (dl *diskLayer) AccountRLP(hash types.Hash) ([]byte, error) {
 	blob := rawdb.ReadAccountSnapshot(dl.diskdb, hash)
 	dl.cache.Set(hash[:], blob)
 
-	// TODO: clean account miss Counter, write size Counter, inex Counter
+	// NOTE: clean account miss Counter, write size Counter, inex Counter
 
 	return blob, nil
 }
@@ -151,18 +151,18 @@ func (dl *diskLayer) Storage(accountHash, storageHash types.Hash) ([]byte, error
 	}
 
 	// If we're in the disk layer, all diff layers missed
-	// TODO: dirty storage miss Counter
+	// NOTE: dirty storage miss Counter
 
 	// Try to retrieve the storage slot from the memory cache
 	if blob, found := dl.cache.HasGet(nil, key); found {
-		// TODO: clean storage hit Counter, read size Counter
+		// NOTE: clean storage hit Counter, read size Counter
 		return blob, nil
 	}
 	// Cache doesn't contain storage slot, pull from disk and cache for later
 	blob := rawdb.ReadStorageSnapshot(dl.diskdb, accountHash, storageHash)
 	dl.cache.Set(key, blob)
 
-	// TODO: clean storage miss Counter, write size Counter, inex Counter
+	// NOTE: clean storage miss Counter, write size Counter, inex Counter
 
 	return blob, nil
 }

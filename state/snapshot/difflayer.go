@@ -155,7 +155,7 @@ func newDiffLayer(
 			panic(fmt.Sprintf("account %s nil", accountHash))
 		}
 
-		// TODO: dirty account memory gauge
+		// NOTE: dirty account memory gauge
 		// Determine memory size and track the dirty writes
 		dl.memory += uint64(types.HashLength + len(blob))
 	}
@@ -166,7 +166,7 @@ func newDiffLayer(
 		}
 		// Determine memory size and track the dirty writes
 		for _, data := range slots {
-			// TODO: dirty storage memory gauge
+			// NOTE: dirty storage memory gauge
 			dl.memory += uint64(types.HashLength + len(data))
 		}
 	}
@@ -249,7 +249,7 @@ func (dl *diffLayer) AccountRLP(hash types.Hash) ([]byte, error) {
 	// If the bloom filter misses, don't even bother with traversing the memory
 	// diff layers, reach straight into the bottom persistent disk layer
 	if origin != nil {
-		// TODO: bloom account miss Counter
+		// NOTE: bloom account miss Counter
 		return origin.AccountRLP(hash)
 	}
 
@@ -271,13 +271,13 @@ func (dl *diffLayer) accountRLP(hash types.Hash, depth int) ([]byte, error) {
 	}
 	// If the account is known locally, return it
 	if data, ok := dl.accountData[hash]; ok {
-		// TODO: dirty account hit Counter, hit depth Histogram, read data size Counter,
+		// NOTE: dirty account hit Counter, hit depth Histogram, read data size Counter,
 		// bloom account true hit Counter
 		return data, nil
 	}
 	// If the account is known locally, but deleted, return it
 	if _, ok := dl.destructSet[hash]; ok {
-		// TODO: dirty account hit Counter, hit depth Histogram, inex Counter,
+		// NOTE: dirty account hit Counter, hit depth Histogram, inex Counter,
 		// bloom account true hit Counter
 		return nil, nil
 	}
@@ -287,7 +287,7 @@ func (dl *diffLayer) accountRLP(hash types.Hash, depth int) ([]byte, error) {
 	}
 
 	// Failed to resolve through diff layers, mark a bloom error and use the disk
-	// TODO: bloom account false hit Counter
+	// NOTE: bloom account false hit Counter
 
 	return dl.parent.AccountRLP(hash)
 }
@@ -317,7 +317,7 @@ func (dl *diffLayer) Storage(accountHash, storageHash types.Hash) ([]byte, error
 	// If the bloom filter misses, don't even bother with traversing the memory
 	// diff layers, reach straight into the bottom persistent disk layer
 	if origin != nil {
-		// TODO: bloom storage miss Counter
+		// NOTE: bloom storage miss Counter
 		return origin.Storage(accountHash, storageHash)
 	}
 	// The bloom filter hit, start poking in the internal maps
@@ -339,14 +339,14 @@ func (dl *diffLayer) storage(accountHash, storageHash types.Hash, depth int) ([]
 	// If the account is known locally, try to resolve the slot locally
 	if storage, ok := dl.storageData[accountHash]; ok {
 		if data, ok := storage[storageHash]; ok {
-			//TODO: dirty storage hit Counter, hit depth Gauge, read size Counter,
+			//NOTE: dirty storage hit Counter, hit depth Gauge, read size Counter,
 			// inex Counter, bloom true hit Counter
 			return data, nil
 		}
 	}
 	// If the account is known locally, but deleted, return an empty slot
 	if _, ok := dl.destructSet[accountHash]; ok {
-		//TODO: dirty storage hit Counter, hit depth Gauge,
+		//NOTE: dirty storage hit Counter, hit depth Gauge,
 		// inex Counter, bloom true hit Counter
 		return nil, nil
 	}
@@ -356,7 +356,7 @@ func (dl *diffLayer) storage(accountHash, storageHash types.Hash, depth int) ([]
 	}
 
 	// Failed to resolve through diff layers, mark a bloom error and use the disk
-	//TODO: bloom storage false hit Counter
+	//NOTE: bloom storage false hit Counter
 
 	return dl.parent.Storage(accountHash, storageHash)
 }
@@ -534,7 +534,7 @@ func (dl *diffLayer) rebloom(origin *diskLayer) {
 	dl.lock.Lock()
 	defer dl.lock.Unlock()
 
-	// TODO: index duration metrics
+	// NOTE: index duration metrics
 
 	// Inject the new origin that triggered the rebloom
 	dl.origin = origin
@@ -557,7 +557,7 @@ func (dl *diffLayer) rebloom(origin *diskLayer) {
 		dl.diffed.Add(accountBloomHasher(hash))
 	}
 
-	// TODO: bloom error gauge at last
+	// NOTE: bloom error gauge at last
 	// // Calculate the current false positive rate and update the error rate meter.
 	// // This is a bit cheating because subsequent layers will overwrite it, but it
 	// // should be fine, we're only interested in ballpark figures.

@@ -1,8 +1,9 @@
 package state
 
 import (
-	"bytes"
+	"math/big"
 
+	"github.com/dogechain-lab/dogechain/crypto"
 	"github.com/dogechain-lab/dogechain/state/stypes"
 	"github.com/dogechain-lab/dogechain/types"
 	iradix "github.com/hashicorp/go-immutable-radix"
@@ -29,14 +30,36 @@ type StateObject struct {
 	Suicide   bool
 	Deleted   bool
 	DirtyCode bool
-	Txn       *iradix.Txn
+	Txn       *iradix.Txn // Set it only when there is a trie
 
 	// for quick search
-	AddrHash types.Hash
+	address  types.Address
+	addrHash types.Hash
+}
+
+// newStateObject create a new state object
+func newStateObject(address types.Address, account *stypes.Account) *StateObject {
+	if account.Balance == nil {
+		account.Balance = new(big.Int)
+	}
+
+	if account.CodeHash == nil {
+		account.CodeHash = emptyCodeHash
+	}
+
+	if account.Root == (types.Hash{}) {
+		account.Root = emptyStateHash
+	}
+
+	return &StateObject{
+		Account:  account,
+		address:  address,
+		addrHash: crypto.Keccak256Hash(address[:]),
+	}
 }
 
 func (s *StateObject) Empty() bool {
-	return s.Account.Nonce == 0 && s.Account.Balance.Sign() == 0 && bytes.Equal(s.Account.CodeHash, emptyCodeHash)
+	return s.Account.Nonce == 0 && s.Account.Balance.Sign() == 0 && s.address == types.ZeroAddress
 }
 
 // Copy makes a copy of the state object
@@ -55,7 +78,9 @@ func (s *StateObject) Copy() *StateObject {
 		ss.Txn = s.Txn.CommitOnly().Txn()
 	}
 
-	ss.AddrHash = s.AddrHash
+	// search key
+	ss.address = s.address
+	ss.addrHash = s.addrHash
 
 	return ss
 }

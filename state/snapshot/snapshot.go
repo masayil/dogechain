@@ -579,7 +579,7 @@ func diffToDisk(bottom *diffLayer) *diskLayer {
 			// delete all cache snapshot key
 			base.cache.Del(key[rawdb.SnapshotPrefixLength:])
 
-			// TODO: flush storage item Counter
+			// NOTE: flush storage item Counter
 
 			// Ensure we don't delete too much data blindly (contract can be
 			// huge). It's ok to flush, the root will go missing in case of a
@@ -607,7 +607,7 @@ func diffToDisk(bottom *diffLayer) *diskLayer {
 		rawdb.WriteAccountSnapshot(batch, hash, data)
 		base.cache.Set(hash[:], data)
 
-		// TODO: clean account write size Counter, flush account item Counter, flush account size Counter
+		// NOTE: clean account write size Counter, flush account item Counter, flush account size Counter
 
 		// Ensure we don't write too much data blindly. It's ok to flush, the
 		// root will go missing in case of a crash and we'll detect and regen
@@ -639,10 +639,10 @@ func diffToDisk(bottom *diffLayer) *diskLayer {
 				continue
 			}
 
-			//TODO: flush storage item Counter, flush storage size Counter
+			//NOTE: flush storage item Counter, flush storage size Counter
 
 			if len(data) > 0 {
-				//TODO: clean storage write size Counter
+				//NOTE: clean storage write size Counter
 				rawdb.WriteStorageSnapshot(batch, accountHash, storageHash, data)
 				base.cache.Set(append(accountHash[:], storageHash[:]...), data)
 			} else {
