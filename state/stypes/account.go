@@ -82,7 +82,7 @@ func (a *Account) Copy() *Account {
 	if a.Balance == nil {
 		aa.Balance = new(big.Int)
 	} else {
-		aa.Balance = big.NewInt(1).SetBytes(a.Balance.Bytes())
+		aa.Balance = big.NewInt(0).SetBytes(a.Balance.Bytes())
 	}
 
 	aa.Nonce = a.Nonce

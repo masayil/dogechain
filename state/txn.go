@@ -89,10 +89,6 @@ func (txn *Txn) CleanSnap() {
 	}
 }
 
-func (txn *Txn) hashit(src []byte) []byte {
-	return crypto.Keccak256(src)
-}
-
 // Snapshot takes a snapshot at this point in time
 func (txn *Txn) Snapshot() int {
 	t := txn.txn.CommitOnly()
@@ -149,13 +145,12 @@ func (txn *Txn) getDeletedStateObject(addr types.Address) *StateObject {
 	}
 
 	var (
-		account  *stypes.Account
-		addrHash = txn.hashit(addr.Bytes())
+		account *stypes.Account
 	)
 
 	// If no transient objects are available, attempt to use snapshots
 	if txn.snap != nil {
-		if acc, err := txn.snap.Account(types.BytesToHash(addrHash)); err == nil { // got
+		if acc, err := txn.snap.Account(crypto.Keccak256Hash(addr.Bytes())); err == nil { // got
 			if acc == nil {
 				return nil
 			}
@@ -185,8 +180,9 @@ func (txn *Txn) getDeletedStateObject(addr types.Address) *StateObject {
 	}
 
 	// Insert into the live set
-	// the account is a new one, no need to copy it
-	obj := newStateObject(addr, account)
+	obj := &StateObject{
+		Account: account.Copy(),
+	}
 	txn.setStateObject(obj)
 
 	return obj
@@ -202,7 +198,10 @@ func (txn *Txn) upsertAccount(addr types.Address, create bool, f func(object *St
 	f(object)
 
 	if object != nil {
-		txn.txn.Insert(addr.Bytes(), object)
+		if _, didUpdate := txn.txn.Insert(addr.Bytes(), object); didUpdate {
+			// update live object
+			txn.setStateObject(object)
+		}
 	}
 
 	// If state snapshotting is active, cache the data til commit. Note, this
@@ -569,6 +568,19 @@ func (txn *Txn) GetCommittedState(addr types.Address, key types.Hash) (types.Has
 		return types.Hash{}, nil
 	}
 
+	// Try to get account state from radix tree first
+	// Because the latest account state should be in in-memory radix tree
+	// if account state update happened in previous transactions of same block
+	if obj.Txn != nil {
+		if val, ok := obj.Txn.Get(key.Bytes()); ok {
+			if val == nil {
+				return types.Hash{}, nil
+			}
+			//nolint:forcetypeassert
+			return types.BytesToHash(val.([]byte)), nil
+		}
+	}
+
 	return txn.snapshot.GetStorage(addr, obj.Account.Root, key)
 }
 
@@ -663,6 +675,8 @@ func (txn *Txn) CleanDeleteObjects(deleteEmptyObjects bool) {
 		obj2 := obj.Copy()
 		obj2.Deleted = true
 		txn.txn.Insert(k, obj2)
+		// update live object
+		txn.setStateObject(obj2)
 	}
 
 	// delete refunds
