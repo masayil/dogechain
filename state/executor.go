@@ -479,7 +479,7 @@ func (t *Transition) Commit() (Snapshot, types.Hash, error) {
 
 			// update all snap account state root
 			for _, obj := range objs {
-				addrHash := types.BytesToHash(obj.Address.Bytes())
+				addrHash := crypto.Keccak256Hash(obj.Address.Bytes())
 
 				if obj.Deleted {
 					// delete account
