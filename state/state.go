@@ -1,6 +1,7 @@
 package state
 
 import (
+	"bytes"
 	"math/big"
 
 	"github.com/dogechain-lab/dogechain/crypto"
@@ -52,6 +53,10 @@ func newStateObject(address types.Address, account *stypes.Account) *StateObject
 		account.Root = emptyStateHash
 	}
 
+	return stateObjectWithAddress(address, account)
+}
+
+func stateObjectWithAddress(address types.Address, account *stypes.Account) *StateObject {
 	return &StateObject{
 		Account:  account,
 		address:  address,
@@ -60,7 +65,7 @@ func newStateObject(address types.Address, account *stypes.Account) *StateObject
 }
 
 func (s *StateObject) Empty() bool {
-	return s.Account.Nonce == 0 && s.Account.Balance.Sign() == 0 && s.address == types.ZeroAddress
+	return s.Account.Nonce == 0 && s.Account.Balance.Sign() == 0 && bytes.Equal(s.Account.CodeHash, emptyCodeHash)
 }
 
 // Copy makes a copy of the state object

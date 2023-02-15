@@ -132,10 +132,10 @@ func (txn *Txn) getStateObject(addr types.Address) (*StateObject, bool) {
 }
 
 func (txn *Txn) getDeletedStateObject(addr types.Address) *StateObject {
-	// Prefer live objects if any is available
-	if obj := txn.stateObjects[addr]; obj != nil {
-		return obj
-	}
+	// // Prefer live objects if any is available
+	// if obj := txn.stateObjects[addr]; obj != nil {
+	// 	return obj
+	// }
 
 	// Try to get state from radix tree which holds transient states during block processing first
 	if val, exists := txn.txn.Get(addr.Bytes()); exists {
@@ -180,9 +180,7 @@ func (txn *Txn) getDeletedStateObject(addr types.Address) *StateObject {
 	}
 
 	// Insert into the live set
-	obj := &StateObject{
-		Account: account.Copy(),
-	}
+	obj := stateObjectWithAddress(addr, account.Copy())
 	txn.setStateObject(obj)
 
 	return obj
@@ -620,20 +618,21 @@ func (txn *Txn) CreateAccount(addr types.Address) {
 		}
 	}
 
-	// no trie in create account even if it is deleted.
-	newobj := newStateObject(addr, &stypes.Account{})
+	obj := newStateObject(addr, &stypes.Account{})
 
-	// TODO: journal CreateObjectChange
-
-	if prev != nil && !prev.Deleted {
-		newobj.Account.Balance = prev.Account.Balance
+	if prev == nil || !prev.Deleted {
+		// TODO: journal CreateObjectChange
+		if txn.snap != nil {
+		}
+	} else {
+		obj.Account.Balance.SetBytes(prev.Account.Balance.Bytes())
 	}
 
-	// cache object after balance update
-	txn.setStateObject(newobj)
-
 	// insert it to itrie
-	txn.txn.Insert(addr.Bytes(), newobj)
+	if _, didUpdate := txn.txn.Insert(addr.Bytes(), obj); didUpdate {
+		// cache object after balance update
+		txn.setStateObject(obj)
+	}
 }
 
 func (txn *Txn) CleanDeleteObjects(deleteEmptyObjects bool) {
