@@ -38,9 +38,11 @@ type Txn struct {
 
 	// for caching world state
 	snap          snapshot.Snapshot
-	snapDestructs map[types.Hash]struct{}              // deleted and waiting for destruction
-	snapAccounts  map[types.Hash][]byte                // live snapshot accounts
-	snapStorage   map[types.Hash]map[types.Hash][]byte // live snapshot storages
+	snapDestructs map[types.Hash]struct{} // deleted and waiting for destruction
+	snapAccounts  map[types.Hash][]byte   // live snapshot accounts
+	// live snapshot storages map. [accountHash]map[slotHash]hashValue
+	// keep the structrue same with persistance layer
+	snapStorage map[types.Hash]map[types.Hash][]byte
 
 	// This map holds 'live' objects, which will get modified while processing a state transition.
 	stateObjects map[types.Address]*StateObject
@@ -715,7 +717,9 @@ func (txn *Txn) Commit(deleteEmptyObjects bool) []*stypes.Object {
 			if a.Txn != nil { // if it has a trie, we need to iterate it
 				a.Txn.Root().Walk(func(k []byte, v interface{}) bool {
 					store := &stypes.StorageObject{Key: k}
-					storeHash := types.BytesToHash(k)
+					// current key is slot, we need slot hash
+					storeHash := crypto.Keccak256Hash(k)
+
 					if v == nil {
 						store.Deleted = true
 						// remove snapshots storage value
