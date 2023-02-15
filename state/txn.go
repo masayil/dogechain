@@ -5,7 +5,6 @@ import (
 
 	"github.com/dogechain-lab/dogechain/chain"
 	"github.com/dogechain-lab/dogechain/crypto"
-	"github.com/dogechain-lab/dogechain/helper/rlp"
 	"github.com/dogechain-lab/dogechain/state/runtime"
 	"github.com/dogechain-lab/dogechain/state/snapshot"
 	"github.com/dogechain-lab/dogechain/state/stypes"
@@ -560,13 +559,7 @@ func (txn *Txn) GetCommittedState(addr types.Address, key types.Hash) (types.Has
 		if err != nil {
 			return types.Hash{}, err
 		} else if len(enc) > 0 {
-			// parse and split out its value
-			_, content, _, err := rlp.Split(enc)
-			if err != nil {
-				return types.Hash{}, err
-			}
-
-			return types.BytesToHash(content), nil
+			return types.BytesToHash(enc), nil
 		}
 	}
 
