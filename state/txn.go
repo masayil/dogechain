@@ -5,6 +5,7 @@ import (
 
 	"github.com/dogechain-lab/dogechain/chain"
 	"github.com/dogechain-lab/dogechain/crypto"
+	"github.com/dogechain-lab/dogechain/helper/rlp"
 	"github.com/dogechain-lab/dogechain/state/runtime"
 	"github.com/dogechain-lab/dogechain/state/snapshot"
 	"github.com/dogechain-lab/dogechain/state/stypes"
@@ -411,37 +412,7 @@ func (txn *Txn) SetState(
 
 // GetState returns the state of the address at a given key
 func (txn *Txn) GetState(addr types.Address, slot types.Hash) (types.Hash, error) {
-	object, exists := txn.getStateObject(addr)
-	if !exists {
-		return types.Hash{}, nil
-	}
-
-	// Try to get account state from radix tree first
-	// Because the latest account state should be in in-memory radix tree
-	// if account state update happened in previous transactions of same block
-	if object.Txn != nil {
-		if val, ok := object.Txn.Get(slot.Bytes()); ok {
-			if val == nil {
-				return types.Hash{}, nil
-			}
-			//nolint:forcetypeassert
-			return types.BytesToHash(val.([]byte)), nil
-		}
-	}
-
-	// // get it from snapshot
-	// if txn.snap != nil {
-	// 	// live object
-	// 	v, err := txn.snap.Storage(object.addrHash, crypto.Keccak256Hash(slot.Bytes()))
-	// 	if err != nil {
-	// 		return types.Hash{}, err
-	// 	} else if len(v) > 0 {
-	// 		return types.BytesToHash(v), nil
-	// 	}
-	// }
-
-	// get it from storage
-	return txn.snapshot.GetStorage(addr, object.Account.Root, slot)
+	return txn.GetCommittedState(addr, slot)
 }
 
 // Nonce
@@ -570,25 +541,38 @@ func (txn *Txn) GetRefund() uint64 {
 
 // GetCommittedState returns the state of the address in the trie
 func (txn *Txn) GetCommittedState(addr types.Address, key types.Hash) (types.Hash, error) {
+	if txn.snap != nil {
+		addrHash := crypto.Keccak256Hash(addr.Bytes())
+		// If the object was destructed in *this* block (and potentially resurrected),
+		// the storage has been cleared out, and we should *not* consult the previous
+		// snapshot about any storage values. The only possible alternatives are:
+		//   1) resurrect happened, and new slot values were set -- those should
+		//      have been handles via pendingStorage above.
+		//   2) we don't have new values, and can deliver empty response back
+		if _, destructed := txn.snapDestructs[addrHash]; destructed {
+			return types.Hash{}, nil
+		}
+
+		// hash slot
+		enc, err := txn.snap.Storage(addrHash, crypto.Keccak256Hash(key.Bytes()))
+		if err != nil {
+			return types.Hash{}, err
+		} else if len(enc) > 0 {
+			// parse and split out its value
+			_, content, _, err := rlp.Split(enc)
+			if err != nil {
+				return types.Hash{}, err
+			}
+
+			return types.BytesToHash(content), nil
+		}
+	}
+
+	// If the snapshot is unavailable or reading from it fails, load from the database.
 	obj, ok := txn.getStateObject(addr)
 	if !ok {
 		return types.Hash{}, nil
 	}
-
-	// // get it from snapshot
-	// if txn.snap != nil {
-	// 	// live object
-	// 	v, err := txn.snap.Storage(crypto.Keccak256Hash(addr.Bytes()),
-	// 		crypto.Keccak256Hash(key.Bytes()))
-	// 	if err != nil {
-	// 		return types.Hash{}, err
-	// 	} else if len(v) > 0 {
-	// 		return types.BytesToHash(v), nil
-	// 	}
-	// }
-
-	// obj.trTxn = txn // reference for look up snapshots
-	// return obj.GetCommittedState(types.BytesToHash(txn.hashit(key.Bytes())))
 
 	return txn.snapshot.GetStorage(addr, obj.Account.Root, key)
 }
