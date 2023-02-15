@@ -731,10 +731,23 @@ func (txn *Txn) Commit(deleteEmptyObjects bool) []*stypes.Object {
 			if a.Txn != nil { // if it has a trie, we need to iterate it
 				a.Txn.Root().Walk(func(k []byte, v interface{}) bool {
 					store := &stypes.StorageObject{Key: k}
+					storeHash := types.BytesToHash(k)
 					if v == nil {
 						store.Deleted = true
+						// remove snapshots storage value
+						if txn.snap != nil {
+							delete(txn.snapStorage[a.addrHash], storeHash)
+						}
 					} else {
 						store.Val = v.([]byte) //nolint:forcetypeassert
+						// update snapshots storage value
+						if txn.snap != nil {
+							// create map when not exists
+							if _, ok := txn.snapStorage[a.addrHash]; !ok {
+								txn.snapStorage[a.addrHash] = make(map[types.Hash][]byte)
+							}
+							txn.snapStorage[a.addrHash][storeHash] = store.Val
+						}
 					}
 					obj.Storage = append(obj.Storage, store)
 

@@ -20,6 +20,7 @@ type State interface {
 type Snapshot interface {
 	snapshotReader
 
+	// Change object state root if there is any update of storage
 	Commit(objs []*stypes.Object) (Snapshot, []byte, error)
 }
 

@@ -183,16 +183,6 @@ func (e *Executor) Stop() {
 	atomic.StoreUint32(&e.stopped, 1)
 }
 
-// StateAt returns snapshot at given root
-func (e *Executor) State() State {
-	return e.state
-}
-
-// StateAt returns snapshot at given root
-func (e *Executor) StateAt(root types.Hash) (Snapshot, error) {
-	return e.state.NewSnapshotAt(root)
-}
-
 // GetForksInTime returns the active forks at the given block height
 func (e *Executor) GetForksInTime(blockNumber uint64) chain.ForksInTime {
 	return e.config.Forks.At(blockNumber)
@@ -479,7 +469,7 @@ func (t *Transition) Commit() (Snapshot, types.Hash, error) {
 		return nil, types.Hash{}, err
 	}
 
-	// If snapshotting is enabled, update the snapshot tree with this new version
+	// If snapshotting is enabled, update the snapshot tree after committed.
 	if t.snap != nil {
 		curroot := types.BytesToHash(root)
 		// Only update if there's a state transition (skip empty blocks)
@@ -487,6 +477,25 @@ func (t *Transition) Commit() (Snapshot, types.Hash, error) {
 			// get snap objects from txn
 			snapDestructs, snapAccounts, snapStorage := t.txn.GetSnapObjects()
 
+			// update all snap account state root
+			for _, obj := range objs {
+				addrHash := types.BytesToHash(obj.Address.Bytes())
+
+				if obj.Deleted {
+					// delete account
+					snapDestructs[addrHash] = struct{}{}
+					delete(snapAccounts, addrHash)
+					delete(snapStorage, addrHash)
+
+					continue
+				}
+
+				// update snap layer account
+				snapAccounts[addrHash] =
+					snapshot.SlimAccountRLP(obj.Nonce, obj.Balance, obj.Root, obj.CodeHash.Bytes())
+			}
+
+			// update snapshot tree
 			if err := t.snaps.Update(curroot, parent,
 				snapDestructs, snapAccounts, snapStorage,
 				t.logger,

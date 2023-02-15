@@ -136,6 +136,7 @@ func (s *Snapshot) Commit(objs []*stypes.Object) (state.Snapshot, []byte, error)
 				}
 
 				if len(obj.Storage) != 0 {
+					// last root
 					rootsnap, err := st.NewSnapshotAt(obj.Root)
 					// s.state.newTrieAt(obj.Root)
 					if err != nil {
@@ -177,6 +178,9 @@ func (s *Snapshot) Commit(objs []*stypes.Object) (state.Snapshot, []byte, error)
 					observe()
 
 					account.Root = types.BytesToHash(accountStateRoot)
+
+					// update object state root, so that we could use it later
+					obj.Root = account.Root
 				}
 
 				if obj.DirtyCode {
