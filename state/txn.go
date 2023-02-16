@@ -409,8 +409,28 @@ func (txn *Txn) SetState(
 }
 
 // GetState returns the state of the address at a given key
+//
+// The state might be transient, remember to query the not committed trie
 func (txn *Txn) GetState(addr types.Address, slot types.Hash) (types.Hash, error) {
-	return txn.GetCommittedState(addr, slot)
+	object, exists := txn.getStateObject(addr)
+	if !exists {
+		return types.Hash{}, nil
+	}
+
+	// Try to get account state from radix tree first
+	// Because the latest account state should be in in-memory radix tree
+	// if account state update happened in previous transactions of same block
+	if object.Txn != nil {
+		if val, ok := object.Txn.Get(slot.Bytes()); ok {
+			if val == nil {
+				return types.Hash{}, nil
+			}
+			//nolint:forcetypeassert
+			return types.BytesToHash(val.([]byte)), nil
+		}
+	}
+
+	return txn.getStorageCommitted(object, slot)
 }
 
 // Nonce
@@ -537,10 +557,10 @@ func (txn *Txn) GetRefund() uint64 {
 	return data.(uint64)
 }
 
-// GetCommittedState returns the state of the address in the trie
-func (txn *Txn) GetCommittedState(addr types.Address, key types.Hash) (types.Hash, error) {
+func (txn *Txn) getStorageCommitted(obj *StateObject, slot types.Hash) (types.Hash, error) {
+	// query from storage first
 	if txn.snap != nil {
-		addrHash := crypto.Keccak256Hash(addr.Bytes())
+		addrHash := obj.addrHash
 		// If the object was destructed in *this* block (and potentially resurrected),
 		// the storage has been cleared out, and we should *not* consult the previous
 		// snapshot about any storage values. The only possible alternatives are:
@@ -552,7 +572,7 @@ func (txn *Txn) GetCommittedState(addr types.Address, key types.Hash) (types.Has
 		}
 
 		// hash slot
-		enc, err := txn.snap.Storage(addrHash, crypto.Keccak256Hash(key.Bytes()))
+		enc, err := txn.snap.Storage(addrHash, crypto.Keccak256Hash(slot.Bytes()))
 		if err != nil {
 			return types.Hash{}, err
 		} else if len(enc) > 0 {
@@ -560,26 +580,20 @@ func (txn *Txn) GetCommittedState(addr types.Address, key types.Hash) (types.Has
 		}
 	}
 
+	return txn.snapshot.GetStorage(obj.address, obj.Account.Root, slot)
+}
+
+// GetCommittedState returns the state of the address in the trie
+//
+// The state is committed (persisted, too).
+func (txn *Txn) GetCommittedState(addr types.Address, slot types.Hash) (types.Hash, error) {
 	// If the snapshot is unavailable or reading from it fails, load from the database.
 	obj, ok := txn.getStateObject(addr)
 	if !ok {
 		return types.Hash{}, nil
 	}
 
-	// Try to get account state from radix tree first
-	// Because the latest account state should be in in-memory radix tree
-	// if account state update happened in previous transactions of same block
-	if obj.Txn != nil {
-		if val, ok := obj.Txn.Get(key.Bytes()); ok {
-			if val == nil {
-				return types.Hash{}, nil
-			}
-			//nolint:forcetypeassert
-			return types.BytesToHash(val.([]byte)), nil
-		}
-	}
-
-	return txn.snapshot.GetStorage(addr, obj.Account.Root, key)
+	return txn.getStorageCommitted(obj, slot)
 }
 
 func (txn *Txn) TouchAccount(addr types.Address) {
@@ -620,7 +634,7 @@ func (txn *Txn) CreateAccount(addr types.Address) {
 
 	obj := newStateObject(addr, &stypes.Account{})
 
-	if prev == nil || !prev.Deleted {
+	if prev == nil || prev.Deleted {
 		// TODO: journal CreateObjectChange
 		if txn.snap != nil {
 		}
