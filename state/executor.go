@@ -484,6 +484,7 @@ func (t *Transition) Commit() (Snapshot, types.Hash, error) {
 				if obj.Deleted {
 					// delete account
 					snapDestructs[addrHash] = struct{}{}
+
 					delete(snapAccounts, addrHash)
 					delete(snapStorage, addrHash)
 

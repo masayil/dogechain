@@ -40,7 +40,7 @@ type Txn struct {
 	snapDestructs map[types.Hash]struct{} // deleted and waiting for destruction
 	snapAccounts  map[types.Hash][]byte   // live snapshot accounts
 	// live snapshot storages map. [accountHash]map[slotHash]hashValue
-	// keep the structrue same with persistance layer
+	// keep the structrue same with persistence layer
 	snapStorage map[types.Hash]map[types.Hash][]byte
 
 	// This map holds 'live' objects, which will get modified while processing a state transition.
@@ -136,7 +136,6 @@ func (txn *Txn) getDeletedStateObject(addr types.Address) *StateObject {
 	// if obj := txn.stateObjects[addr]; obj != nil {
 	// 	return obj
 	// }
-
 	// Try to get state from radix tree which holds transient states during block processing first
 	if val, exists := txn.txn.Get(addr.Bytes()); exists {
 		obj := val.(*StateObject) //nolint:forcetypeassert
