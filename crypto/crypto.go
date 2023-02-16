@@ -210,21 +210,7 @@ func NewKeccakState() KeccakState {
 
 // Keccak256 calculates the Keccak256
 func Keccak256(v ...[]byte) []byte {
-	b := make([]byte, 32)
-	hasher := NewKeccakState()
-
-	defer func() {
-		hasher.Reset()
-		hasherPool.Put(hasher)
-	}()
-
-	for _, i := range v {
-		hasher.Write(i)
-	}
-
-	hasher.Read(b)
-
-	return b
+	return Keccak256Hash(v...).Bytes()
 }
 
 func Keccak256Hash(v ...[]byte) (h types.Hash) {

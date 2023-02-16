@@ -187,5 +187,5 @@ func TestEVM(t *testing.T) {
 }
 
 func vmTestBlockHash(n uint64) types.Hash {
-	return types.BytesToHash(crypto.Keccak256([]byte(big.NewInt(int64(n)).String())))
+	return crypto.Keccak256Hash([]byte(big.NewInt(int64(n)).String()))
 }
