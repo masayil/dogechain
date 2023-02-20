@@ -244,3 +244,42 @@ func TestPrivateKeyGeneration(t *testing.T) {
 	assert.True(t, writtenKey.Equal(readKey))
 	assert.Equal(t, writtenAddress.String(), readAddress.String())
 }
+
+func TestKeccak256(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		input  []byte
+		expect []byte
+	}{
+		{
+			input:  nil,
+			expect: types.StringToHash("0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470").Bytes(),
+		},
+		{
+			input:  types.StringToBytes("0x0"),
+			expect: types.StringToHash("0xbc36789e7a1e281436464229828f817d6612f7b477d66591ff96a9e064bcc98a").Bytes(),
+		},
+		{
+			input:  types.StringToBytes("0x00"),
+			expect: types.StringToHash("0xbc36789e7a1e281436464229828f817d6612f7b477d66591ff96a9e064bcc98a").Bytes(),
+		},
+		{
+			input:  types.StringToAddress("0x0000000000000000000000000000000000000000").Bytes(),
+			expect: types.StringToHash("0x5380c7b7ae81a58eb98d9c78de4a1fd7fd9535fc953ed2be602daaa41767312a").Bytes(),
+		},
+		{
+			input:  types.StringToHash("0x0000000000000000000000000000000000000000000000000000000000000000").Bytes(),
+			expect: types.StringToHash("0x290decd9548b62a8d60345a988386fc84ba6bc95484008f6362f93160ef3e563").Bytes(),
+		},
+		{
+			input:  types.StringToHash("0x0000000000000000000000000000000000000000000000000000000000000001").Bytes(),
+			expect: types.StringToHash("0xb10e2d527612073b26eecdfd717e6a320cf44b4afac2b0732d9fcbe2b7fa0cf6").Bytes(),
+		},
+	}
+
+	for _, c := range cases {
+		h := Keccak256(c.input)
+		assert.Equal(t, h, c.expect)
+	}
+}
