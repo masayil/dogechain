@@ -20,12 +20,8 @@ func (t *Trie) Get(k []byte, reader StateDBReader) ([]byte, error) {
 	return txn.Lookup(k)
 }
 
-func addressKey(addr types.Address) []byte {
-	return hashit(addr.Bytes())
-}
-
-func hashit(k []byte) []byte {
-	return crypto.Keccak256(k)
+func addressHash(addr types.Address) []byte {
+	return crypto.Keccak256(addr.Bytes())
 }
 
 // Hash returns the root hash of the trie. It does not write to the

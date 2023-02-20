@@ -17,7 +17,7 @@ var (
 	// EmptyRootHash is the root when there are no transactions
 	EmptyRootHash = StringToHash("0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
 
-	// EmptyUncleHash is the root when there are no uncles
+	// EmptyUncleHash is the root when there are no uncles. value of crypto.Keccak256([]*Header(nil))
 	EmptyUncleHash = StringToHash("0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347")
 
 	// EmptyCode is the known hash of the empty EVM bytecode. value of crypto.Keccak256(nil)

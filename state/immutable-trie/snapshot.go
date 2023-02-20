@@ -73,7 +73,7 @@ func (s *Snapshot) GetStorage(addr types.Address, root types.Hash, rawkey types.
 }
 
 func (s *Snapshot) GetAccount(addr types.Address) (*stypes.Account, error) {
-	key := crypto.Keccak256(addr.Bytes())
+	key := addressHash(addr)
 
 	data, err := s.trie.Get(key, s.stateDB)
 	if err != nil {
@@ -121,7 +121,8 @@ func (s *Snapshot) Commit(objs []*stypes.Object) (state.Snapshot, []byte, error)
 
 		for _, obj := range objs {
 			if obj.Deleted {
-				err := tt.Delete(hashit(obj.Address.Bytes()))
+				// address hash
+				err := tt.Delete(addressHash(obj.Address))
 				if err != nil {
 					return err
 				}
@@ -149,7 +150,8 @@ func (s *Snapshot) Commit(objs []*stypes.Object) (state.Snapshot, []byte, error)
 					localTxn := loadSnap.trie.Txn(loadSnap.stateDB)
 
 					for _, entry := range obj.Storage {
-						k := hashit(entry.Key)
+						// slot hash
+						k := crypto.Keccak256(entry.Key)
 						if entry.Deleted {
 							err := localTxn.Delete(k)
 							if err != nil {
@@ -197,7 +199,7 @@ func (s *Snapshot) Commit(objs []*stypes.Object) (state.Snapshot, []byte, error)
 				vv := account.MarshalWith(arena)
 				data := vv.MarshalTo(nil)
 
-				tt.Insert(hashit(obj.Address.Bytes()), data)
+				tt.Insert(addressHash(obj.Address), data)
 				insertCount++
 
 				arena.Reset()
