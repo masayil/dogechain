@@ -9,6 +9,7 @@ import (
 	"github.com/dogechain-lab/dogechain/state/snapshot"
 	"github.com/dogechain-lab/dogechain/state/stypes"
 	"github.com/dogechain-lab/dogechain/types"
+	"github.com/dogechain-lab/fastrlp"
 	iradix "github.com/hashicorp/go-immutable-radix"
 )
 
@@ -575,7 +576,19 @@ func (txn *Txn) getStorageCommitted(obj *StateObject, slot types.Hash) (types.Ha
 		if err != nil {
 			return types.Hash{}, err
 		} else if len(enc) > 0 {
-			return types.BytesToHash(enc), nil
+			p := fastrlp.Parser{}
+
+			v, err := p.Parse(enc)
+			if err != nil {
+				return types.Hash{}, err
+			}
+
+			res := []byte{}
+			if res, err = v.GetBytes(res[:0]); err != nil {
+				return types.Hash{}, err
+			}
+
+			return types.BytesToHash(res), nil
 		}
 	}
 
