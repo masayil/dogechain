@@ -426,7 +426,7 @@ func TestEth_State_GetStorageAt(t *testing.T) {
 		name           string
 		initialStorage map[types.Address]map[types.Hash]types.Hash
 		address        types.Address
-		index          types.Hash
+		slot           types.Hash
 		blockNumber    *BlockNumber
 		blockHash      *types.Hash
 		succeeded      bool
@@ -440,7 +440,7 @@ func TestEth_State_GetStorageAt(t *testing.T) {
 				},
 			},
 			address:      addr0,
-			index:        hash1,
+			slot:         hash1,
 			blockNumber:  nil,
 			blockHash:    nil,
 			succeeded:    true,
@@ -454,7 +454,7 @@ func TestEth_State_GetStorageAt(t *testing.T) {
 				},
 			},
 			address:      addr0,
-			index:        hash2,
+			slot:         hash2,
 			blockNumber:  &blockNumberLatest,
 			blockHash:    nil,
 			succeeded:    true,
@@ -468,7 +468,7 @@ func TestEth_State_GetStorageAt(t *testing.T) {
 				},
 			},
 			address:      addr0,
-			index:        hash2,
+			slot:         hash2,
 			blockNumber:  &blockNumberLatest,
 			succeeded:    true,
 			expectedData: argBytesPtr(types.Hash{}.Bytes()),
@@ -481,7 +481,7 @@ func TestEth_State_GetStorageAt(t *testing.T) {
 				},
 			},
 			address:      addr0,
-			index:        hash2,
+			slot:         hash2,
 			blockNumber:  &blockNumberInvalid,
 			blockHash:    nil,
 			succeeded:    false,
@@ -495,7 +495,7 @@ func TestEth_State_GetStorageAt(t *testing.T) {
 				},
 			},
 			address:      addr0,
-			index:        hash1,
+			slot:         hash1,
 			blockNumber:  &blockNumberZero,
 			blockHash:    nil,
 			succeeded:    true,
@@ -509,7 +509,7 @@ func TestEth_State_GetStorageAt(t *testing.T) {
 				},
 			},
 			address:      addr0,
-			index:        hash1,
+			slot:         hash1,
 			blockNumber:  nil,
 			blockHash:    &types.Hash{},
 			succeeded:    true,
@@ -523,7 +523,7 @@ func TestEth_State_GetStorageAt(t *testing.T) {
 				},
 			},
 			address:      addr0,
-			index:        hash2,
+			slot:         hash2,
 			blockNumber:  nil,
 			blockHash:    &hash1,
 			succeeded:    false,
@@ -537,7 +537,7 @@ func TestEth_State_GetStorageAt(t *testing.T) {
 				},
 			},
 			address:      addr0,
-			index:        hash1,
+			slot:         hash1,
 			blockNumber:  &blockNumberEarliest,
 			blockHash:    nil,
 			succeeded:    true,
@@ -570,7 +570,7 @@ func TestEth_State_GetStorageAt(t *testing.T) {
 				BlockHash:   tt.blockHash,
 			}
 
-			res, err := eth.GetStorageAt(tt.address, tt.index, filter)
+			res, err := eth.GetStorageAt(tt.address, tt.slot, filter)
 			if tt.succeeded {
 				assert.NoError(t, err)
 				assert.NotNil(t, res)

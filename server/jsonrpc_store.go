@@ -101,7 +101,7 @@ func (j *jsonRPCStore) GetStorage(stateRoot types.Hash, addr types.Address, slot
 		return types.Hash{}, err
 	}
 
-	return snap.GetStorage(addr, account.Root, slot)
+	return snap.GetStorage(addr, account.StorageRoot, slot)
 }
 
 // GetForksInTime returns the active forks at the given block height

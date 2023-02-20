@@ -757,7 +757,7 @@ func makeAccounts(size int) (addresses [][20]byte, accounts [][]byte) {
 		random.Read(balanceBytes)
 		balance := new(big.Int).SetBytes(balanceBytes)
 		// account
-		acc := &stypes.Account{Nonce: nonce, Balance: balance, Root: root, CodeHash: code}
+		acc := &stypes.Account{Nonce: nonce, Balance: balance, StorageRoot: root, CodeHash: code}
 		// marshal
 		ar := accountArenaPool.Get()
 		vv := acc.MarshalWith(ar)

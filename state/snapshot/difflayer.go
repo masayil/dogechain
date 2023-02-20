@@ -217,10 +217,10 @@ func (dl *diffLayer) Account(hash types.Hash) (*stypes.Account, error) {
 	balance := new(big.Int).Set(slimAccount.Balance)
 
 	return &stypes.Account{
-		Nonce:    slimAccount.Nonce,
-		Balance:  balance,
-		Root:     types.BytesToHash(slimAccount.Root),
-		CodeHash: slimAccount.CodeHash,
+		Nonce:       slimAccount.Nonce,
+		Balance:     balance,
+		StorageRoot: types.BytesToHash(slimAccount.Root),
+		CodeHash:    slimAccount.CodeHash,
 	}, nil
 }
 

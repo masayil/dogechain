@@ -25,7 +25,7 @@ var (
 
 // snapshotReader is snapshot read only APIs
 type snapshotReader interface {
-	GetStorage(addr types.Address, root types.Hash, key types.Hash) (types.Hash, error)
+	GetStorage(addr types.Address, storageRoot types.Hash, key types.Hash) (types.Hash, error)
 	GetAccount(addr types.Address) (*stypes.Account, error)
 	GetCode(hash types.Hash) ([]byte, bool)
 }
@@ -157,8 +157,8 @@ func (txn *Txn) getDeletedStateObject(addr types.Address) *StateObject {
 
 			account = acc
 
-			if account.Root == types.ZeroHash {
-				account.Root = types.EmptyRootHash
+			if account.StorageRoot == types.ZeroHash {
+				account.StorageRoot = types.EmptyRootHash
 			}
 
 			if len(account.CodeHash) == 0 {
@@ -210,7 +210,7 @@ func (txn *Txn) upsertAccount(addr types.Address, create bool, f func(object *St
 		txn.snapAccounts[object.addrHash] = snapshot.SlimAccountRLP(
 			object.Account.Nonce,
 			object.Account.Balance,
-			object.Account.Root,
+			object.Account.StorageRoot,
 			object.Account.CodeHash,
 		)
 	}
@@ -592,7 +592,7 @@ func (txn *Txn) getStorageCommitted(obj *StateObject, slot types.Hash) (types.Ha
 		}
 	}
 
-	return txn.snapshot.GetStorage(obj.address, obj.Account.Root, slot)
+	return txn.snapshot.GetStorage(obj.address, obj.Account.StorageRoot, slot)
 }
 
 // GetCommittedState returns the state of the address in the trie
@@ -730,7 +730,7 @@ func (txn *Txn) Commit(deleteEmptyObjects bool) []*stypes.Object {
 			Nonce:     a.Account.Nonce,
 			Address:   addr,
 			Balance:   a.Account.Balance,
-			Root:      a.Account.Root,
+			Root:      a.Account.StorageRoot,
 			CodeHash:  types.BytesToHash(a.Account.CodeHash),
 			DirtyCode: a.DirtyCode,
 			Code:      a.Code,

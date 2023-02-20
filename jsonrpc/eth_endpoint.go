@@ -414,7 +414,7 @@ func (e *Eth) GetTransactionReceipt(hash types.Hash) (interface{}, error) {
 // GetStorageAt returns the contract storage at the index position
 func (e *Eth) GetStorageAt(
 	address types.Address,
-	index types.Hash,
+	slot types.Hash,
 	filter BlockNumberOrHash,
 ) (interface{}, error) {
 	e.metrics.EthAPICounterInc(EthGetStorageAtLabel)
@@ -435,7 +435,7 @@ func (e *Eth) GetStorageAt(
 	}
 
 	// Get the storage for the passed in location
-	result, err := e.store.GetStorage(header.StateRoot, address, index)
+	result, err := e.store.GetStorage(header.StateRoot, address, slot)
 	if err != nil {
 		if errors.Is(err, ErrStateNotFound) {
 			return argBytesPtr(result.Bytes()), nil

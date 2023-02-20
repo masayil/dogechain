@@ -130,10 +130,10 @@ func (s *Snapshot) Commit(objs []*stypes.Object) (state.Snapshot, []byte, error)
 				deleteCount++
 			} else {
 				account := stypes.Account{
-					Balance:  obj.Balance,
-					Nonce:    obj.Nonce,
-					CodeHash: obj.CodeHash.Bytes(),
-					Root:     obj.Root, // old root
+					Balance:     obj.Balance,
+					Nonce:       obj.Nonce,
+					CodeHash:    obj.CodeHash.Bytes(),
+					StorageRoot: obj.Root, // old root
 				}
 
 				if len(obj.Storage) != 0 {
@@ -179,10 +179,10 @@ func (s *Snapshot) Commit(objs []*stypes.Object) (state.Snapshot, []byte, error)
 					// end observe account hash time
 					observe()
 
-					account.Root = types.BytesToHash(accountStateRoot)
+					account.StorageRoot = types.BytesToHash(accountStateRoot)
 
 					// update object state root, so that we could use it later
-					obj.Root = account.Root
+					obj.Root = account.StorageRoot
 				}
 
 				if obj.DirtyCode {

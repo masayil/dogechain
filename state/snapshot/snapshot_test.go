@@ -40,10 +40,10 @@ func randomAccount() []byte {
 	root := randomHash()
 
 	a := stypes.Account{
-		Balance:  big.NewInt(rand.Int63()),
-		Nonce:    rand.Uint64(),
-		Root:     root,
-		CodeHash: types.EmptyRootHash.Bytes(),
+		Balance:     big.NewInt(rand.Int63()),
+		Nonce:       rand.Uint64(),
+		StorageRoot: root,
+		CodeHash:    types.EmptyRootHash.Bytes(),
 	}
 
 	data, _ := rlp.EncodeToBytes(a)

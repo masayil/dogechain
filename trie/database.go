@@ -834,8 +834,8 @@ func (db *Database) Update(nodes *MergedNodeSet) error {
 				return err
 			}
 
-			if account.Root != types.EmptyRootHash {
-				db.reference(account.Root, n.parent)
+			if account.StorageRoot != types.EmptyRootHash {
+				db.reference(account.StorageRoot, n.parent)
 			}
 		}
 	}

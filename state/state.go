@@ -49,8 +49,8 @@ func newStateObject(address types.Address, account *stypes.Account) *StateObject
 		account.CodeHash = emptyCodeHash
 	}
 
-	if account.Root == (types.Hash{}) {
-		account.Root = emptyStateHash
+	if account.StorageRoot == (types.Hash{}) {
+		account.StorageRoot = emptyStateHash
 	}
 
 	return stateObjectWithAddress(address, account)
