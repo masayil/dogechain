@@ -173,7 +173,7 @@ func (txn *Txn) getDeletedStateObject(addr types.Address) *StateObject {
 func (txn *Txn) upsertAccount(addr types.Address, create bool, f func(object *StateObject)) {
 	object, exists := txn.getStateObject(addr)
 	if !exists && create {
-		object = newStateObject(addr, &stypes.Account{})
+		object = newStateObject(addr, nil)
 	}
 
 	// run the callback to modify the account
@@ -615,7 +615,7 @@ func (txn *Txn) CreateAccount(addr types.Address) {
 	prev := txn.getDeletedStateObject(addr)
 
 	var prevdesctruct bool
-	if txn.snap != nil {
+	if txn.snap != nil && prev != nil {
 		// destruct object when already deleted
 		_, prevdesctruct = txn.snapDestructs[prev.addrHash]
 		if !prevdesctruct {
@@ -623,7 +623,7 @@ func (txn *Txn) CreateAccount(addr types.Address) {
 		}
 	}
 
-	obj := newStateObject(addr, &stypes.Account{})
+	obj := newStateObject(addr, nil)
 
 	if prev != nil && !prev.Deleted {
 		obj.Account.Balance.SetBytes(prev.Account.Balance.Bytes())

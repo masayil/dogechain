@@ -41,6 +41,10 @@ type StateObject struct {
 
 // newStateObject create a new state object
 func newStateObject(address types.Address, account *stypes.Account) *StateObject {
+	if account == nil {
+		account = new(stypes.Account)
+	}
+
 	if account.Balance == nil {
 		account.Balance = new(big.Int)
 	}
