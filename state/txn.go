@@ -537,6 +537,35 @@ func (txn *Txn) GetRefund() uint64 {
 	return data.(uint64)
 }
 
+func GetCachedCommittedStorage(
+	cachedSnap snapshot.Snapshot,
+	addrHash types.Hash,
+	slot types.Hash,
+) (found bool, value types.Hash, err error) {
+	// hash slot
+	enc, err := cachedSnap.Storage(addrHash, crypto.Keccak256Hash(slot.Bytes()))
+	if err != nil {
+		return false, types.Hash{}, err
+	} else if len(enc) > 0 {
+		// The storage value is rlp encoded
+		p := fastrlp.Parser{}
+
+		v, err := p.Parse(enc)
+		if err != nil {
+			return false, types.Hash{}, err
+		}
+
+		res := []byte{}
+		if res, err = v.GetBytes(res[:0]); err != nil {
+			return false, types.Hash{}, err
+		}
+
+		return true, types.BytesToHash(res), nil
+	}
+
+	return false, types.Hash{}, nil
+}
+
 func (txn *Txn) getStorageCommitted(obj *StateObject, slot types.Hash) (types.Hash, error) {
 	// query from storage first
 	if txn.snap != nil {
@@ -549,6 +578,13 @@ func (txn *Txn) getStorageCommitted(obj *StateObject, slot types.Hash) (types.Ha
 		//   2) we don't have new values, and can deliver empty response back
 		if _, destructed := txn.snapDestructs[addrHash]; destructed {
 			return types.Hash{}, nil
+		}
+
+		found, value, err := GetCachedCommittedStorage(txn.snap, addrHash, slot)
+		if err != nil {
+			return value, err
+		} else if found {
+			return value, nil
 		}
 
 		// hash slot

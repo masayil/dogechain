@@ -285,6 +285,7 @@ func (s *Server) setupTxpool() error {
 		err    error
 		config = s.config
 		hub    = &txpoolHub{
+			snaps:      s.snaps,
 			state:      s.state,
 			Blockchain: s.blockchain,
 		}
@@ -580,12 +581,13 @@ func (s *Server) restoreChain() error {
 }
 
 type txpoolHub struct {
+	snaps *snapshot.Tree
 	state state.State
 	*blockchain.Blockchain
 }
 
 func (t *txpoolHub) GetNonce(root types.Hash, addr types.Address) uint64 {
-	account, err := getAccountImpl(t.state, root, addr)
+	account, err := getCommittedAccount(t.snaps, t.state, root, addr)
 	if err != nil {
 		return 0
 	}
@@ -594,7 +596,7 @@ func (t *txpoolHub) GetNonce(root types.Hash, addr types.Address) uint64 {
 }
 
 func (t *txpoolHub) GetBalance(root types.Hash, addr types.Address) (*big.Int, error) {
-	account, err := getAccountImpl(t.state, root, addr)
+	account, err := getCommittedAccount(t.snaps, t.state, root, addr)
 	if err != nil {
 		if errors.Is(err, jsonrpc.ErrStateNotFound) {
 			// not exists, stop error propagation
@@ -710,6 +712,7 @@ func (s *Server) setupConsensus() error {
 // setupJSONRCP sets up the JSONRPC server, using the set configuration
 func (s *Server) setupJSONRPC() error {
 	hub := NewJSONRPCStore(
+		s.snaps,
 		s.state,
 		s.blockchain,
 		s.restoreProgression,
@@ -757,6 +760,7 @@ func (s *Server) setupGraphQL() error {
 	}
 
 	hub := NewJSONRPCStore(
+		s.snaps,
 		s.state,
 		s.blockchain,
 		s.restoreProgression,
@@ -1029,14 +1033,35 @@ func createDir(path string) error {
 	return nil
 }
 
-// getAccountImpl is used for fetching account state from both TxPool and JSON-RPC
-func getAccountImpl(state state.State, root types.Hash, addr types.Address) (*stypes.Account, error) {
-	snap, err := state.NewSnapshotAt(root)
-	if err != nil {
-		return nil, fmt.Errorf("unable to get snapshot for root '%s': %w", root, err)
+func addressHash(addr types.Address) types.Hash {
+	return crypto.Keccak256Hash(addr.Bytes())
+}
+
+// getCommittedAccount is used for fetching (cached) account state from both TxPool and JSON-RPC
+func getCommittedAccount(
+	snaps *snapshot.Tree,
+	state state.State,
+	stateRoot types.Hash,
+	addr types.Address,
+) (*stypes.Account, error) {
+	if snaps != nil { // avoid crash
+		cachedSnap := snaps.Snapshot(stateRoot)
+		if cachedSnap != nil {
+			account, err := cachedSnap.Account(addressHash(addr))
+			if err != nil {
+				return nil, err
+			} else if account != nil {
+				return account, nil
+			}
+		}
 	}
 
-	account, err := snap.GetAccount(addr)
+	storeSnap, err := state.NewSnapshotAt(stateRoot)
+	if err != nil {
+		return nil, fmt.Errorf("unable to get snapshot for root '%s': %w", stateRoot, err)
+	}
+
+	account, err := storeSnap.GetAccount(addr)
 	if err != nil {
 		return nil, err
 	} else if account == nil {
@@ -1044,4 +1069,40 @@ func getAccountImpl(state state.State, root types.Hash, addr types.Address) (*st
 	}
 
 	return account, nil
+}
+
+// getCommittedStorage is used for fetching (cached) storage from JSON-RPC
+func getCommittedStorage(
+	snaps *snapshot.Tree,
+	stateDB state.State,
+	stateRoot types.Hash,
+	addr types.Address,
+	slot types.Hash,
+) (types.Hash, error) {
+	if snaps != nil { // query cached snapshot
+		cachedSnap := snaps.Snapshot(stateRoot)
+		if cachedSnap != nil {
+			// shortcut for the storage
+			found, value, err := state.GetCachedCommittedStorage(cachedSnap, addressHash(addr), slot)
+			if err != nil {
+				return value, err
+			} else if found {
+				return value, nil
+			}
+		}
+	}
+
+	// get account at state root, so as to get the correct storage root
+	account, err := getCommittedAccount(snaps, stateDB, stateRoot, addr)
+	if err != nil {
+		return types.Hash{}, err
+	}
+
+	// make a snapshot at root
+	storeSnap, err := stateDB.NewSnapshotAt(stateRoot)
+	if err != nil {
+		return types.Hash{}, err
+	}
+
+	return storeSnap.GetStorage(addr, account.StorageRoot, slot)
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/dogechain-lab/dogechain/network"
 	"github.com/dogechain-lab/dogechain/state"
 	"github.com/dogechain-lab/dogechain/state/runtime"
+	"github.com/dogechain-lab/dogechain/state/snapshot"
 	"github.com/dogechain-lab/dogechain/state/stypes"
 	"github.com/dogechain-lab/dogechain/txpool"
 	"github.com/dogechain-lab/dogechain/types"
@@ -27,11 +28,13 @@ type jsonRPCStore struct {
 	consensus consensus.Consensus
 	server    network.Server
 	state     state.State
+	snaps     *snapshot.Tree
 
 	metrics *JSONRPCStoreMetrics
 }
 
 func NewJSONRPCStore(
+	snaps *snapshot.Tree,
 	state state.State,
 	blockchain *blockchain.Blockchain,
 	restoreProgression *progress.ProgressionWrapper,
@@ -53,6 +56,7 @@ func NewJSONRPCStore(
 		consensus:          consensus,
 		server:             network,
 		state:              state,
+		snaps:              snaps,
 		metrics:            metrics,
 	}
 }
@@ -84,24 +88,13 @@ func (j *jsonRPCStore) GetPendingTx(txHash types.Hash) (*types.Transaction, bool
 func (j *jsonRPCStore) GetAccount(stateRoot types.Hash, addr types.Address) (*stypes.Account, error) {
 	j.metrics.GetAccountInc()
 
-	return getAccountImpl(j.state, stateRoot, addr)
+	return getCommittedAccount(j.snaps, j.state, stateRoot, addr)
 }
 
 func (j *jsonRPCStore) GetStorage(stateRoot types.Hash, addr types.Address, slot types.Hash) (types.Hash, error) {
 	j.metrics.GetStorageInc()
 
-	account, err := getAccountImpl(j.state, stateRoot, addr)
-	if err != nil {
-		return types.Hash{}, err
-	}
-
-	// make a snapshot at root
-	snap, err := j.state.NewSnapshotAt(stateRoot)
-	if err != nil {
-		return types.Hash{}, err
-	}
-
-	return snap.GetStorage(addr, account.StorageRoot, slot)
+	return getCommittedStorage(j.snaps, j.state, stateRoot, addr, slot)
 }
 
 // GetForksInTime returns the active forks at the given block height
@@ -115,11 +108,12 @@ func (j *jsonRPCStore) GetForksInTime(blockNumber uint64) chain.ForksInTime {
 func (j *jsonRPCStore) GetCode(root types.Hash, addr types.Address) ([]byte, error) {
 	j.metrics.GetCodeInc()
 
-	account, err := getAccountImpl(j.state, root, addr)
+	account, err := getCommittedAccount(j.snaps, j.state, root, addr)
 	if err != nil {
 		return nil, err
 	}
 
+	// no need cache?
 	code, ok := j.state.GetCode(types.BytesToHash(account.CodeHash))
 	if !ok {
 		return nil, fmt.Errorf("unable to fetch code")
