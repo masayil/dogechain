@@ -1,6 +1,7 @@
 package state
 
 import (
+	"bytes"
 	"math/big"
 
 	"github.com/dogechain-lab/dogechain/chain"
@@ -723,6 +724,10 @@ func (txn *Txn) Commit(deleteEmptyObjects bool) []*stypes.Object {
 
 		addr := types.BytesToAddress(k)
 
+		// for storage value marshaling
+		storeAr := fastrlp.DefaultArenaPool.Get()
+		defer fastrlp.DefaultArenaPool.Put(storeAr)
+
 		obj := &stypes.Object{
 			Nonce:     a.Account.Nonce,
 			Address:   addr,
@@ -748,6 +753,7 @@ func (txn *Txn) Commit(deleteEmptyObjects bool) []*stypes.Object {
 			}
 		} else {
 			if a.Txn != nil { // if it has a trie, we need to iterate it
+
 				a.Txn.Root().Walk(func(k []byte, v interface{}) bool {
 					store := &stypes.StorageObject{Key: k}
 					// current key is slot, we need slot hash
@@ -756,7 +762,10 @@ func (txn *Txn) Commit(deleteEmptyObjects bool) []*stypes.Object {
 					if v == nil {
 						store.Deleted = true
 					} else {
-						store.Val = v.([]byte) //nolint:forcetypeassert
+						// rlp marshal value here, since snapshot use the same encoding rule.
+						//nolint:forcetypeassert
+						vv := storeAr.NewBytes(bytes.TrimLeft(v.([]byte), "\x00"))
+						store.Val = vv.MarshalTo(nil)
 					}
 
 					// update snapshots storage value

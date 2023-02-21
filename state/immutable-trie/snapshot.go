@@ -1,7 +1,6 @@
 package itrie
 
 import (
-	"bytes"
 	"fmt"
 
 	"github.com/dogechain-lab/dogechain/crypto"
@@ -116,9 +115,6 @@ func (s *Snapshot) Commit(objs []*stypes.Object) (state.Snapshot, []byte, error)
 		arena := fastrlp.DefaultArenaPool.Get()
 		defer fastrlp.DefaultArenaPool.Put(arena)
 
-		ar1 := fastrlp.DefaultArenaPool.Get()
-		defer fastrlp.DefaultArenaPool.Put(ar1)
-
 		for _, obj := range objs {
 			if obj.Deleted {
 				// address hash
@@ -160,8 +156,7 @@ func (s *Snapshot) Commit(objs []*stypes.Object) (state.Snapshot, []byte, error)
 
 							deleteCount++
 						} else {
-							vv := ar1.NewBytes(bytes.TrimLeft(entry.Val, "\x00"))
-							err := localTxn.Insert(k, vv.MarshalTo(nil))
+							err := localTxn.Insert(k, entry.Val)
 							if err != nil {
 								return err
 							}
