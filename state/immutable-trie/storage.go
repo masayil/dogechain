@@ -82,11 +82,13 @@ func decodeNode(v *fastrlp.Value) (Node, error) {
 	case 17:
 		// full node
 		nc := nodePool.GetFullNode()
+
 		for i := 0; i < 16; i++ {
 			if v.Get(i).Type() == fastrlp.TypeBytes && len(v.Get(i).Raw()) == 0 {
 				// empty
 				continue
 			}
+
 			nc.children[i], err = decodeNode(v.Get(i))
 			if err != nil {
 				return nil, err
@@ -96,6 +98,7 @@ func decodeNode(v *fastrlp.Value) (Node, error) {
 		if v.Get(16).Type() != fastrlp.TypeBytes {
 			return nil, fmt.Errorf("full node value expected to be bytes")
 		}
+
 		if len(v.Get(16).Raw()) != 0 {
 			vv := nodePool.GetValueNode()
 			vv.buf = append(vv.buf[0:0], v.Get(16).Raw()...)
