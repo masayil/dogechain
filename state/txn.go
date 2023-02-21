@@ -643,15 +643,6 @@ func (txn *Txn) CleanDeleteObjects(deleteEmptyObjects bool) {
 		}
 		if a.Suicide || a.Empty() && deleteEmptyObjects {
 			remove = append(remove, k)
-
-			// delete it from snapshot too
-			if txn.snap != nil {
-				// We need to maintain account deletions explicitly (will remain set indefinitely)
-				txn.snapDestructs[a.addrHash] = struct{}{}
-				// Clear out any previously updated account and storage data (may be recreated via a resurrect)
-				delete(txn.snapAccounts, a.addrHash)
-				delete(txn.snapStorage, a.addrHash)
-			}
 		}
 
 		return false
@@ -708,6 +699,10 @@ func (txn *Txn) Commit(deleteEmptyObjects bool) []*stypes.Object {
 		if a.Deleted {
 			obj.Deleted = true
 
+			// If state snapshotting is active, also mark the destruction there.
+			// Note, we can't do this only at the end of a block because multiple
+			// transactions within the same block might self destruct and then
+			// resurrect an account; but the snapshotter needs both events.
 			if txn.snap != nil {
 				// We need to maintain account deletions explicitly (will remain set indefinitely)
 				txn.snapDestructs[a.addrHash] = struct{}{}
@@ -724,21 +719,22 @@ func (txn *Txn) Commit(deleteEmptyObjects bool) []*stypes.Object {
 
 					if v == nil {
 						store.Deleted = true
-						// remove snapshots storage value
-						if txn.snap != nil {
-							delete(txn.snapStorage[a.addrHash], storeHash)
-						}
 					} else {
 						store.Val = v.([]byte) //nolint:forcetypeassert
-						// update snapshots storage value
-						if txn.snap != nil {
-							// create map when not exists
-							if _, ok := txn.snapStorage[a.addrHash]; !ok {
-								txn.snapStorage[a.addrHash] = make(map[types.Hash][]byte)
-							}
-							txn.snapStorage[a.addrHash][storeHash] = store.Val
-						}
 					}
+
+					// update snapshots storage value
+					if txn.snap != nil {
+						var storage map[types.Hash][]byte
+						// create map when not exists
+						if storage = txn.snapStorage[a.addrHash]; storage == nil {
+							storage = make(map[types.Hash][]byte)
+							txn.snapStorage[a.addrHash] = storage
+						}
+						// update value. v will be nil if it's deleted
+						storage[storeHash] = store.Val
+					}
+
 					obj.Storage = append(obj.Storage, store)
 
 					return false
