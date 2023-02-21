@@ -480,7 +480,6 @@ func (txn *Txn) GetCode(addr types.Address) []byte {
 		return object.Code
 	}
 
-	// TODO: handle error
 	code, _ := txn.snapshot.GetCode(types.BytesToHash(object.Account.CodeHash))
 
 	return code
@@ -576,6 +575,7 @@ func (txn *Txn) getStorageCommitted(obj *StateObject, slot types.Hash) (types.Ha
 		if err != nil {
 			return types.Hash{}, err
 		} else if len(enc) > 0 {
+			// The storage value is rlp encoded
 			p := fastrlp.Parser{}
 
 			v, err := p.Parse(enc)
@@ -614,8 +614,6 @@ func (txn *Txn) TouchAccount(addr types.Address) {
 	})
 }
 
-// TODO, check panics with this ones
-
 func (txn *Txn) Exist(addr types.Address) bool {
 	_, exists := txn.getStateObject(addr)
 
@@ -646,11 +644,7 @@ func (txn *Txn) CreateAccount(addr types.Address) {
 
 	obj := newStateObject(addr, &stypes.Account{})
 
-	if prev == nil || prev.Deleted {
-		// TODO: journal CreateObjectChange
-		if txn.snap != nil {
-		}
-	} else {
+	if prev != nil && !prev.Deleted {
 		obj.Account.Balance.SetBytes(prev.Account.Balance.Bytes())
 	}
 

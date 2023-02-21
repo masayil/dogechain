@@ -50,9 +50,8 @@ func decodeNode(v *fastrlp.Value) (Node, error) {
 
 	var err error
 
-	// TODO remove this once 1.0.4 of ifshort is merged in golangci-lint
-	ll := v.Elems() //nolint:ifshort
-	if ll == 2 {
+	switch v.Elems() {
+	case 2:
 		key := v.Get(0)
 		if key.Type() != fastrlp.TypeBytes {
 			return nil, fmt.Errorf("short key expected to be bytes")
@@ -80,7 +79,7 @@ func decodeNode(v *fastrlp.Value) (Node, error) {
 		}
 
 		return nc, nil
-	} else if ll == 17 {
+	case 17:
 		// full node
 		nc := nodePool.GetFullNode()
 		for i := 0; i < 16; i++ {

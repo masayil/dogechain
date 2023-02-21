@@ -126,7 +126,7 @@ func (p *Precompiled) Run(c *runtime.Contract, _ runtime.Host, config *chain.For
 var zeroPadding = make([]byte, 64)
 
 func (p *Precompiled) leftPad(buf []byte, n int) []byte {
-	// TODO, avoid buffer allocation
+	// avoid buffer allocation
 	l := len(buf)
 	if l > n {
 		return buf
