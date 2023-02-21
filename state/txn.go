@@ -34,7 +34,7 @@ type snapshotReader interface {
 type Txn struct {
 	snapshot  snapshotReader
 	snapshots []*iradix.Tree
-	txn       *iradix.Txn
+	txn       *iradix.Txn // current radix trie transaction
 
 	// for caching world state
 	snap          snapshot.Snapshot
@@ -43,9 +43,6 @@ type Txn struct {
 	// live snapshot storages map. [accountHash]map[slotHash]hashValue
 	// keep the structrue same with persistence layer
 	snapStorage map[types.Hash]map[types.Hash][]byte
-
-	// This map holds 'live' objects, which will get modified while processing a state transition.
-	stateObjects map[types.Address]*StateObject
 }
 
 func NewTxn(snapshot Snapshot) *Txn {
@@ -56,10 +53,9 @@ func newTxn(snapshot snapshotReader) *Txn {
 	i := iradix.New()
 
 	return &Txn{
-		snapshot:     snapshot,
-		snapshots:    []*iradix.Tree{},
-		txn:          i.Txn(),
-		stateObjects: make(map[types.Address]*StateObject),
+		snapshot:  snapshot,
+		snapshots: []*iradix.Tree{},
+		txn:       i.Txn(),
 	}
 }
 
@@ -120,10 +116,6 @@ func (txn *Txn) GetAccount(addr types.Address) (*stypes.Account, bool) {
 	return object.Account, true
 }
 
-func (txn *Txn) setStateObject(object *StateObject) {
-	txn.stateObjects[object.address] = object
-}
-
 func (txn *Txn) getStateObject(addr types.Address) (*StateObject, bool) {
 	if obj := txn.getDeletedStateObject(addr); obj != nil && !obj.Deleted {
 		return obj, true
@@ -133,10 +125,6 @@ func (txn *Txn) getStateObject(addr types.Address) (*StateObject, bool) {
 }
 
 func (txn *Txn) getDeletedStateObject(addr types.Address) *StateObject {
-	// // Prefer live objects if any is available
-	// if obj := txn.stateObjects[addr]; obj != nil {
-	// 	return obj
-	// }
 	// Try to get state from radix tree which holds transient states during block processing first
 	if val, exists := txn.txn.Get(addr.Bytes()); exists {
 		obj := val.(*StateObject) //nolint:forcetypeassert
@@ -179,11 +167,7 @@ func (txn *Txn) getDeletedStateObject(addr types.Address) *StateObject {
 		}
 	}
 
-	// Insert into the live set
-	obj := stateObjectWithAddress(addr, account.Copy())
-	txn.setStateObject(obj)
-
-	return obj
+	return stateObjectWithAddress(addr, account.Copy())
 }
 
 func (txn *Txn) upsertAccount(addr types.Address, create bool, f func(object *StateObject)) {
@@ -196,10 +180,7 @@ func (txn *Txn) upsertAccount(addr types.Address, create bool, f func(object *St
 	f(object)
 
 	if object != nil {
-		if _, didUpdate := txn.txn.Insert(addr.Bytes(), object); didUpdate {
-			// update live object
-			txn.setStateObject(object)
-		}
+		txn.txn.Insert(addr.Bytes(), object)
 	}
 
 	// If state snapshotting is active, cache the data til commit. Note, this
@@ -649,10 +630,7 @@ func (txn *Txn) CreateAccount(addr types.Address) {
 	}
 
 	// insert it to itrie
-	if _, didUpdate := txn.txn.Insert(addr.Bytes(), obj); didUpdate {
-		// cache object after balance update
-		txn.setStateObject(obj)
-	}
+	txn.txn.Insert(addr.Bytes(), obj)
 }
 
 func (txn *Txn) CleanDeleteObjects(deleteEmptyObjects bool) {
@@ -694,8 +672,6 @@ func (txn *Txn) CleanDeleteObjects(deleteEmptyObjects bool) {
 		obj2 := obj.Copy()
 		obj2.Deleted = true
 		txn.txn.Insert(k, obj2)
-		// update live object
-		txn.setStateObject(obj2)
 	}
 
 	// delete refunds
