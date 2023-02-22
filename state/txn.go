@@ -203,7 +203,7 @@ func (txn *Txn) AddSealingReward(addr types.Address, balance *big.Int) {
 		if object.Suicide {
 			// create a only balance object if it suidcide
 			*object = *newStateObject(addr, &stypes.Account{
-				Balance: new(big.Int).Set(balance),
+				Balance: new(big.Int).SetBytes(balance.Bytes()),
 			})
 		} else {
 			// update a new value to avoid overwrite
@@ -214,10 +214,7 @@ func (txn *Txn) AddSealingReward(addr types.Address, balance *big.Int) {
 
 // AddBalance adds balance
 func (txn *Txn) AddBalance(addr types.Address, balance *big.Int) {
-	if balance.Sign() == 0 {
-		return
-	}
-
+	// update the account even it add 0
 	txn.upsertAccount(addr, true, func(object *StateObject) {
 		// update a new value to avoid overwrite
 		object.Account.Balance = new(big.Int).Add(object.Account.Balance, balance)
