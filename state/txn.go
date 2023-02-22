@@ -247,7 +247,7 @@ func (txn *Txn) SubBalance(addr types.Address, amount *big.Int) error {
 // SetBalance sets the balance
 func (txn *Txn) SetBalance(addr types.Address, balance *big.Int) {
 	txn.upsertAccount(addr, true, func(object *StateObject) {
-		object.Account.Balance = balance
+		object.Account.Balance.SetBytes(balance.Bytes())
 	})
 }
 
@@ -593,27 +593,6 @@ func (txn *Txn) getStorageCommitted(obj *StateObject, slot types.Hash) (types.Ha
 			return value, err
 		} else if found {
 			return value, nil
-		}
-
-		// hash slot
-		enc, err := txn.snap.Storage(addrHash, crypto.Keccak256Hash(slot.Bytes()))
-		if err != nil {
-			return types.Hash{}, err
-		} else if len(enc) > 0 {
-			// The storage value is rlp encoded
-			p := fastrlp.Parser{}
-
-			v, err := p.Parse(enc)
-			if err != nil {
-				return types.Hash{}, err
-			}
-
-			res := []byte{}
-			if res, err = v.GetBytes(res[:0]); err != nil {
-				return types.Hash{}, err
-			}
-
-			return types.BytesToHash(res), nil
 		}
 	}
 
