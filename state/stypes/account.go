@@ -79,10 +79,10 @@ func (a *Account) String() string {
 func (a *Account) Copy() *Account {
 	aa := new(Account)
 
-	if a.Balance == nil {
-		aa.Balance = new(big.Int)
-	} else {
-		aa.Balance = big.NewInt(0).SetBytes(a.Balance.Bytes())
+	aa.Balance = new(big.Int)
+
+	if a.Balance != nil {
+		aa.Balance.Set(a.Balance)
 	}
 
 	aa.Nonce = a.Nonce

@@ -203,18 +203,24 @@ func (txn *Txn) AddSealingReward(addr types.Address, balance *big.Int) {
 		if object.Suicide {
 			// create a only balance object if it suidcide
 			*object = *newStateObject(addr, &stypes.Account{
-				Balance: big.NewInt(0).SetBytes(balance.Bytes()),
+				Balance: new(big.Int).Set(balance),
 			})
 		} else {
-			object.Account.Balance.Add(object.Account.Balance, balance)
+			// update a new value to avoid overwrite
+			object.Account.Balance = new(big.Int).Add(object.Account.Balance, balance)
 		}
 	})
 }
 
 // AddBalance adds balance
 func (txn *Txn) AddBalance(addr types.Address, balance *big.Int) {
+	if balance.Sign() == 0 {
+		return
+	}
+
 	txn.upsertAccount(addr, true, func(object *StateObject) {
-		object.Account.Balance.Add(object.Account.Balance, balance)
+		// update a new value to avoid overwrite
+		object.Account.Balance = new(big.Int).Add(object.Account.Balance, balance)
 	})
 }
 
@@ -231,7 +237,8 @@ func (txn *Txn) SubBalance(addr types.Address, amount *big.Int) error {
 	}
 
 	txn.upsertAccount(addr, true, func(object *StateObject) {
-		object.Account.Balance.Sub(object.Account.Balance, amount)
+		// update a new value to avoid overwrite
+		object.Account.Balance = new(big.Int).Sub(object.Account.Balance, amount)
 	})
 
 	return nil
@@ -240,7 +247,7 @@ func (txn *Txn) SubBalance(addr types.Address, amount *big.Int) error {
 // SetBalance sets the balance
 func (txn *Txn) SetBalance(addr types.Address, balance *big.Int) {
 	txn.upsertAccount(addr, true, func(object *StateObject) {
-		object.Account.Balance.SetBytes(balance.Bytes())
+		object.Account.Balance = balance
 	})
 }
 

@@ -434,7 +434,7 @@ func (t *Transition) handleBridgeLogs(msg *types.Transaction, logs []*types.Log)
 			}
 
 			// the total one is the real amount of Withdrawn event
-			realAmount := big.NewInt(0).Add(parsedLog.Amount, parsedLog.Fee)
+			realAmount := new(big.Int).Add(parsedLog.Amount, parsedLog.Fee)
 
 			if err := t.txn.SubBalance(parsedLog.Contract, realAmount); err != nil {
 				return err

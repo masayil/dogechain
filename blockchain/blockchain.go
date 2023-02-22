@@ -119,7 +119,7 @@ func (b *Blockchain) updateGasPriceAvg(newValues []*big.Int) {
 	defer b.gpAverage.Unlock()
 
 	//	Sum the values for quick reference
-	sum := big.NewInt(0)
+	sum := new(big.Int)
 	for _, val := range newValues {
 		sum = sum.Add(sum, val)
 	}
@@ -470,7 +470,7 @@ func (b *Blockchain) writeCanonicalHeader(event *Event, h *types.Header) error {
 		return fmt.Errorf("parent difficulty not found")
 	}
 
-	newTD := big.NewInt(0).Add(parentTD, new(big.Int).SetUint64(h.Difficulty))
+	newTD := new(big.Int).Add(parentTD, new(big.Int).SetUint64(h.Difficulty))
 	if err := b.db.WriteCanonicalHeader(h, newTD); err != nil {
 		return err
 	}
@@ -502,7 +502,7 @@ func (b *Blockchain) advanceHead(newHeader *types.Header) (*big.Int, error) {
 	}
 
 	// Check if there was a parent difficulty
-	parentTD := big.NewInt(0)
+	parentTD := new(big.Int)
 
 	if newHeader.ParentHash != types.StringToHash("") {
 		td, ok := b.readTotalDifficulty(newHeader.ParentHash)
@@ -514,7 +514,7 @@ func (b *Blockchain) advanceHead(newHeader *types.Header) (*big.Int, error) {
 	}
 
 	// Calculate the new total difficulty
-	newTD := big.NewInt(0).Add(parentTD, big.NewInt(0).SetUint64(newHeader.Difficulty))
+	newTD := new(big.Int).Add(parentTD, new(big.Int).SetUint64(newHeader.Difficulty))
 	if err := b.db.WriteTotalDifficulty(newHeader.Hash, newTD); err != nil {
 		return nil, err
 	}
@@ -1219,9 +1219,9 @@ func (b *Blockchain) writeHeaderImpl(evnt *Event, header *types.Header) error {
 	// Write the difficulty
 	if err := b.db.WriteTotalDifficulty(
 		header.Hash,
-		big.NewInt(0).Add(
+		new(big.Int).Add(
 			parentTD,
-			big.NewInt(0).SetUint64(header.Difficulty),
+			new(big.Int).SetUint64(header.Difficulty),
 		),
 	); err != nil {
 		return err
@@ -1241,7 +1241,7 @@ func (b *Blockchain) writeHeaderImpl(evnt *Event, header *types.Header) error {
 	// Update the headers cache
 	b.headersCache.Add(header.Hash, header)
 
-	incomingTD := big.NewInt(0).Add(parentTD, big.NewInt(0).SetUint64(header.Difficulty))
+	incomingTD := new(big.Int).Add(parentTD, new(big.Int).SetUint64(header.Difficulty))
 	if incomingTD.Cmp(currentTD) > 0 {
 		// new block has higher difficulty, reorg the chain
 		if err := b.handleReorg(evnt, currentHeader, header); err != nil {
