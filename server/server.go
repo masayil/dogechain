@@ -160,6 +160,8 @@ func NewServer(config *Config) (*Server, error) {
 		return nil, fmt.Errorf("could not setup new logger instance, %w", err)
 	}
 
+	hclog.SetDefault(logger)
+
 	srv := &Server{
 		logger:      logger,
 		config:      config,
