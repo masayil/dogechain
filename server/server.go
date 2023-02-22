@@ -970,28 +970,6 @@ func (s *Server) journalSnapshots() {
 	}
 }
 
-// Entry is a backend configuration entry
-type Entry struct {
-	Enabled bool
-	Config  map[string]interface{}
-}
-
-// SetupDataDir sets up the dogechain data directory and sub-folders
-func SetupDataDir(dataDir string, paths []string) error {
-	if err := createDir(dataDir); err != nil {
-		return fmt.Errorf("failed to create data dir: (%s): %w", dataDir, err)
-	}
-
-	for _, path := range paths {
-		path := filepath.Join(dataDir, path)
-		if err := createDir(path); err != nil {
-			return fmt.Errorf("failed to create path: (%s): %w", path, err)
-		}
-	}
-
-	return nil
-}
-
 func (s *Server) startPrometheusServer(listenAddr *net.TCPAddr) *http.Server {
 	srv := &http.Server{
 		Addr: listenAddr.String(),
@@ -1016,22 +994,6 @@ func (s *Server) startPrometheusServer(listenAddr *net.TCPAddr) *http.Server {
 }
 
 // helper functions
-
-// createDir creates a file system directory if it doesn't exist
-func createDir(path string) error {
-	_, err := os.Stat(path)
-	if err != nil && !os.IsNotExist(err) {
-		return err
-	}
-
-	if os.IsNotExist(err) {
-		if err := os.MkdirAll(path, os.ModePerm); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
 
 func addressHash(addr types.Address) types.Hash {
 	return crypto.Keccak256Hash(addr.Bytes())
