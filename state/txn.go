@@ -722,9 +722,6 @@ func (txn *Txn) Commit(deleteEmptyObjects bool) []*stypes.Object {
 			if sobj.txn != nil { // if it has a trie, we need to iterate it
 				sobj.txn.Root().Walk(func(k []byte, v interface{}) bool {
 					store := &stypes.StorageObject{Key: k}
-					// current key is slot, we need slot hash
-					storeHash := crypto.Keccak256Hash(k)
-
 					if v == nil {
 						store.Deleted = true
 					} else {
@@ -737,8 +734,10 @@ func (txn *Txn) Commit(deleteEmptyObjects bool) []*stypes.Object {
 					// update snapshots storage value
 					if txn.snap != nil {
 						var (
-							storage  map[types.Hash][]byte
-							addrHash = sobj.AddressHash()
+							// current key is slot, we need slot hash
+							storeHash = crypto.Keccak256Hash(k)
+							storage   map[types.Hash][]byte
+							addrHash  = sobj.AddressHash()
 						)
 						// create map when not exists
 						if storage = txn.snapStorage[addrHash]; storage == nil {
