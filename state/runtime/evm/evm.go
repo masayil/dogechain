@@ -2,7 +2,6 @@ package evm
 
 import (
 	"errors"
-	"fmt"
 
 	"github.com/dogechain-lab/dogechain/chain"
 	"github.com/dogechain-lab/dogechain/state/runtime"
@@ -44,11 +43,7 @@ func (e *EVM) Run(c *runtime.Contract, host runtime.Host, config *chain.ForksInT
 
 	contract.bitmap.setCode(c.Code)
 
-	gasBefore := c.Gas
-
 	ret, err := contract.Run()
-
-	fmt.Printf("debug: run contract(%s), depth(%d), value(%s), gas(%d), gasLeft(%d)\n", c.Address, c.Depth, c.Value, gasBefore, contract.gas)
 
 	// We are probably doing this append magic to make sure that the slice doesn't have more capacity than it needs
 	var returnValue []byte

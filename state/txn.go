@@ -35,7 +35,9 @@ type snapshotReader interface {
 type Txn struct {
 	snapshot  snapshotReader
 	snapshots []*iradix.Tree
-	txn       *iradix.Txn // current radix trie transaction
+	// current radix trie transaction, caching live objects, including stateobject,
+	// log, refund
+	txn *iradix.Txn
 
 	// for caching world state
 	snap          snapshot.Snapshot
@@ -107,28 +109,18 @@ func (txn *Txn) RevertToSnapshot(id int) {
 	txn.txn = tree.Txn()
 }
 
-// GetAccount returns an account
-func (txn *Txn) GetAccount(addr types.Address) (*stypes.Account, bool) {
-	object, exists := txn.getStateObject(addr)
-	if !exists {
-		return nil, false
-	}
-
-	return object.Account, true
-}
-
-func (txn *Txn) getStateObject(addr types.Address) (*StateObject, bool) {
-	if obj := txn.getDeletedStateObject(addr); obj != nil && !obj.Deleted {
+func (txn *Txn) getStateObject(addr types.Address) (*stateObject, bool) {
+	if obj := txn.getDeletedStateObject(addr); obj != nil && !obj.deleted {
 		return obj, true
 	}
 
 	return nil, false
 }
 
-func (txn *Txn) getDeletedStateObject(addr types.Address) *StateObject {
+func (txn *Txn) getDeletedStateObject(addr types.Address) *stateObject {
 	// Try to get state from radix tree which holds transient states during block processing first
 	if val, exists := txn.txn.Get(addr.Bytes()); exists {
-		obj := val.(*StateObject) //nolint:forcetypeassert
+		obj := val.(*stateObject) //nolint:forcetypeassert
 
 		return obj.Copy()
 	}
@@ -171,7 +163,7 @@ func (txn *Txn) getDeletedStateObject(addr types.Address) *StateObject {
 	return stateObjectWithAddress(addr, account.Copy())
 }
 
-func (txn *Txn) upsertAccount(addr types.Address, create bool, f func(object *StateObject)) {
+func (txn *Txn) upsertAccount(addr types.Address, create bool, f func(object *stateObject)) {
 	object, exists := txn.getStateObject(addr)
 	if !exists && create {
 		object = newStateObject(addr, nil)
@@ -189,25 +181,24 @@ func (txn *Txn) upsertAccount(addr types.Address, create bool, f func(object *St
 	// enough to track account updates at commit time, deletions need tracking
 	// at transaction boundary level to ensure we capture state clearing.
 	if txn.snap != nil {
-		txn.snapAccounts[object.addrHash] = snapshot.SlimAccountRLP(
-			object.Account.Nonce,
-			object.Account.Balance,
-			object.Account.StorageRoot,
-			object.Account.CodeHash,
+		txn.snapAccounts[object.AddressHash()] = snapshot.SlimAccountRLP(
+			object.Nonce(),
+			object.Balance(),
+			object.StorageRoot(),
+			object.CodeHash(),
 		)
 	}
 }
 
 func (txn *Txn) AddSealingReward(addr types.Address, balance *big.Int) {
-	txn.upsertAccount(addr, true, func(object *StateObject) {
-		if object.Suicide {
+	txn.upsertAccount(addr, true, func(object *stateObject) {
+		if object.suicide {
 			// create a only balance object if it suidcide
 			*object = *newStateObject(addr, &stypes.Account{
 				Balance: new(big.Int).SetBytes(balance.Bytes()),
 			})
 		} else {
-			// update a new value to avoid overwrite
-			object.Account.Balance = new(big.Int).Add(object.Account.Balance, balance)
+			object.AddBalance(balance)
 		}
 	})
 }
@@ -215,9 +206,8 @@ func (txn *Txn) AddSealingReward(addr types.Address, balance *big.Int) {
 // AddBalance adds balance
 func (txn *Txn) AddBalance(addr types.Address, balance *big.Int) {
 	// update the account even it add 0
-	txn.upsertAccount(addr, true, func(object *StateObject) {
-		// update a new value to avoid overwrite
-		object.Account.Balance = new(big.Int).Add(object.Account.Balance, balance)
+	txn.upsertAccount(addr, true, func(object *stateObject) {
+		object.AddBalance(balance)
 	})
 }
 
@@ -233,9 +223,8 @@ func (txn *Txn) SubBalance(addr types.Address, amount *big.Int) error {
 		return runtime.ErrNotEnoughFunds
 	}
 
-	txn.upsertAccount(addr, true, func(object *StateObject) {
-		// update a new value to avoid overwrite
-		object.Account.Balance = new(big.Int).Sub(object.Account.Balance, amount)
+	txn.upsertAccount(addr, true, func(object *stateObject) {
+		object.SubBalance(amount)
 	})
 
 	return nil
@@ -243,8 +232,8 @@ func (txn *Txn) SubBalance(addr types.Address, amount *big.Int) error {
 
 // SetBalance sets the balance
 func (txn *Txn) SetBalance(addr types.Address, balance *big.Int) {
-	txn.upsertAccount(addr, true, func(object *StateObject) {
-		object.Account.Balance.SetBytes(balance.Bytes())
+	txn.upsertAccount(addr, true, func(object *stateObject) {
+		object.SetBalance(balance)
 	})
 }
 
@@ -255,7 +244,7 @@ func (txn *Txn) GetBalance(addr types.Address) *big.Int {
 		return big.NewInt(0)
 	}
 
-	return object.Account.Balance
+	return object.Balance()
 }
 
 func (txn *Txn) EmitLog(addr types.Address, topics []types.Hash, data []byte) {
@@ -381,15 +370,15 @@ func (txn *Txn) SetState(
 	key,
 	value types.Hash,
 ) {
-	txn.upsertAccount(addr, true, func(object *StateObject) {
-		if object.Txn == nil {
-			object.Txn = iradix.New().Txn()
+	txn.upsertAccount(addr, true, func(object *stateObject) {
+		if object.txn == nil {
+			object.txn = iradix.New().Txn()
 		}
 
 		if value == zeroHash {
-			object.Txn.Insert(key.Bytes(), nil)
+			object.txn.Insert(key.Bytes(), nil)
 		} else {
-			object.Txn.Insert(key.Bytes(), value.Bytes())
+			object.txn.Insert(key.Bytes(), value.Bytes())
 		}
 	})
 }
@@ -406,8 +395,8 @@ func (txn *Txn) GetState(addr types.Address, slot types.Hash) (types.Hash, error
 	// Try to get account state from radix tree first
 	// Because the latest account state should be in in-memory radix tree
 	// if account state update happened in previous transactions of same block
-	if object.Txn != nil {
-		if val, ok := object.Txn.Get(slot.Bytes()); ok {
+	if object.txn != nil {
+		if val, ok := object.txn.Get(slot.Bytes()); ok {
 			if val == nil {
 				return types.Hash{}, nil
 			}
@@ -423,15 +412,15 @@ func (txn *Txn) GetState(addr types.Address, slot types.Hash) (types.Hash, error
 
 // IncrNonce increases the nonce of the address
 func (txn *Txn) IncrNonce(addr types.Address) {
-	txn.upsertAccount(addr, true, func(object *StateObject) {
-		object.Account.Nonce++
+	txn.upsertAccount(addr, true, func(object *stateObject) {
+		object.SetNonce(object.Nonce() + 1)
 	})
 }
 
-// SetNonce reduces the balance
+// SetNonce set nonce directly
 func (txn *Txn) SetNonce(addr types.Address, nonce uint64) {
-	txn.upsertAccount(addr, true, func(object *StateObject) {
-		object.Account.Nonce = nonce
+	txn.upsertAccount(addr, true, func(object *stateObject) {
+		object.SetNonce(nonce)
 	})
 }
 
@@ -442,17 +431,15 @@ func (txn *Txn) GetNonce(addr types.Address) uint64 {
 		return 0
 	}
 
-	return object.Account.Nonce
+	return object.Nonce()
 }
 
 // Code
 
 // SetCode sets the code for an address
 func (txn *Txn) SetCode(addr types.Address, code []byte) {
-	txn.upsertAccount(addr, true, func(object *StateObject) {
-		object.Account.CodeHash = crypto.Keccak256(code)
-		object.DirtyCode = true
-		object.Code = code
+	txn.upsertAccount(addr, true, func(object *stateObject) {
+		object.SetCode(crypto.Keccak256Hash(code), code)
 	})
 }
 
@@ -462,13 +449,7 @@ func (txn *Txn) GetCode(addr types.Address) []byte {
 		return nil
 	}
 
-	if object.DirtyCode {
-		return object.Code
-	}
-
-	code, _ := txn.snapshot.GetCode(types.BytesToHash(object.Account.CodeHash))
-
-	return code
+	return object.Code(txn.snapshot)
 }
 
 func (txn *Txn) GetCodeSize(addr types.Address) int {
@@ -481,22 +462,22 @@ func (txn *Txn) GetCodeHash(addr types.Address) types.Hash {
 		return types.Hash{}
 	}
 
-	return types.BytesToHash(object.Account.CodeHash)
+	return types.BytesToHash(object.CodeHash())
 }
 
 // Suicide marks the given account as suicided
 func (txn *Txn) Suicide(addr types.Address) bool {
 	var suicided bool
 
-	txn.upsertAccount(addr, false, func(object *StateObject) {
-		if object == nil || object.Suicide {
+	txn.upsertAccount(addr, false, func(object *stateObject) {
+		if object == nil || object.suicide {
 			suicided = false
 		} else {
 			suicided = true
-			object.Suicide = true
+			object.suicide = true
 		}
 		if object != nil {
-			object.Account.Balance = new(big.Int)
+			object.SetBalance(new(big.Int))
 		}
 	})
 
@@ -507,7 +488,7 @@ func (txn *Txn) Suicide(addr types.Address) bool {
 func (txn *Txn) HasSuicided(addr types.Address) bool {
 	object, exists := txn.getStateObject(addr)
 
-	return exists && object.Suicide
+	return exists && object.suicide
 }
 
 // Refund
@@ -571,10 +552,10 @@ func GetCachedCommittedStorage(
 	return false, types.Hash{}, nil
 }
 
-func (txn *Txn) getStorageCommitted(obj *StateObject, slot types.Hash) (types.Hash, error) {
+func (txn *Txn) getStorageCommitted(obj *stateObject, slot types.Hash) (types.Hash, error) {
 	// query from storage first
 	if txn.snap != nil {
-		addrHash := obj.addrHash
+		addrHash := obj.AddressHash()
 		// If the object was destructed in *this* block (and potentially resurrected),
 		// the storage has been cleared out, and we should *not* consult the previous
 		// snapshot about any storage values. The only possible alternatives are:
@@ -593,7 +574,7 @@ func (txn *Txn) getStorageCommitted(obj *StateObject, slot types.Hash) (types.Ha
 		}
 	}
 
-	return txn.snapshot.GetStorage(obj.address, obj.Account.StorageRoot, slot)
+	return txn.snapshot.GetStorage(obj.Address(), obj.StorageRoot(), slot)
 }
 
 // GetCommittedState returns the state of the address in the trie
@@ -610,7 +591,7 @@ func (txn *Txn) GetCommittedState(addr types.Address, slot types.Hash) (types.Ha
 }
 
 func (txn *Txn) TouchAccount(addr types.Address) {
-	txn.upsertAccount(addr, true, func(obj *StateObject) {
+	txn.upsertAccount(addr, true, func(obj *stateObject) {
 
 	})
 }
@@ -635,18 +616,20 @@ func (txn *Txn) CreateAccount(addr types.Address) {
 	prev := txn.getDeletedStateObject(addr)
 
 	var prevdesctruct bool
+
 	if txn.snap != nil && prev != nil {
 		// destruct object when already deleted
-		_, prevdesctruct = txn.snapDestructs[prev.addrHash]
+		prevAddrHash := prev.AddressHash()
+		_, prevdesctruct = txn.snapDestructs[prevAddrHash]
 		if !prevdesctruct {
-			txn.snapDestructs[prev.addrHash] = struct{}{}
+			txn.snapDestructs[prevAddrHash] = struct{}{}
 		}
 	}
 
 	obj := newStateObject(addr, nil)
 
-	if prev != nil && !prev.Deleted {
-		obj.Account.Balance.SetBytes(prev.Account.Balance.Bytes())
+	if prev != nil && !prev.deleted {
+		obj.SetBalance(prev.Balance())
 	}
 
 	// insert it to itrie
@@ -657,11 +640,11 @@ func (txn *Txn) CleanDeleteObjects(deleteEmptyObjects bool) {
 	remove := [][]byte{}
 
 	txn.txn.Root().Walk(func(k []byte, v interface{}) bool {
-		a, ok := v.(*StateObject)
+		a, ok := v.(*stateObject)
 		if !ok {
 			return false
 		}
-		if a.Suicide || a.Empty() && deleteEmptyObjects {
+		if a.suicide || a.Empty() && deleteEmptyObjects {
 			remove = append(remove, k)
 		}
 
@@ -674,14 +657,14 @@ func (txn *Txn) CleanDeleteObjects(deleteEmptyObjects bool) {
 			panic("it should not happen")
 		}
 
-		obj, ok := v.(*StateObject)
+		obj, ok := v.(*stateObject)
 
 		if !ok {
 			panic("it should not happen")
 		}
 
 		obj2 := obj.Copy()
-		obj2.Deleted = true
+		obj2.deleted = true
 		txn.txn.Insert(k, obj2)
 	}
 
@@ -699,7 +682,7 @@ func (txn *Txn) Commit(deleteEmptyObjects bool) []*stypes.Object {
 	objs := []*stypes.Object{}
 
 	x.Root().Walk(func(k []byte, v interface{}) bool {
-		a, ok := v.(*StateObject)
+		sobj, ok := v.(*stateObject)
 		if !ok {
 			// We also have logs, avoid those
 			return false
@@ -712,15 +695,15 @@ func (txn *Txn) Commit(deleteEmptyObjects bool) []*stypes.Object {
 		defer fastrlp.DefaultArenaPool.Put(storeAr)
 
 		obj := &stypes.Object{
-			Nonce:     a.Account.Nonce,
+			Nonce:     sobj.Nonce(),
 			Address:   addr,
-			Balance:   a.Account.Balance,
-			Root:      a.Account.StorageRoot,
-			CodeHash:  types.BytesToHash(a.Account.CodeHash),
-			DirtyCode: a.DirtyCode,
-			Code:      a.Code,
+			Balance:   sobj.Balance(),
+			Root:      sobj.StorageRoot(),
+			CodeHash:  types.BytesToHash(sobj.CodeHash()),
+			DirtyCode: sobj.dirtyCode,
+			Code:      sobj.Code(txn.snapshot),
 		}
-		if a.Deleted {
+		if sobj.deleted {
 			obj.Deleted = true
 
 			// If state snapshotting is active, also mark the destruction there.
@@ -728,16 +711,16 @@ func (txn *Txn) Commit(deleteEmptyObjects bool) []*stypes.Object {
 			// transactions within the same block might self destruct and then
 			// resurrect an account; but the snapshotter needs both events.
 			if txn.snap != nil {
+				addrHash := sobj.AddressHash()
 				// We need to maintain account deletions explicitly (will remain set indefinitely)
-				txn.snapDestructs[a.addrHash] = struct{}{}
+				txn.snapDestructs[addrHash] = struct{}{}
 				// Clear out any previously updated data (may be recreated via a resurrect)
-				delete(txn.snapAccounts, a.addrHash)
-				delete(txn.snapStorage, a.addrHash)
+				delete(txn.snapAccounts, addrHash)
+				delete(txn.snapStorage, addrHash)
 			}
 		} else {
-			if a.Txn != nil { // if it has a trie, we need to iterate it
-
-				a.Txn.Root().Walk(func(k []byte, v interface{}) bool {
+			if sobj.txn != nil { // if it has a trie, we need to iterate it
+				sobj.txn.Root().Walk(func(k []byte, v interface{}) bool {
 					store := &stypes.StorageObject{Key: k}
 					// current key is slot, we need slot hash
 					storeHash := crypto.Keccak256Hash(k)
@@ -753,11 +736,14 @@ func (txn *Txn) Commit(deleteEmptyObjects bool) []*stypes.Object {
 
 					// update snapshots storage value
 					if txn.snap != nil {
-						var storage map[types.Hash][]byte
+						var (
+							storage  map[types.Hash][]byte
+							addrHash = sobj.AddressHash()
+						)
 						// create map when not exists
-						if storage = txn.snapStorage[a.addrHash]; storage == nil {
+						if storage = txn.snapStorage[addrHash]; storage == nil {
 							storage = make(map[types.Hash][]byte)
-							txn.snapStorage[a.addrHash] = storage
+							txn.snapStorage[addrHash] = storage
 						}
 						// update value. v will be nil if it's deleted
 						storage[storeHash] = store.Val

@@ -25,22 +25,26 @@ type Snapshot interface {
 	Commit(objs []*stypes.Object) (Snapshot, []byte, error)
 }
 
-// StateObject is the internal representation of the account
-type StateObject struct {
-	Account   *stypes.Account
-	Code      []byte
-	Suicide   bool
-	Deleted   bool
-	DirtyCode bool
-	Txn       *iradix.Txn // Set it only when there is a trie
+// stateObject is the internal representation of the account
+type stateObject struct {
+	account *stypes.Account
+	code    []byte
 
-	// for quick search
+	// status fields, open readable?
+	suicide   bool
+	deleted   bool
+	dirtyCode bool
+
+	// live object trie transaction. Set it only when there is a trie
+	txn *iradix.Txn
+
+	// for quick search, inner fileds only
 	address  types.Address
 	addrHash types.Hash
 }
 
 // newStateObject create a new state object
-func newStateObject(address types.Address, account *stypes.Account) *StateObject {
+func newStateObject(address types.Address, account *stypes.Account) *stateObject {
 	if account == nil {
 		account = new(stypes.Account)
 	}
@@ -60,32 +64,32 @@ func newStateObject(address types.Address, account *stypes.Account) *StateObject
 	return stateObjectWithAddress(address, account)
 }
 
-func stateObjectWithAddress(address types.Address, account *stypes.Account) *StateObject {
-	return &StateObject{
-		Account:  account,
+func stateObjectWithAddress(address types.Address, account *stypes.Account) *stateObject {
+	return &stateObject{
+		account:  account,
 		address:  address,
 		addrHash: crypto.Keccak256Hash(address[:]),
 	}
 }
 
-func (s *StateObject) Empty() bool {
-	return s.Account.Nonce == 0 && s.Account.Balance.Sign() == 0 && bytes.Equal(s.Account.CodeHash, emptyCodeHash)
+func (s *stateObject) Empty() bool {
+	return s.Nonce() == 0 && s.Balance().Sign() == 0 && bytes.Equal(s.CodeHash(), emptyCodeHash)
 }
 
 // Copy makes a copy of the state object
-func (s *StateObject) Copy() *StateObject {
-	ss := new(StateObject)
+func (s *stateObject) Copy() *stateObject {
+	ss := new(stateObject)
 
 	// copy account
-	ss.Account = s.Account.Copy()
+	ss.account = s.account.Copy()
 
-	ss.Suicide = s.Suicide
-	ss.Deleted = s.Deleted
-	ss.DirtyCode = s.DirtyCode
-	ss.Code = s.Code
+	ss.suicide = s.suicide
+	ss.deleted = s.deleted
+	ss.dirtyCode = s.dirtyCode
+	ss.code = s.code
 
-	if s.Txn != nil {
-		ss.Txn = s.Txn.CommitOnly().Txn()
+	if s.txn != nil {
+		ss.txn = s.txn.CommitOnly().Txn()
 	}
 
 	// search key
@@ -93,4 +97,102 @@ func (s *StateObject) Copy() *StateObject {
 	ss.addrHash = s.addrHash
 
 	return ss
+}
+
+func (s *stateObject) AddBalance(balance *big.Int) {
+	// TODO: journal
+	s.addBalance(balance)
+}
+
+func (s *stateObject) addBalance(balance *big.Int) {
+	// update a new value to avoid overwrite
+	s.setBalance(new(big.Int).Add(s.Balance(), balance))
+}
+
+func (s *stateObject) SubBalance(balance *big.Int) {
+	// TODO: journal
+	s.subBalance(balance)
+}
+
+func (s *stateObject) subBalance(balance *big.Int) {
+	// update a new value to avoid overwrite
+	s.setBalance(new(big.Int).Sub(s.Balance(), balance))
+}
+
+func (s *stateObject) SetBalance(balance *big.Int) {
+	// TODO: journal
+	s.setBalance(balance)
+}
+
+func (s *stateObject) setBalance(balance *big.Int) {
+	s.account.Balance = balance
+}
+
+// Address returns the address of the contract/account
+func (s *stateObject) Address() types.Address {
+	return s.address
+}
+
+func (s *stateObject) AddressHash() types.Hash {
+	return s.addrHash
+}
+
+// Code returns the contract code associated with this object, if any.
+func (s *stateObject) Code(db snapshotReader) []byte {
+	if s.dirtyCode {
+		return s.code
+	}
+
+	if bytes.Equal(s.CodeHash(), emptyCodeHash) {
+		return nil
+	}
+
+	code, _ := db.GetCode(types.BytesToHash(s.CodeHash()))
+
+	// cache the code, but it is not dirty
+	s.code = code
+
+	return code
+}
+
+// CodeSize returns the size of the contract code associated with this object,
+// or zero if none.
+func (s *stateObject) CodeSize(db snapshotReader) int {
+	return len(s.Code(db))
+}
+
+func (s *stateObject) SetCode(codeHash types.Hash, code []byte) {
+	//TODO: journal
+	s.setCode(codeHash, code)
+}
+
+func (s *stateObject) setCode(codeHash types.Hash, code []byte) {
+	s.code = code
+	s.dirtyCode = true
+	s.account.CodeHash = codeHash[:]
+}
+
+func (s *stateObject) CodeHash() []byte {
+	return s.account.CodeHash
+}
+
+func (s *stateObject) Nonce() uint64 {
+	return s.account.Nonce
+}
+
+func (s *stateObject) SetNonce(nonce uint64) {
+	// TODO: journal
+	s.setNonce(nonce)
+}
+
+func (s *stateObject) setNonce(nonce uint64) {
+	s.account.Nonce = nonce
+}
+
+func (s *stateObject) Balance() *big.Int {
+	return s.account.Balance
+}
+
+func (s *stateObject) StorageRoot() types.Hash {
+	return s.account.StorageRoot
 }
