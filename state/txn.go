@@ -107,6 +107,35 @@ func (txn *Txn) RevertToSnapshot(id int) {
 
 	tree := txn.snapshots[id]
 	txn.txn = tree.Txn()
+
+	// If state snapshotting is active, we should reset to its original value,
+	// otherwise the resurrect account or transient update will be persisted
+	// into snapshot tree, and make the whole worldstate damage.
+	if txn.snap != nil {
+		txn.txn.Root().Walk(func(k []byte, v interface{}) bool {
+			if len(k) != types.AddressLength { // not an address
+				return false
+			}
+
+			addrHash := types.BytesToHash(k)
+
+			if v == nil {
+				delete(txn.snapAccounts, addrHash)
+			} else {
+				object := v.(*stateObject) //nolint:forcetypeassert
+
+				// do not consider suicide or not
+				txn.snapAccounts[object.AddressHash()] = snapshot.SlimAccountRLP(
+					object.Nonce(),
+					object.Balance(),
+					object.StorageRoot(),
+					object.CodeHash(),
+				)
+			}
+
+			return false
+		})
+	}
 }
 
 func (txn *Txn) getStateObject(addr types.Address) (*stateObject, bool) {
