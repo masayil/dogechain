@@ -581,8 +581,20 @@ func (t *Transition) subGasLimitPrice(msg *types.Transaction) error {
 	return nil
 }
 
+func (t Transition) nonceOverflowCheck(addr types.Address) (uint64, error) {
+	nonce := t.txn.GetNonce(addr)
+	if nonce+1 < nonce {
+		return 0, ErrNonceUintOverflow
+	}
+
+	return nonce, nil
+}
+
 func (t *Transition) nonceCheck(msg *types.Transaction) error {
-	nonce := t.txn.GetNonce(msg.From)
+	nonce, err := t.nonceOverflowCheck(msg.From)
+	if err != nil {
+		return err
+	}
 
 	if msg.Nonce < nonce {
 		return NewNonceTooLowError(fmt.Errorf("%w, actual: %d, wanted: %d", ErrNonceIncorrect, msg.Nonce, nonce), nonce)
@@ -605,6 +617,7 @@ var (
 	ErrNotEnoughFunds        = errors.New("not enough funds for transfer with given value")
 	ErrAllGasUsed            = errors.New("all gas used")
 	ErrExecutionStop         = errors.New("execution stop")
+	ErrNonceUintOverflow     = errors.New("nonce uint64 overflow")
 )
 
 type TransitionApplicationError struct {
@@ -898,6 +911,13 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 		}
 	}
 
+	if _, err := t.nonceOverflowCheck(c.Caller); err != nil {
+		return &runtime.ExecutionResult{
+			GasLeft: gasLimit,
+			Err:     ErrNonceUintOverflow,
+		}
+	}
+
 	// Increment the nonce of the caller
 	t.txn.IncrNonce(c.Caller)
 
@@ -915,7 +935,7 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 	if t.config.EIP158 {
 		// Force the creation of the account
 		t.txn.CreateAccount(c.Address)
-		t.txn.IncrNonce(c.Address)
+		t.txn.IncrNonce(c.Address) // the contract nonce is 1 by default
 	}
 
 	var result *runtime.ExecutionResult
