@@ -19,6 +19,7 @@ package state
 import (
 	"math/big"
 
+	"github.com/dogechain-lab/dogechain/crypto"
 	"github.com/dogechain-lab/dogechain/types"
 )
 
@@ -119,9 +120,15 @@ func (ch resetObjectChange) dirtied() *types.Address {
 	return nil
 }
 
+func addressHash(addr *types.Address) types.Hash {
+	return crypto.Keccak256Hash(addr.Bytes())
+}
+
 func (ch suicideChange) revert(t *Txn) {
 	obj, _ := t.getStateObject(*ch.account)
-	if obj != nil {
+	if obj == nil {
+		delete(t.snapAccounts, addressHash(ch.account))
+	} else {
 		obj.suicide = ch.prev
 		// balance
 		obj.setBalance(ch.prevbalance)
@@ -136,10 +143,14 @@ func (ch suicideChange) dirtied() *types.Address {
 
 func (ch balanceChange) revert(t *Txn) {
 	obj, _ := t.getStateObject(*ch.account)
-	// balance
-	obj.setBalance(ch.prev)
-	// revert journaled account
-	t.updateSnapAccount(obj)
+	if obj == nil {
+		delete(t.snapAccounts, addressHash(ch.account))
+	} else {
+		// balance
+		obj.setBalance(ch.prev)
+		// revert journaled account
+		t.updateSnapAccount(obj)
+	}
 }
 
 func (ch balanceChange) dirtied() *types.Address {
@@ -148,10 +159,14 @@ func (ch balanceChange) dirtied() *types.Address {
 
 func (ch nonceChange) revert(t *Txn) {
 	obj, _ := t.getStateObject(*ch.account)
-	// nonce
-	obj.setNonce(ch.prev)
-	// revert journaled account
-	t.updateSnapAccount(obj)
+	if obj == nil {
+		delete(t.snapAccounts, addressHash(ch.account))
+	} else {
+		// nonce
+		obj.setNonce(ch.prev)
+		// revert journaled account
+		t.updateSnapAccount(obj)
+	}
 }
 
 func (ch nonceChange) dirtied() *types.Address {
@@ -160,10 +175,14 @@ func (ch nonceChange) dirtied() *types.Address {
 
 func (ch codeChange) revert(t *Txn) {
 	obj, _ := t.getStateObject(*ch.account)
-	// code
-	obj.setCode(types.BytesToHash(ch.prevhash), ch.prevcode)
-	// revert journaled account
-	t.updateSnapAccount(obj)
+	if obj == nil {
+		delete(t.snapAccounts, addressHash(ch.account))
+	} else {
+		// code
+		obj.setCode(types.BytesToHash(ch.prevhash), ch.prevcode)
+		// revert journaled account
+		t.updateSnapAccount(obj)
+	}
 }
 
 func (ch codeChange) dirtied() *types.Address {
