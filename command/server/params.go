@@ -55,6 +55,7 @@ const (
 	enableWSFlag                 = "enable-ws"
 	blockBroadcastFlag           = "block-broadcast"
 	enableSnapshotFlag           = "enable-snapshot"
+	snapshotAsyncBuildFlag       = "snapshot.async-build"
 	cacheFlag                    = "cache"
 	cacheSnapshotFlag            = "cache.snapshot"
 	cacheTrieCleanFlag           = "cache.trie"
@@ -288,6 +289,7 @@ func (p *serverParams) generateConfig() *server.Config {
 			TrieDirtyLimit:     p.rawConfig.CacheConfig.TrieDirtyCache,
 			TrieTimeLimit:      p.rawConfig.CacheConfig.TrieTimeout,
 			SnapshotLimit:      p.rawConfig.CacheConfig.SnapshotCache,
+			SnapshotWait:       !p.rawConfig.SnapshotAsyncBuild, // the opposite flag
 		},
 	}
 }

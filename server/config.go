@@ -106,6 +106,6 @@ type CacheConfig struct {
 	SnapshotLimit      int           // Memory allowance (MB) to use for caching snapshot entries in memory
 
 	SnapshotNoBuild bool // Whether the background generation is allowed
-	// Wait for snapshot construction on startup. TODO(karalabe): This is a dirty hack for testing, nuke it
+	// Wait for snapshot construction on startup.
 	SnapshotWait bool
 }

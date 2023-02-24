@@ -356,7 +356,14 @@ func setFlags(cmd *cobra.Command) {
 			&params.rawConfig.EnableSnapshot,
 			enableSnapshotFlag,
 			false,
-			"Enables snapshot-database mode",
+			"(experimental) Enables snapshot-database mode",
+		)
+
+		cmd.Flags().BoolVar(
+			&params.rawConfig.SnapshotAsyncBuild,
+			snapshotAsyncBuildFlag,
+			false,
+			"(experimental) Enables snapshot asynchrous (background) build to avoid halting",
 		)
 
 		cmd.Flags().IntVar(

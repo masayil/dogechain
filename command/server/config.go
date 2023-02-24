@@ -39,6 +39,7 @@ type Config struct {
 	EnablePprof              bool         `json:"enable_pprof" yaml:"enable_pprof"`
 	BlockBroadcast           bool         `json:"enable_block_broadcast" yaml:"enable_block_broadcast"`
 	EnableSnapshot           bool         `json:"enable_snapshot" yaml:"enable_snapshot"`
+	SnapshotAsyncBuild       bool         `json:"snapshot_async_build" yaml:"snapshot_async_build"`
 	CacheConfig              *CacheConfig `json:"cache_config" yaml:"cache_config"`
 }
 
