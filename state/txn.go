@@ -690,6 +690,7 @@ func (txn *Txn) CreateAccount(addr types.Address) {
 		// destruct object when already deleted
 		prevAddrHash := prev.AddressHash()
 		_, prevdestruct = txn.snapDestructs[prevAddrHash]
+
 		if !prevdestruct {
 			txn.snapDestructs[prevAddrHash] = struct{}{}
 		}
