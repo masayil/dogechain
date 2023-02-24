@@ -35,8 +35,11 @@ type stateObject struct {
 	deleted   bool
 	dirtyCode bool
 
-	// live object trie transaction. Set it only when there is a trie
-	txn *iradix.Txn
+	// live object radix trie Transaction. Set it only when there is a trie
+	radixTxn *iradix.Txn
+
+	// associated transiction Transaction, to update its journal
+	transitionTxn *Txn
 
 	// for quick search, inner fileds only
 	address  types.Address
@@ -44,7 +47,7 @@ type stateObject struct {
 }
 
 // newStateObject create a new state object
-func newStateObject(address types.Address, account *stypes.Account) *stateObject {
+func newStateObject(transitionTxn *Txn, address types.Address, account *stypes.Account) *stateObject {
 	if account == nil {
 		account = new(stypes.Account)
 	}
@@ -61,14 +64,15 @@ func newStateObject(address types.Address, account *stypes.Account) *stateObject
 		account.StorageRoot = emptyStateHash
 	}
 
-	return stateObjectWithAddress(address, account)
+	return stateObjectWithAddress(transitionTxn, address, account)
 }
 
-func stateObjectWithAddress(address types.Address, account *stypes.Account) *stateObject {
+func stateObjectWithAddress(transitionTxn *Txn, address types.Address, account *stypes.Account) *stateObject {
 	return &stateObject{
-		account:  account,
-		address:  address,
-		addrHash: crypto.Keccak256Hash(address[:]),
+		account:       account,
+		address:       address,
+		addrHash:      crypto.Keccak256Hash(address[:]),
+		transitionTxn: transitionTxn,
 	}
 }
 
@@ -88,9 +92,11 @@ func (s *stateObject) Copy() *stateObject {
 	ss.dirtyCode = s.dirtyCode
 	ss.code = s.code
 
-	if s.txn != nil {
-		ss.txn = s.txn.CommitOnly().Txn()
+	if s.radixTxn != nil {
+		ss.radixTxn = s.radixTxn.CommitOnly().Txn()
 	}
+
+	ss.transitionTxn = s.transitionTxn
 
 	// search key
 	ss.address = s.address
@@ -100,27 +106,18 @@ func (s *stateObject) Copy() *stateObject {
 }
 
 func (s *stateObject) AddBalance(balance *big.Int) {
-	// TODO: journal
-	s.addBalance(balance)
-}
-
-func (s *stateObject) addBalance(balance *big.Int) {
-	// update a new value to avoid overwrite
-	s.setBalance(new(big.Int).Add(s.Balance(), balance))
+	s.SetBalance(new(big.Int).Add(s.Balance(), balance))
 }
 
 func (s *stateObject) SubBalance(balance *big.Int) {
-	// TODO: journal
-	s.subBalance(balance)
-}
-
-func (s *stateObject) subBalance(balance *big.Int) {
-	// update a new value to avoid overwrite
-	s.setBalance(new(big.Int).Sub(s.Balance(), balance))
+	s.SetBalance(new(big.Int).Sub(s.Balance(), balance))
 }
 
 func (s *stateObject) SetBalance(balance *big.Int) {
-	// TODO: journal
+	s.transitionTxn.journal.append(balanceChange{
+		account: &s.address,
+		prev:    new(big.Int).Set(s.Balance()),
+	})
 	s.setBalance(balance)
 }
 
@@ -138,7 +135,7 @@ func (s *stateObject) AddressHash() types.Hash {
 }
 
 // Code returns the contract code associated with this object, if any.
-func (s *stateObject) Code(db snapshotReader) []byte {
+func (s *stateObject) Code() []byte {
 	if s.dirtyCode {
 		return s.code
 	}
@@ -147,7 +144,7 @@ func (s *stateObject) Code(db snapshotReader) []byte {
 		return nil
 	}
 
-	code, _ := db.GetCode(types.BytesToHash(s.CodeHash()))
+	code, _ := s.transitionTxn.snapshot.GetCode(types.BytesToHash(s.CodeHash()))
 
 	// cache the code, but it is not dirty
 	s.code = code
@@ -155,14 +152,14 @@ func (s *stateObject) Code(db snapshotReader) []byte {
 	return code
 }
 
-// CodeSize returns the size of the contract code associated with this object,
-// or zero if none.
-func (s *stateObject) CodeSize(db snapshotReader) int {
-	return len(s.Code(db))
-}
-
 func (s *stateObject) SetCode(codeHash types.Hash, code []byte) {
-	//TODO: journal
+	prevcode := s.Code()
+	// journal change
+	s.transitionTxn.journal.append(codeChange{
+		account:  &s.address,
+		prevhash: s.CodeHash(),
+		prevcode: prevcode,
+	})
 	s.setCode(codeHash, code)
 }
 
@@ -181,7 +178,10 @@ func (s *stateObject) Nonce() uint64 {
 }
 
 func (s *stateObject) SetNonce(nonce uint64) {
-	// TODO: journal
+	s.transitionTxn.journal.append(nonceChange{
+		account: &s.address,
+		prev:    s.Nonce(),
+	})
 	s.setNonce(nonce)
 }
 

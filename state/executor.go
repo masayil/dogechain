@@ -377,8 +377,8 @@ func (t *Transition) Write(txn *types.Transaction) error {
 		GasUsed:           result.GasUsed,
 	}
 
-	// Byzantium is always on now, otherwise it is not EVM-conpatable.
-
+	// Byzantium is always on now, otherwise it is not EVM-compatible.
+	//
 	// The suicided accounts are set as deleted for the next iteration
 	t.txn.CleanDeleteObjects(true)
 
