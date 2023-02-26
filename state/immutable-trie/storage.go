@@ -4,10 +4,9 @@ import (
 	"fmt"
 
 	"github.com/dogechain-lab/dogechain/helper/kvdb"
+	"github.com/dogechain-lab/dogechain/types"
 	"github.com/dogechain-lab/fastrlp"
 )
-
-var parserPool fastrlp.ParserPool
 
 type StorageReader kvdb.KVReader
 type StorageWriter kvdb.KVWriter
@@ -22,10 +21,7 @@ func GetNode(root []byte, storage StorageReader) (Node, bool, error) {
 
 	// NOTE. We dont need to make copies of the bytes because the nodes
 	// take the reference from data itself which is a safe copy.
-	p := parserPool.Get()
-	defer parserPool.Put(p)
-
-	v, err := p.Parse(data)
+	v, err := types.RlpUnmarshal(data)
 	if err != nil {
 		return nil, false, err
 	}

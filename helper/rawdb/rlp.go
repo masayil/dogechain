@@ -5,7 +5,7 @@ import (
 
 	"github.com/dogechain-lab/dogechain/helper/kvdb"
 	"github.com/dogechain-lab/dogechain/types"
-	"github.com/umbracle/fastrlp"
+	"github.com/dogechain-lab/fastrlp"
 )
 
 var ErrNotFound = errors.New("not found")
@@ -46,14 +46,7 @@ func readRLP2(db kvdb.Reader, key []byte) (*fastrlp.Value, error) {
 		return nil, ErrNotFound
 	}
 
-	var parser fastrlp.Parser
-
-	v, err := parser.Parse(data)
-	if err != nil {
-		return nil, err
-	}
-
-	return v, nil
+	return types.RlpUnmarshal(data)
 }
 
 func writeRLP2(db kvdb.KVWriter, key []byte, v *fastrlp.Value) error {

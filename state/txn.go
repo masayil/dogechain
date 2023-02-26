@@ -10,6 +10,7 @@ import (
 	"github.com/dogechain-lab/dogechain/state/runtime"
 	"github.com/dogechain-lab/dogechain/state/snapshot"
 	"github.com/dogechain-lab/dogechain/state/stypes"
+	"github.com/dogechain-lab/dogechain/state/utils"
 	"github.com/dogechain-lab/dogechain/types"
 	"github.com/dogechain-lab/fastrlp"
 	iradix "github.com/hashicorp/go-immutable-radix"
@@ -441,6 +442,7 @@ func (txn *Txn) SetState(
 //
 // The state might be transient, remember to query the not committed trie
 func (txn *Txn) GetState(addr types.Address, slot types.Hash) (types.Hash, error) {
+	// check account existence, and get its latest storage root
 	object, exists := txn.getStateObject(addr)
 	if !exists {
 		return types.Hash{}, nil
@@ -459,7 +461,8 @@ func (txn *Txn) GetState(addr types.Address, slot types.Hash) (types.Hash, error
 		}
 	}
 
-	return txn.getStorageCommitted(object, slot)
+	// query the committed state
+	return txn.getCommittedObjectState(object, slot)
 }
 
 // Nonce
@@ -591,39 +594,9 @@ func (txn *Txn) GetRefund() uint64 {
 	return data.(uint64)
 }
 
-func GetCachedCommittedStorage(
-	cachedSnap snapshot.Snapshot,
-	addrHash types.Hash,
-	slot types.Hash,
-) (found bool, value types.Hash, err error) {
-	// hash slot
-	enc, err := cachedSnap.Storage(addrHash, crypto.Keccak256Hash(slot.Bytes()))
-	if err != nil {
-		return false, types.Hash{}, err
-	} else if len(enc) > 0 {
-		// The storage value is rlp encoded
-		p := fastrlp.Parser{}
-
-		v, err := p.Parse(enc)
-		if err != nil {
-			return false, types.Hash{}, err
-		}
-
-		res := []byte{}
-		if res, err = v.GetBytes(res[:0]); err != nil {
-			return false, types.Hash{}, err
-		}
-
-		return true, types.BytesToHash(res), nil
-	}
-
-	return false, types.Hash{}, nil
-}
-
-func (txn *Txn) getStorageCommitted(obj *stateObject, slot types.Hash) (types.Hash, error) {
-	// query from storage first
+func (txn *Txn) getCommittedObjectState(obj *stateObject, slot types.Hash) (types.Hash, error) {
 	if txn.snap != nil {
-		addrHash := obj.AddressHash()
+		addrHash := obj.addrHash
 		// If the object was destructed in *this* block (and potentially resurrected),
 		// the storage has been cleared out, and we should *not* consult the previous
 		// snapshot about any storage values. The only possible alternatives are:
@@ -634,15 +607,14 @@ func (txn *Txn) getStorageCommitted(obj *stateObject, slot types.Hash) (types.Ha
 			return types.Hash{}, nil
 		}
 
-		found, value, err := GetCachedCommittedStorage(txn.snap, addrHash, slot)
-		if err != nil {
-			return value, err
-		} else if found {
-			return value, nil
+		// query it from cached snapshot
+		if enc, err := txn.snap.Storage(addrHash, crypto.Keccak256Hash(slot.Bytes())); err == nil { // found
+			return utils.StorageBytesToHash(enc)
 		}
 	}
 
-	return txn.snapshot.GetStorage(obj.Address(), obj.StorageRoot(), slot)
+	// If the snapshot is unavailable or reading from it fails, load from the database.
+	return txn.snapshot.GetStorage(obj.address, obj.StorageRoot(), slot)
 }
 
 // GetCommittedState returns the state of the address in the trie
@@ -655,7 +627,7 @@ func (txn *Txn) GetCommittedState(addr types.Address, slot types.Hash) (types.Ha
 		return types.Hash{}, nil
 	}
 
-	return txn.getStorageCommitted(obj, slot)
+	return txn.getCommittedObjectState(obj, slot)
 }
 
 func (txn *Txn) TouchAccount(addr types.Address) {

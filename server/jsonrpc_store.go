@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"math/big"
@@ -113,7 +114,10 @@ func (j *jsonRPCStore) GetCode(root types.Hash, addr types.Address) ([]byte, err
 		return nil, err
 	}
 
-	// no need cache?
+	if len(account.CodeHash) == 0 || bytes.Equal(account.CodeHash, types.EmptyRootHash[:]) {
+		return []byte{}, nil
+	}
+
 	code, ok := j.state.GetCode(types.BytesToHash(account.CodeHash))
 	if !ok {
 		return nil, fmt.Errorf("unable to fetch code")

@@ -6,6 +6,7 @@ import (
 	"github.com/dogechain-lab/dogechain/crypto"
 	"github.com/dogechain-lab/dogechain/state"
 	"github.com/dogechain-lab/dogechain/state/stypes"
+	"github.com/dogechain-lab/dogechain/state/utils"
 	"github.com/dogechain-lab/dogechain/types"
 	"github.com/dogechain-lab/fastrlp"
 )
@@ -51,24 +52,10 @@ func (s *Snapshot) GetStorage(addr types.Address, root types.Hash, rawkey types.
 	if err != nil {
 		// something bad happen, should not continue
 		return types.Hash{}, err
-	} else if len(val) == 0 {
-		// not found
-		return types.Hash{}, nil
 	}
 
-	p := &fastrlp.Parser{}
-
-	v, err := p.Parse(val)
-	if err != nil {
-		return types.Hash{}, err
-	}
-
-	res := []byte{}
-	if res, err = v.GetBytes(res[:0]); err != nil {
-		return types.Hash{}, err
-	}
-
-	return types.BytesToHash(res), nil
+	// not found should return empty hash
+	return utils.StorageBytesToHash(val)
 }
 
 func (s *Snapshot) GetAccount(addr types.Address) (*stypes.Account, error) {

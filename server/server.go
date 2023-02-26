@@ -33,6 +33,7 @@ import (
 	"github.com/dogechain-lab/dogechain/state/runtime/precompiled"
 	"github.com/dogechain-lab/dogechain/state/snapshot"
 	"github.com/dogechain-lab/dogechain/state/stypes"
+	"github.com/dogechain-lab/dogechain/state/utils"
 	"github.com/dogechain-lab/dogechain/trie"
 	"github.com/dogechain-lab/dogechain/txpool"
 	"github.com/dogechain-lab/dogechain/types"
@@ -600,11 +601,6 @@ func (t *txpoolHub) GetNonce(root types.Hash, addr types.Address) uint64 {
 func (t *txpoolHub) GetBalance(root types.Hash, addr types.Address) (*big.Int, error) {
 	account, err := getCommittedAccount(t.snaps, t.state, root, addr)
 	if err != nil {
-		if errors.Is(err, jsonrpc.ErrStateNotFound) {
-			// not exists, stop error propagation
-			return big.NewInt(0), nil
-		}
-
 		return big.NewInt(0), err
 	}
 
@@ -1002,6 +998,8 @@ func addressHash(addr types.Address) types.Hash {
 }
 
 // getCommittedAccount is used for fetching (cached) account state from both TxPool and JSON-RPC
+//
+// an error means something bad happen
 func getCommittedAccount(
 	snaps *snapshot.Tree,
 	state state.State,
@@ -1009,27 +1007,33 @@ func getCommittedAccount(
 	addr types.Address,
 ) (*stypes.Account, error) {
 	if snaps != nil { // avoid crash
-		cachedSnap := snaps.Snapshot(stateRoot)
-		if cachedSnap != nil {
-			account, err := cachedSnap.Account(addressHash(addr))
-			if err != nil {
-				return nil, err
-			} else if account != nil {
+		if snap := snaps.Snapshot(stateRoot); snap != nil { // snap found
+			account, err := snap.Account(addressHash(addr))
+			if account != nil { // account found
 				return account, nil
+			} else {
+				// might not covered yet
+				hclog.Default().Debug("get account from snapshot failed", "address", addr, "err", err)
 			}
 		}
 	}
 
-	storeSnap, err := state.NewSnapshotAt(stateRoot)
-	if err != nil {
-		return nil, fmt.Errorf("unable to get snapshot for root '%s': %w", stateRoot, err)
-	}
-
-	account, err := storeSnap.GetAccount(addr)
+	// If the snapshot is unavailable or reading from it fails, load from the database.
+	db, err := state.NewSnapshotAt(stateRoot)
 	if err != nil {
 		return nil, err
-	} else if account == nil {
-		return nil, jsonrpc.ErrStateNotFound
+	}
+
+	account, err := db.GetAccount(addr)
+	if err != nil {
+		return nil, err
+	}
+
+	if account == nil {
+		// create an initialized account for querying
+		account = &stypes.Account{
+			Balance: new(big.Int),
+		}
 	}
 
 	return account, nil
@@ -1044,14 +1048,14 @@ func getCommittedStorage(
 	slot types.Hash,
 ) (types.Hash, error) {
 	if snaps != nil { // query cached snapshot
-		cachedSnap := snaps.Snapshot(stateRoot)
-		if cachedSnap != nil {
-			// shortcut for the storage
-			found, value, err := state.GetCachedCommittedStorage(cachedSnap, addressHash(addr), slot)
-			if err != nil {
-				return value, err
-			} else if found {
-				return value, nil
+		if snap := snaps.Snapshot(stateRoot); snap != nil {
+			// query it from cached snapshot
+			enc, err := snap.Storage(crypto.Keccak256Hash(addr.Bytes()), crypto.Keccak256Hash(slot.Bytes()))
+			if err == nil { // found
+				return utils.StorageBytesToHash(enc)
+			} else {
+				// print out error
+				hclog.Default().Debug("failed to get storage", "address", addr, "slot", slot, "err", err)
 			}
 		}
 	}
@@ -1059,14 +1063,22 @@ func getCommittedStorage(
 	// get account at state root, so as to get the correct storage root
 	account, err := getCommittedAccount(snaps, stateDB, stateRoot, addr)
 	if err != nil {
+		// something bad happen
 		return types.Hash{}, err
 	}
 
+	// fast returns
+	if account.StorageRoot == types.ZeroHash ||
+		account.StorageRoot == types.EmptyRootHash {
+		return types.Hash{}, nil
+	}
+
 	// make a snapshot at root
-	storeSnap, err := stateDB.NewSnapshotAt(stateRoot)
+	db, err := stateDB.NewSnapshotAt(stateRoot)
 	if err != nil {
 		return types.Hash{}, err
 	}
 
-	return storeSnap.GetStorage(addr, account.StorageRoot, slot)
+	// If the snapshot is unavailable or reading from it fails, load from the database.
+	return db.GetStorage(addr, account.StorageRoot, slot)
 }

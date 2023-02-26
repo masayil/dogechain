@@ -26,13 +26,8 @@ func (a *Account) MarshalWith(ar *fastrlp.Arena) *fastrlp.Value {
 	return v
 }
 
-var accountParserPool fastrlp.ParserPool
-
 func (a *Account) UnmarshalRlp(b []byte) error {
-	p := accountParserPool.Get()
-	defer accountParserPool.Put(p)
-
-	v, err := p.Parse(b)
+	v, err := types.RlpUnmarshal(b)
 	if err != nil {
 		return err
 	}

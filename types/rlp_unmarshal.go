@@ -34,6 +34,13 @@ func UnmarshalRlp(obj unmarshalRLPFunc, input []byte) error {
 	return nil
 }
 
+func RlpUnmarshal(input []byte) (*fastrlp.Value, error) {
+	p := fastrlp.DefaultParserPool.Get()
+	defer fastrlp.DefaultParserPool.Put(p)
+
+	return p.Parse(input)
+}
+
 func (b *Block) UnmarshalRLP(input []byte) error {
 	return UnmarshalRlp(b.UnmarshalRLPFrom, input)
 }

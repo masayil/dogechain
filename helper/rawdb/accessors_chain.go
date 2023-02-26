@@ -5,7 +5,7 @@ import (
 
 	"github.com/dogechain-lab/dogechain/helper/kvdb"
 	"github.com/dogechain-lab/dogechain/types"
-	"github.com/umbracle/fastrlp"
+	"github.com/dogechain-lab/fastrlp"
 )
 
 func ReadBody(db kvdb.KVReader, hash types.Hash) (*types.Body, error) {
