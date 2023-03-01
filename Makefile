@@ -1,3 +1,4 @@
+CGO_ENABLED ?= 0
 
 .PHONY: download-spec-tests
 download-spec-tests:
@@ -24,7 +25,8 @@ build:
 	go build -o dogechain -ldflags="\
 		-X 'github.com/dogechain-lab/dogechain/versioning.Version=$(LATEST_VERSION)'\
 		-X 'github.com/dogechain-lab/dogechain/versioning.Commit=$(COMMIT_HASH)'\
-		-X 'github.com/dogechain-lab/dogechain/versioning.BuildTime=$(DATE)'" \
+		-X 'github.com/dogechain-lab/dogechain/versioning.BuildTime=$(DATE)' "\
+		-tags 'osusergo netgo static_build' \
 	main.go
 
 .PHONY: lint
