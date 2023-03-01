@@ -6,15 +6,19 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/dogechain-lab/dogechain/blockchain"
+	"github.com/dogechain-lab/dogechain/helper/common"
 	"github.com/dogechain-lab/dogechain/helper/progress"
 	"github.com/dogechain-lab/dogechain/network"
 	"github.com/dogechain-lab/dogechain/network/event"
 	"github.com/dogechain-lab/dogechain/types"
 	"github.com/hashicorp/go-hclog"
 	"github.com/libp2p/go-libp2p/core/peer"
+
 	"go.uber.org/atomic"
+
 	grpccodes "google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
 )
@@ -26,9 +30,14 @@ const (
 
 	WriteBlockSource = "syncer"
 
+	_skipListTTL          = 10 // seconds
+	_skipListRandTTLRange = 5  // seconds
+
 	// One step query blocks.
 	// Median rlp block size is around 20 - 50 KB, then 2 - 4 MB is suitable for one query.
 	_blockSyncStep = 100
+
+	_blockSyncTimeout = 30 * time.Second
 )
 
 var (
@@ -41,6 +50,7 @@ var (
 	ErrTooManyHeaders         = errors.New("unexpected more than 1 result")
 	ErrDecodeDifficulty       = errors.New("failed to decode difficulty")
 	ErrInvalidTypeAssertion   = errors.New("invalid type assertion")
+	ErrBlockVerifyFailed      = errors.New("block verifying failed")
 
 	errTimeout = errors.New("timeout awaiting block from peer")
 )
@@ -121,7 +131,7 @@ func NewSyncer(
 		peerMap:         new(PeerMap),
 		syncPeerService: NewSyncPeerService(server, blockchain),
 		syncPeerClient:  NewSyncPeerClient(logger, server, blockchain),
-		newStatusCh:     make(chan struct{}),
+		newStatusCh:     make(chan struct{}, 1),
 		syncing:         atomic.NewBool(false),
 		syncingPeer:     atomic.NewString(""),
 		stopCh:          make(chan struct{}),
@@ -287,8 +297,9 @@ func (s *noForkSyncer) HasSyncPeer() bool {
 
 // Sync syncs block with the best peer until callback returns true
 func (s *noForkSyncer) Sync(callback func(*types.Block) bool) error {
-	// skip out peers who do not support new version protocol, or IP who could not reach via NAT.
-	skipList := new(sync.Map)
+	// skipList is used to skip the peer that has been tried failed
+	// key is the peer id, value is the timestamp of the TTL
+	skipList := make(map[peer.ID]int64)
 
 	for {
 		// Wait for a new event to arrive
@@ -309,9 +320,24 @@ func (s *noForkSyncer) Sync(callback func(*types.Block) bool) error {
 
 				continue
 			}
+
+			keys := make([]peer.ID, 0, len(skipList))
+			for i := range skipList {
+				keys = append(keys, i)
+			}
+
+			// remove expired peer
+			currentTime := time.Now().Unix()
+			for _, id := range keys {
+				if currentTime > skipList[id] {
+					delete(skipList, id)
+				}
+			}
 		}
 
-		if shouldTerminate := s.syncWithSkipList(skipList, callback); shouldTerminate {
+		s.logger.Debug("got new status event")
+
+		if shouldTerminate := s.syncWithSkipList(&skipList, callback); shouldTerminate {
 			s.logger.Error("terminate syncing")
 
 			break
@@ -322,7 +348,7 @@ func (s *noForkSyncer) Sync(callback func(*types.Block) bool) error {
 }
 
 func (s *noForkSyncer) syncWithSkipList(
-	skipList *sync.Map,
+	skipList *map[peer.ID]int64,
 	callback func(*types.Block) bool,
 ) (shouldTerminate bool) {
 	s.logger.Debug("got new status event and start syncing")
@@ -343,16 +369,7 @@ func (s *noForkSyncer) syncWithSkipList(
 	// pick one best peer
 	bestPeer := s.peerMap.BestPeer(skipList)
 	if bestPeer == nil {
-		s.logger.Info("empty skip list for not getting a best peer")
-
-		if skipList != nil {
-			// clear
-			skipList.Range(func(key, value interface{}) bool {
-				skipList.Delete(key)
-
-				return true
-			})
-		}
+		s.logger.Info("can't getting a best peer")
 
 		return
 	}
@@ -386,8 +403,8 @@ func (s *noForkSyncer) syncWithSkipList(
 	s.logger.Debug("stop progression")
 
 	// result should never be nil
-	for p := range result.SkipList {
-		skipList.Store(p, true)
+	for p, timestamp := range result.SkipList {
+		(*skipList)[p] = timestamp
 	}
 
 	s.logger.Debug("store result.SkipList")
@@ -396,7 +413,7 @@ func (s *noForkSyncer) syncWithSkipList(
 }
 
 type bulkSyncResult struct {
-	SkipList           map[peer.ID]bool
+	SkipList           map[peer.ID]int64
 	LastReceivedNumber uint64
 	ShouldTerminate    bool
 }
@@ -408,7 +425,7 @@ func (s *noForkSyncer) bulkSyncWithPeer(
 ) (*bulkSyncResult, error) {
 	var (
 		result = &bulkSyncResult{
-			SkipList:           make(map[peer.ID]bool),
+			SkipList:           make(map[peer.ID]int64),
 			LastReceivedNumber: 0,
 			ShouldTerminate:    false,
 		}
@@ -423,7 +440,7 @@ func (s *noForkSyncer) bulkSyncWithPeer(
 		return result, nil
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), _blockSyncTimeout)
 	defer cancel()
 
 	// sync up to the current known header
@@ -446,7 +463,9 @@ func (s *noForkSyncer) bulkSyncWithPeer(
 				default: // other errors are not acceptable
 					s.logger.Info("skip peer due to error", "id", p.ID, "err", err)
 
-					result.SkipList[p.ID] = true
+					result.SkipList[p.ID] = time.Now().Add(
+						time.Duration(_skipListTTL+common.SecureRandInt(_skipListRandTTLRange)) * time.Second,
+					).Unix()
 				}
 			}
 
@@ -464,10 +483,17 @@ func (s *noForkSyncer) bulkSyncWithPeer(
 		// write block
 		for _, block := range blocks {
 			if err := s.blockchain.VerifyFinalizedBlock(block); err != nil {
-				// not the same network
-				result.SkipList[p.ID] = true
+				// not the same network or bad peer
+				s.logger.Error("block verifying failed", "peer", p.ID, "err", err)
 
-				return result, fmt.Errorf("unable to verify block, %w", err)
+				result.SkipList[p.ID] = time.Now().Add(time.Hour).Unix()
+
+				// if server is nil, it running in test mode
+				if s.server != nil {
+					s.server.ForgetPeer(p.ID, ErrBlockVerifyFailed.Error())
+				}
+
+				return result, ErrBlockVerifyFailed
 			}
 
 			if err := s.blockchain.WriteBlock(block, WriteBlockSource); err != nil {
@@ -538,7 +564,12 @@ func (s *noForkSyncer) initializePeerMap() {
 func (s *noForkSyncer) startPeerStatusUpdateProcess() {
 	for peerStatus := range s.syncPeerClient.GetPeerStatusUpdateCh() {
 		s.logger.Debug("peer status updated", "id", peerStatus.ID, "number", peerStatus.Number)
-		s.putToPeerMap(peerStatus)
+
+		// if server is nil, it running in test mode
+		if s.server == nil ||
+			s.server.HasPeer(peerStatus.ID) {
+			s.putToPeerMap(peerStatus)
+		}
 	}
 }
 
@@ -601,7 +632,12 @@ func (s *noForkSyncer) putToPeerMap(status *NoForkPeer) {
 	}
 
 	s.peerMap.Put(status)
-	s.notifyNewStatusEvent()
+
+	// blockchain if nil, it running in test mode
+	if s.blockchain == nil ||
+		s.blockchain.Header().Number < status.Number {
+		s.notifyNewStatusEvent()
+	}
 }
 
 // removeFromPeerMap removes the peer from peer map
