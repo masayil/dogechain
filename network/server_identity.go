@@ -1,38 +1,32 @@
 package network
 
 import (
+	"fmt"
 	"math/big"
 
+	"github.com/dogechain-lab/dogechain/network/client"
 	"github.com/dogechain-lab/dogechain/network/common"
-	peerEvent "github.com/dogechain-lab/dogechain/network/event"
 	"github.com/dogechain-lab/dogechain/network/grpc"
 	"github.com/dogechain-lab/dogechain/network/identity"
 	"github.com/dogechain-lab/dogechain/network/proto"
-	kbucket "github.com/libp2p/go-libp2p-kbucket"
+
 	"github.com/libp2p/go-libp2p-kbucket/keyspace"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
-	rawGrpc "google.golang.org/grpc"
+	"github.com/libp2p/go-libp2p/core/peerstore"
+
+	peerEvent "github.com/dogechain-lab/dogechain/network/event"
+	kbucket "github.com/libp2p/go-libp2p-kbucket"
 )
 
 // NewIdentityClient returns a new identity service client connection
-func (s *DefaultServer) NewIdentityClient(peerID peer.ID) (proto.IdentityClient, error) {
-	// Check if there is an active stream connection already
-	if protoStream := s.GetProtoStream(common.IdentityProto, peerID); protoStream != nil {
-		// Identity protocol connections are temporary and not saved anywhere
-		return proto.NewIdentityClient(protoStream), nil
-	}
-
-	// Create a new stream connection and save, only single object
-	// close and clear only when the peer is disconnected
-	protoStream, err := s.NewProtoConnection(common.IdentityProto, peerID)
+func (s *DefaultServer) NewIdentityClient(peerID peer.ID) (client.IdentityClient, error) {
+	conn, err := s.NewProtoConnection(common.IdentityProto, peerID)
 	if err != nil {
 		return nil, err
 	}
 
-	s.SaveProtocolStream(common.IdentityProto, protoStream, peerID)
-
-	return proto.NewIdentityClient(protoStream), nil
+	return client.NewIdentityClient(s.logger, proto.NewIdentityClient(conn), conn), nil
 }
 
 // AddPeer adds a new peer to the networking server's peer list,
@@ -62,7 +56,7 @@ func (s *DefaultServer) addPeerInfo(id peer.ID, direction network.Direction) boo
 	defer s.peersLock.Unlock()
 
 	connectionInfo, connectionExists := s.peers[id]
-	if connectionExists && connectionInfo.connDirections[direction] {
+	if connectionExists && connectionInfo.existsConnDirection(direction) {
 		// Check if this peer already has an active connection status (saved info).
 		// There is no need to do further processing
 		return true
@@ -72,21 +66,23 @@ func (s *DefaultServer) addPeerInfo(id peer.ID, direction network.Direction) boo
 	if !connectionExists {
 		// Create a new record for the connection info
 		connectionInfo = &PeerConnInfo{
-			Info:            s.host.Peerstore().PeerInfo(id),
-			connDirections:  make(map[network.Direction]bool),
-			protocolStreams: make(map[string]*rawGrpc.ClientConn),
+			Info:           s.host.Peerstore().PeerInfo(id),
+			connDirections: make(map[network.Direction]bool),
+			protocolClient: make(map[string]client.GrpcClientCloser),
 		}
+
+		// update ttl
+		s.host.Peerstore().UpdateAddrs(id, peerstore.TempAddrTTL, peerstore.PermanentAddrTTL)
 	}
 
 	// Save the connection info to the networking server
-	connectionInfo.connDirections[direction] = true
+	connectionInfo.addConnDirection(direction)
 
 	s.peers[id] = connectionInfo
 
 	// Update connection counters
 	s.connectionCounts.UpdateConnCountByDirection(1, direction)
 	s.updateConnCountMetrics(direction)
-	s.updateBootnodeConnCount(id, 1)
 
 	// Update the metric stats
 	s.metrics.SetTotalPeerCount(
@@ -110,8 +106,12 @@ func (s *DefaultServer) EmitEvent(event *peerEvent.PeerEvent) {
 
 // setupIdentity sets up the identity service for the node
 func (s *DefaultServer) setupIdentity() error {
+	if s.identity != nil {
+		return fmt.Errorf("identity service already initialized")
+	}
+
 	// Create an instance of the identity service
-	identityService := identity.NewIdentityService(
+	s.identity = identity.NewIdentityService(
 		s,
 		s.logger,
 		int64(s.config.Chain.Params.ChainID),
@@ -119,10 +119,10 @@ func (s *DefaultServer) setupIdentity() error {
 	)
 
 	// Register the identity service protocol
-	s.registerIdentityService(identityService)
+	s.registerIdentityService(s.identity)
 
 	// Register the network notify bundle handlers
-	s.host.Network().Notify(identityService.GetNotifyBundle())
+	s.host.Network().Notify(s.identity.GetNotifyBundle())
 
 	return nil
 }

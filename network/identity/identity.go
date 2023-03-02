@@ -4,18 +4,19 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
-	cmap "github.com/dogechain-lab/dogechain/helper/concurrentmap"
+	"github.com/dogechain-lab/dogechain/network/client"
 	"github.com/dogechain-lab/dogechain/network/event"
-	"github.com/hashicorp/go-hclog"
-
 	"github.com/dogechain-lab/dogechain/network/proto"
+
+	"github.com/hashicorp/go-hclog"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 )
 
-const PeerID = "peerID"
+const peerIDMetaString = "peerID"
 
 var (
 	ErrInvalidChainID   = errors.New("invalid chain ID")
@@ -29,7 +30,7 @@ type networkingServer interface {
 	// PROTOCOL MANIPULATION //
 
 	// NewIdentityClient returns an identity gRPC client connection
-	NewIdentityClient(peerID peer.ID) (proto.IdentityClient, error)
+	NewIdentityClient(peerID peer.ID) (client.IdentityClient, error)
 
 	// PEER MANIPULATION //
 
@@ -56,9 +57,11 @@ type networkingServer interface {
 type IdentityService struct {
 	proto.UnimplementedIdentityServer
 
-	pendingPeerConnections cmap.ConcurrentMap // Map that keeps track of the pending status of peers; peerID -> bool
-	logger                 hclog.Logger       // The IdentityService logger
-	baseServer             networkingServer   // The interface towards the base networking server
+	pendingPeerConnections map[peer.ID]struct{} // Map that keeps track of the pending status of peers; peerID -> bool
+	pendingCountMux        sync.RWMutex         // Mutex for the pendingPeerConnections map
+
+	logger     hclog.Logger     // The IdentityService logger
+	baseServer networkingServer // The interface towards the base networking server
 
 	chainID int64   // The chain ID of the network
 	hostID  peer.ID // The base networking server's host peer ID
@@ -76,7 +79,7 @@ func NewIdentityService(
 		baseServer:             server,
 		chainID:                chainID,
 		hostID:                 hostID,
-		pendingPeerConnections: cmap.NewConcurrentMap(),
+		pendingPeerConnections: make(map[peer.ID]struct{}),
 	}
 }
 
@@ -84,21 +87,34 @@ func (i *IdentityService) GetNotifyBundle() *network.NotifyBundle {
 	return &network.NotifyBundle{
 		ConnectedF: func(net network.Network, conn network.Conn) {
 			peerID := conn.RemotePeer()
-			i.logger.Debug("Conn", "peer", peerID, "direction", conn.Stat().Direction)
+			direction := conn.Stat().Direction
 
-			if i.hasPendingStatus(peerID) {
+			i.logger.Debug("new conn", "peer", peerID, "direction", direction)
+
+			if i.HasPendingStatus(peerID) {
 				// handshake has already started
 				return
 			}
 
-			if !i.baseServer.HasFreeConnectionSlot(conn.Stat().Direction) {
+			// get write lock
+			i.pendingCountMux.Lock()
+			defer i.pendingCountMux.Unlock()
+
+			// double check
+			{
+				_, ok := i.pendingPeerConnections[peerID]
+				if ok {
+					return
+				}
+			}
+
+			if !i.baseServer.HasFreeConnectionSlot(direction) {
 				i.disconnectFromPeer(peerID, ErrNoAvailableSlots.Error())
 
 				return
 			}
 
-			// Mark the peer as pending (pending handshake)
-			i.addPendingStatus(peerID, conn.Stat().Direction)
+			i.addPendingStatus(peerID, direction)
 
 			go func() {
 				connectEvent := &event.PeerEvent{
@@ -107,14 +123,16 @@ func (i *IdentityService) GetNotifyBundle() *network.NotifyBundle {
 				}
 
 				if err := i.handleConnected(peerID, conn.Stat().Direction); err != nil {
+					i.logger.Debug("identity check failed, disconnect peer", "peer", peerID)
+
 					// Close the connection to the peer
 					i.disconnectFromPeer(peerID, err.Error())
 
+					i.logger.Debug("send PeerFailedToConnect event", "peer", peerID)
 					connectEvent.Type = event.PeerFailedToConnect
 				}
 
-				// Mark the peer as no longer pending
-				i.removePendingStatus(connectEvent.PeerID)
+				i.removePendingStatus(peerID, direction)
 
 				// Emit an adequate event
 				i.baseServer.EmitEvent(&event.PeerEvent{
@@ -126,32 +144,34 @@ func (i *IdentityService) GetNotifyBundle() *network.NotifyBundle {
 	}
 }
 
-// hasPendingStatus checks if a peer is pending handshake [Thread safe]
-func (i *IdentityService) hasPendingStatus(id peer.ID) bool {
-	_, ok := i.pendingPeerConnections.Load(id)
+// HasPendingStatus checks if a peer is pending handshake [Thread safe]
+func (i *IdentityService) HasPendingStatus(id peer.ID) bool {
+	i.pendingCountMux.RLock()
+	defer i.pendingCountMux.RUnlock()
+
+	_, ok := i.pendingPeerConnections[id]
 
 	return ok
 }
 
 // removePendingStatus removes the pending status from a peer,
-// and updates adequate counter information [Thread safe]
-func (i *IdentityService) removePendingStatus(peerID peer.ID) {
-	if value, loaded := i.pendingPeerConnections.LoadAndDelete(peerID); loaded {
-		direction, ok := value.(network.Direction)
-		if !ok {
-			return
-		}
+// and updates adequate counter information  [Thread safe]
+func (i *IdentityService) removePendingStatus(peerID peer.ID, direction network.Direction) {
+	i.pendingCountMux.Lock()
+	defer i.pendingCountMux.Unlock()
 
+	if _, loaded := i.pendingPeerConnections[peerID]; loaded {
 		i.baseServer.UpdatePendingConnCount(-1, direction)
+
+		delete(i.pendingPeerConnections, peerID)
 	}
 }
 
 // addPendingStatus adds the pending status to a peer,
-// and updates adequate counter information [Thread safe]
-func (i *IdentityService) addPendingStatus(id peer.ID, direction network.Direction) {
-	if _, loaded := i.pendingPeerConnections.LoadOrStore(id, direction); !loaded {
-		i.baseServer.UpdatePendingConnCount(1, direction)
-	}
+// and updates adequate counter information
+func (i *IdentityService) addPendingStatus(peerID peer.ID, direction network.Direction) {
+	i.pendingPeerConnections[peerID] = struct{}{}
+	i.baseServer.UpdatePendingConnCount(1, direction)
 }
 
 // disconnectFromPeer disconnects from the specified peer
@@ -161,9 +181,10 @@ func (i *IdentityService) disconnectFromPeer(peerID peer.ID, reason string) {
 
 // handleConnected handles new network connections (handshakes)
 func (i *IdentityService) handleConnected(peerID peer.ID, direction network.Direction) error {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
-	defer cancel()
+	i.logger.Debug("handling new connection", "peer", peerID, "direction", direction)
 
+	// don't save this grpc client object
+	// this is a one time use stream
 	clt, clientErr := i.baseServer.NewIdentityClient(peerID)
 	if clientErr != nil {
 		return fmt.Errorf(
@@ -172,6 +193,13 @@ func (i *IdentityService) handleConnected(peerID peer.ID, direction network.Dire
 		)
 	}
 
+	defer func() {
+		err := clt.Close()
+		if err != nil {
+			i.logger.Error("error closing identity client connection", "error", err)
+		}
+	}()
+
 	// self peer ID
 	selfPeerID := i.hostID.Pretty()
 
@@ -179,6 +207,11 @@ func (i *IdentityService) handleConnected(peerID peer.ID, direction network.Dire
 	status := i.constructStatus(peerID)
 
 	// Initiate the handshake
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
+	defer cancel()
+
+	i.logger.Debug("send hello", "peer", peerID)
+
 	resp, err := clt.Hello(ctx, status)
 	if err != nil {
 		return err
@@ -189,7 +222,7 @@ func (i *IdentityService) handleConnected(peerID peer.ID, direction network.Dire
 		return ErrInvalidChainID
 	}
 
-	if selfPeerID == resp.Metadata[PeerID] {
+	if selfPeerID == resp.Metadata[peerIDMetaString] {
 		return ErrSelfConnection
 	}
 
@@ -203,7 +236,7 @@ func (i *IdentityService) handleConnected(peerID peer.ID, direction network.Dire
 func (i *IdentityService) Hello(_ context.Context, req *proto.Status) (*proto.Status, error) {
 	// The peerID is the other node's peerID
 	// as this method is invoking a call such as "Hello, <peerID>!"
-	peerID, err := peer.Decode(req.Metadata[PeerID])
+	peerID, err := peer.Decode(req.Metadata[peerIDMetaString])
 	if err != nil {
 		return nil, err
 	}
@@ -216,7 +249,7 @@ func (i *IdentityService) constructStatus(peerID peer.ID) *proto.Status {
 	// deprecated TemporaryDial
 	return &proto.Status{
 		Metadata: map[string]string{
-			PeerID: i.hostID.Pretty(),
+			peerIDMetaString: i.hostID.Pretty(),
 		},
 		Chain:         i.chainID,
 		TemporaryDial: false,

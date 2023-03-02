@@ -8,20 +8,20 @@ import (
 	"testing"
 	"time"
 
-	ma "github.com/multiformats/go-multiaddr"
-
 	"github.com/dogechain-lab/dogechain/helper/tests"
+	"github.com/dogechain-lab/dogechain/network/client"
 	"github.com/dogechain-lab/dogechain/network/common"
 	"github.com/dogechain-lab/dogechain/network/proto"
-	networkTesting "github.com/dogechain-lab/dogechain/network/testing"
+
 	"github.com/hashicorp/go-hclog"
-	kb "github.com/libp2p/go-libp2p-kbucket"
-	libp2pCrypto "github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/stretchr/testify/assert"
-	"google.golang.org/grpc"
 
+	networkTesting "github.com/dogechain-lab/dogechain/network/testing"
 	ranger "github.com/libp2p/go-cidranger"
+	kb "github.com/libp2p/go-libp2p-kbucket"
+	libp2pCrypto "github.com/libp2p/go-libp2p/core/crypto"
+	ma "github.com/multiformats/go-multiaddr"
 )
 
 // newDiscoveryService creates a new discovery service instance
@@ -55,6 +55,7 @@ func newDiscoveryService(
 		baseServer:   baseServer,
 		logger:       hclog.NewNullLogger(),
 		routingTable: routingTable,
+		peerAddress:  newPeerAddreStore(),
 		ctx:          ctx,
 		ctxCancel:    cancel,
 	}, nil
@@ -94,7 +95,7 @@ func TestDiscoveryService_BootnodePeerDiscovery(t *testing.T) {
 	discoveryService, setupErr := newDiscoveryService(
 		// Set the relevant hook responses from the mock server
 		func(server *networkTesting.MockNetworkingServer) {
-			server.HookIsConnected(func(peerID peer.ID) bool {
+			server.HookHasPeer(func(peerID peer.ID) bool {
 				return true
 			})
 
@@ -107,17 +108,11 @@ func TestDiscoveryService_BootnodePeerDiscovery(t *testing.T) {
 				return randomBootnode
 			})
 
-			// Define the bootnode conn count hook
-			server.HookGetBootnodeConnCount(func() int64 {
-				return 1 // > 0 to trigger a temporary connection
-			})
-
 			// Define the discovery client find peers hook
 			server.GetMockDiscoveryClient().HookFindPeers(
 				func(
 					ctx context.Context,
 					in *proto.FindPeersReq,
-					opts ...grpc.CallOption,
 				) (*proto.FindPeersResp, error) {
 					// Encode the response to a string array
 					peers := make([]string, len(randomPeers))
@@ -168,8 +163,8 @@ func TestDiscoveryService_AddToTable(t *testing.T) {
 		peerStore[info.ID] = info
 	}
 
-	removeFromPeerStoreHook := func(info *peer.AddrInfo) {
-		delete(peerStore, info.ID)
+	removeFromPeerStoreHook := func(peerID peer.ID) {
+		delete(peerStore, peerID)
 	}
 
 	highLatencyHook := func(id peer.ID) time.Duration {
@@ -254,7 +249,7 @@ func TestDiscoveryService_RegularPeerDiscoveryUnconnected(t *testing.T) {
 			})
 
 			// Define the new discovery client creation
-			server.HookNewDiscoveryClient(func(id peer.ID) (proto.DiscoveryClient, error) {
+			server.HookNewDiscoveryClient(func(id peer.ID) (client.DiscoveryClient, error) {
 				return nil, errors.New("peer is not connected anymore")
 			})
 
@@ -306,7 +301,7 @@ func TestDiscoveryService_IgnorePeer(t *testing.T) {
 	discoveryService, setupErr := newDiscoveryService(
 		// Set the relevant hook responses from the mock server
 		func(server *networkTesting.MockNetworkingServer) {
-			server.HookIsConnected(func(peerID peer.ID) bool {
+			server.HookHasPeer(func(peerID peer.ID) bool {
 				return true
 			})
 
@@ -324,7 +319,6 @@ func TestDiscoveryService_IgnorePeer(t *testing.T) {
 				func(
 					ctx context.Context,
 					in *proto.FindPeersReq,
-					opts ...grpc.CallOption,
 				) (*proto.FindPeersResp, error) {
 					// Encode the response to a string array
 					peers := make([]string, len(randomPeers))

@@ -28,6 +28,9 @@ func TestConnLimit_Inbound(t *testing.T) {
 			c.MaxOutboundPeers = 1
 			c.NoDiscover = true
 		},
+		ServerCallback: func(s *DefaultServer) {
+			s.config.Chain.Bootnodes = []string{}
+		},
 	}
 
 	servers, createErr := createServers(3, map[int]*CreateServerParams{
@@ -43,17 +46,30 @@ func TestConnLimit_Inbound(t *testing.T) {
 		closeTestServers(t, servers)
 	})
 
-	// One slot left, Server 0 can connect to Server 1
-	if joinErr := JoinAndWait(t, servers[0], servers[1], DefaultBufferTimeout, DefaultJoinTimeout, false); joinErr != nil {
-		t.Fatalf("Unable to join servers (servers[0], servers[1]), %v", joinErr)
+	t.Logf("Server 0 ID: %v", servers[0].host.ID())
+	t.Logf("Server 1 ID: %v", servers[1].host.ID())
+	t.Logf("Server 2 ID: %v", servers[2].host.ID())
+
+	// One slot left, Server 1 can connect to Server 0
+	if joinErr := JoinAndWait(t, servers[1], servers[0], DefaultBufferTimeout, DefaultJoinTimeout, false); joinErr != nil {
+		t.Fatalf("Unable to join servers (servers[1], servers[0]), %v", joinErr)
 	}
 
-	// Server 2 tries to connect to Server 1
-	// but Server 1 is already connected to max inbound peers
+	// Server 2 tries to connect to Server 0
+	// but Server 0 is already connected to max inbound peers
 	smallTimeout := time.Second * 5
-	if joinErr := JoinAndWait(t, servers[2], servers[1], smallTimeout, smallTimeout, false); joinErr == nil {
-		t.Fatalf("Peer join should've failed (servers[2], servers[1]), %v", joinErr)
+	if joinErr := JoinAndWait(t, servers[2], servers[0], smallTimeout, smallTimeout, false); joinErr == nil {
+		// join if successful
+		servers[0].peersLock.RLock()
+		t.Logf("Server 0 peers: %v", servers[0].peers)
+		servers[0].peersLock.RUnlock()
+
+		Connectedness := servers[0].host.Network().Connectedness(servers[2].host.ID())
+		assert.Equal(t, network.NotConnected, Connectedness)
 	}
+
+	assert.True(t, servers[0].HasPeer(servers[1].host.ID()), "Server 0 should have Server 1 as a peer")
+	assert.False(t, servers[0].HasPeer(servers[2].host.ID()), "Server 0 should not have Server 2 as a peer")
 
 	// Disconnect Server 0 from Server 1 so Server 1 will have free slots
 	servers[0].DisconnectFromPeer(servers[1].host.ID(), "bye")
@@ -69,9 +85,13 @@ func TestConnLimit_Inbound(t *testing.T) {
 		t.Fatalf("Unable to disconnect from peer, %v", disconnectErr)
 	}
 
-	// Attempt a connection between Server 2 and Server 1 again
-	if joinErr := JoinAndWait(t, servers[2], servers[1], DefaultBufferTimeout, DefaultJoinTimeout, false); joinErr != nil {
-		t.Fatalf("Unable to join servers (servers[2], servers[1]), %v", joinErr)
+	servers[0].peersLock.RLock()
+	t.Logf("Server 0 peers: %v", servers[0].peers)
+	servers[0].peersLock.RUnlock()
+
+	// Attempt a connection between Server 2 and Server 0 again
+	if joinErr := JoinAndWait(t, servers[2], servers[0], DefaultBufferTimeout, DefaultJoinTimeout, false); joinErr != nil {
+		t.Fatalf("Unable to join servers (servers[2] => servers[0]), %v", joinErr)
 	}
 }
 
@@ -82,6 +102,9 @@ func TestConnLimit_Outbound(t *testing.T) {
 			c.MaxInboundPeers = 1
 			c.MaxOutboundPeers = 1
 			c.NoDiscover = true
+		},
+		ServerCallback: func(s *DefaultServer) {
+			s.config.Chain.Bootnodes = []string{}
 		},
 	}
 
@@ -103,11 +126,14 @@ func TestConnLimit_Outbound(t *testing.T) {
 		t.Fatalf("Unable to join servers (servers[0], servers[1]), %v", joinErr)
 	}
 
+	t.Logf("Server 0 connectionCounts: %v", servers[0].connectionCounts)
+	t.Logf("Server 1 connectionCounts: %v", servers[1].connectionCounts)
+
 	// Attempt to connect Server 0 to Server 2, but it should fail since
 	// Server 0 already has 1 peer (Server 1)
 	smallTimeout := time.Second * 5
 	if joinErr := JoinAndWait(t, servers[0], servers[2], smallTimeout, smallTimeout, false); joinErr == nil {
-		t.Fatalf("Unable to join servers (servers[0], servers[2), %v", joinErr)
+		t.Fatalf("Unable to join servers (servers[0], servers[2)")
 	}
 
 	// Disconnect Server 0 from Server 1
@@ -483,7 +509,7 @@ func TestPeerReconnection(t *testing.T) {
 	})
 
 	disconnectFromPeer := func(server Server, peerID peer.ID) {
-		server.DisconnectFromPeer(peerID, "Bye")
+		server.DisconnectFromPeer(peerID, "bye")
 
 		disconnectCtx, disconnectFn := context.WithTimeout(context.Background(), DefaultJoinTimeout)
 		defer disconnectFn()
@@ -688,6 +714,7 @@ func TestRunDial(t *testing.T) {
 					ConfigCallback: func(c *Config) {
 						c.MaxInboundPeers = maxPeers[idx]
 						c.MaxOutboundPeers = maxPeers[idx]
+						c.MaxPeers = maxPeers[idx]
 						c.NoDiscover = true
 					},
 				})
@@ -740,23 +767,18 @@ func TestRunDial(t *testing.T) {
 		closeServers(servers...)
 	})
 
-	t.Run("should try to connect after adding a peer to queue", func(t *testing.T) {
-		maxPeers := []int64{1, 0, 1}
-		servers := setupServers(t, maxPeers)
-		srv, peers := servers[0], servers[1:]
+	t.Run("should fail if MaxPeers is 0", func(t *testing.T) {
+		_, createErr := CreateServer(
+			&CreateServerParams{
+				ConfigCallback: func(c *Config) {
+					c.MaxInboundPeers = 0
+					c.MaxOutboundPeers = 0
+					c.MaxPeers = 0
+					c.NoDiscover = true
+				},
+			})
 
-		// Server 1 can't connect to any peers, so this join should fail
-		smallTimeout := time.Second * 5
-		if joinErr := JoinAndWait(t, srv, peers[0], smallTimeout, smallTimeout, false); joinErr == nil {
-			t.Fatalf("Shouldn't be able to join peer (srv, peers[0]), %v", joinErr)
-		}
-
-		// Server 0 and Server 2 should connect
-		if joinErr := JoinAndWait(t, srv, peers[1], DefaultBufferTimeout, DefaultJoinTimeout, false); joinErr != nil {
-			t.Fatalf("Couldn't join peer (srv, peers[1]), %v", joinErr)
-		}
-
-		closeServers(srv, peers[1])
+		assert.Error(t, createErr)
 	})
 }
 
@@ -1028,8 +1050,8 @@ func TestPeerAdditionDeletion(t *testing.T) {
 		// Make sure the directions match
 		for indx, connInfo := range server.Peers() {
 			assert.Equal(t, randomPeers[indx].peerID, connInfo.Info.ID)
-			assert.True(t, connInfo.connDirections[network.DirOutbound])
-			assert.True(t, connInfo.connDirections[network.DirInbound])
+			assert.True(t, connInfo.existsConnDirection(network.DirOutbound))
+			assert.True(t, connInfo.existsConnDirection(network.DirInbound))
 		}
 
 		outbound, inbound := extractExpectedDirectionCounts(randomPeers)
@@ -1047,7 +1069,12 @@ func TestPeerAdditionDeletion(t *testing.T) {
 		prunedPeers := 0
 		for i := 0; i < len(randomPeers); i += 2 {
 			prunedPeers++
-			server.removePeer(randomPeers[i].peerID)
+			peerInfo, ok := server.peers[randomPeers[i].peerID]
+			if ok {
+				for direction := range peerInfo.connDirections {
+					server.removePeerConnect(randomPeers[i].peerID, direction)
+				}
+			}
 
 			assert.False(t, server.HasPeer(randomPeers[i].peerID))
 		}
