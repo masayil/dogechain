@@ -17,6 +17,8 @@ import (
 	"github.com/dogechain-lab/dogechain/state"
 	itrie "github.com/dogechain-lab/dogechain/state/immutable-trie"
 	"github.com/dogechain-lab/dogechain/state/runtime"
+	"github.com/dogechain-lab/dogechain/state/snapshot"
+	"github.com/dogechain-lab/dogechain/trie"
 	"github.com/dogechain-lab/dogechain/types"
 	"github.com/hashicorp/go-hclog"
 )
@@ -225,8 +227,9 @@ func (e *exec) UnmarshalJSON(input []byte) error {
 
 func buildState(
 	allocs map[types.Address]*chain.GenesisAccount,
-) (state.State, state.Snapshot, types.Hash, error) {
-	s := itrie.NewStateDB(memorydb.New(), hclog.NewNullLogger(), nil)
+) (itrie.Storage, state.State, state.Snapshot, types.Hash, error) {
+	triedb := memorydb.New()
+	s := itrie.NewStateDB(triedb, hclog.NewNullLogger(), nil)
 	snap := s.NewSnapshot()
 
 	txn := state.NewTxn(snap)
@@ -249,10 +252,31 @@ func buildState(
 
 	snap, root, err := snap.Commit(objs)
 	if err != nil {
-		return nil, nil, types.Hash{}, err
+		return nil, nil, nil, types.Hash{}, err
 	}
 
-	return s, snap, types.BytesToHash(root), nil
+	return triedb, s, snap, types.BytesToHash(root), nil
+}
+
+func buildSnapshotTree(triedb itrie.Storage, baseRoot types.Hash) (*snapshot.Tree, error) {
+	snapCfg := snapshot.Config{
+		CacheSize:  1, // enough disk cache for test
+		Recovery:   false,
+		NoBuild:    false,
+		AsyncBuild: false, // build it from start and wait
+	}
+
+	logger := hclog.NewNullLogger()
+	snpTrieDB := trie.NewDatabaseWithConfig(
+		triedb,
+		&trie.Config{
+			Cache:   0,  // no need cleans cache for test
+			Journal: "", // empty journal
+		},
+		logger,
+	)
+
+	return snapshot.New(snapCfg, triedb, snpTrieDB, baseRoot, logger, snapshot.NilMetrics())
 }
 
 type indexes struct {
@@ -267,7 +291,7 @@ type postEntry struct {
 	Indexes indexes
 }
 
-type postState []postEntry
+type postState []*postEntry
 
 func (p *postEntry) UnmarshalJSON(input []byte) error {
 	type stateUnmarshall struct {

@@ -51,7 +51,7 @@ func testVMCase(t *testing.T, name string, c *VMCase) {
 	env.GasPrice = types.BytesToHash(c.Exec.GasPrice.Bytes())
 	env.Origin = c.Exec.Origin
 
-	s, _, root, err := buildState(c.Pre)
+	_, s, _, root, err := buildState(c.Pre)
 	assert.NoError(t, err)
 
 	config := mainnetChainConfig.Forks.At(uint64(env.Number))

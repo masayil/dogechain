@@ -15,6 +15,7 @@ import (
 	"github.com/dogechain-lab/dogechain/state/runtime"
 	"github.com/dogechain-lab/dogechain/state/runtime/evm"
 	"github.com/dogechain-lab/dogechain/state/snapshot"
+	"github.com/dogechain-lab/dogechain/state/stypes"
 	"github.com/dogechain-lab/dogechain/types"
 	"github.com/hashicorp/go-hclog"
 )
@@ -458,6 +459,80 @@ func (t *Transition) handleBridgeLogs(msg *types.Transaction, logs []*types.Log)
 	return nil
 }
 
+func (t *Transition) UpdateSnapshot(root types.Hash, objs []*stypes.Object) {
+	if t.snap == nil {
+		return
+	}
+
+	defer func() {
+		// clear current snap since the state is useless
+		t.snap = nil
+		t.txn.CleanSnap()
+	}()
+
+	// Only update if there's a state transition (skip empty blocks)
+	parent := t.snap.Root()
+	if parent == root {
+		return
+	}
+
+	// get snap objects from txn
+	snapDestructs, snapAccounts, snapStorage := t.txn.GetSnapObjects()
+
+	// update all snap account state root
+	for _, obj := range objs {
+		addrHash := crypto.Keccak256Hash(obj.Address.Bytes())
+
+		if obj.Deleted {
+			// delete account
+			snapDestructs[addrHash] = struct{}{}
+
+			delete(snapAccounts, addrHash)
+			delete(snapStorage, addrHash)
+
+			continue
+		}
+
+		// update snap layer account
+		snapAccounts[addrHash] =
+			snapshot.SlimAccountRLP(
+				obj.Nonce,
+				obj.Balance,
+				obj.Root,
+				obj.CodeHash.Bytes(),
+			)
+	}
+
+	// update snapshot tree
+	if err := t.snaps.Update(
+		root,
+		parent,
+		snapDestructs,
+		snapAccounts,
+		snapStorage,
+		t.logger,
+	); err != nil {
+		t.logger.Warn(
+			"Failed to update snapshot tree",
+			"from", parent,
+			"to", root,
+			"err", err,
+		)
+	}
+	// Keep 128 diff layers in the memory, persistent layer is 129th.
+	// - head layer is paired with HEAD state
+	// - head-1 layer is paired with HEAD-1 state
+	// - head-127 layer(bottom-most diff layer) is paired with HEAD-127 state
+	if err := t.snaps.Cap(root, 128); err != nil {
+		t.logger.Warn(
+			"Failed to cap snapshot tree",
+			"root", root,
+			"layers", 128,
+			"err", err,
+		)
+	}
+}
+
 // Commit commits the final result
 func (t *Transition) Commit() (Snapshot, types.Hash, error) {
 	objs := t.txn.Commit(t.config.EIP155)
@@ -468,52 +543,7 @@ func (t *Transition) Commit() (Snapshot, types.Hash, error) {
 	}
 
 	// If snapshotting is enabled, update the snapshot tree after committed.
-	if t.snap != nil {
-		curroot := types.BytesToHash(root)
-		// Only update if there's a state transition (skip empty blocks)
-		if parent := t.snap.Root(); parent != curroot {
-			// get snap objects from txn
-			snapDestructs, snapAccounts, snapStorage := t.txn.GetSnapObjects()
-
-			// update all snap account state root
-			for _, obj := range objs {
-				addrHash := crypto.Keccak256Hash(obj.Address.Bytes())
-
-				if obj.Deleted {
-					// delete account
-					snapDestructs[addrHash] = struct{}{}
-
-					delete(snapAccounts, addrHash)
-					delete(snapStorage, addrHash)
-
-					continue
-				}
-
-				// update snap layer account
-				snapAccounts[addrHash] =
-					snapshot.SlimAccountRLP(obj.Nonce, obj.Balance, obj.Root, obj.CodeHash.Bytes())
-			}
-
-			// update snapshot tree
-			if err := t.snaps.Update(curroot, parent,
-				snapDestructs, snapAccounts, snapStorage,
-				t.logger,
-			); err != nil {
-				t.logger.Warn("Failed to update snapshot tree", "from", parent, "to", root, "err", err)
-			}
-			// Keep 128 diff layers in the memory, persistent layer is 129th.
-			// - head layer is paired with HEAD state
-			// - head-1 layer is paired with HEAD-1 state
-			// - head-127 layer(bottom-most diff layer) is paired with HEAD-127 state
-			if err := t.snaps.Cap(curroot, 128); err != nil {
-				t.logger.Warn("Failed to cap snapshot tree", "root", root, "layers", 128, "err", err)
-			}
-		}
-
-		// clear current snap since the state is useless
-		t.snap = nil
-		t.txn.CleanSnap()
-	}
+	t.UpdateSnapshot(types.BytesToHash(root), objs)
 
 	return s2, types.BytesToHash(root), nil
 }
