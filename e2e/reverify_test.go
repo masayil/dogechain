@@ -111,9 +111,7 @@ func TestReverify(t *testing.T) {
 		defer cancel()
 
 		err := resvr.Start(ctx)
-		if err != nil {
-			t.Fatal(err)
-		}
+		assert.NoError(t, err)
 	}()
 
 	t.Cleanup(func() {
