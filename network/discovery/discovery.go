@@ -3,10 +3,11 @@ package discovery
 import (
 	"context"
 	"errors"
-	"fmt"
 	"math/rand"
+	"sync"
 	"time"
 
+	"github.com/dogechain-lab/dogechain/network/client"
 	"github.com/dogechain-lab/dogechain/network/common"
 	"github.com/dogechain-lab/dogechain/network/event"
 	"github.com/hashicorp/go-hclog"
@@ -47,7 +48,7 @@ type networkingServer interface {
 	// PROTOCOL MANIPULATION //
 
 	// NewDiscoveryClient returns a discovery gRPC client connection
-	NewDiscoveryClient(peerID peer.ID) (proto.DiscoveryClient, error)
+	NewDiscoveryClient(peerID peer.ID) (client.DiscoveryClient, error)
 
 	// PEER MANIPULATION //
 
@@ -57,11 +58,11 @@ type networkingServer interface {
 	// IsStaticPeer returns true if the peer is a static peer
 	IsStaticPeer(peerID peer.ID) bool
 
-	// isConnected checks if the networking server is connected to a peer
-	IsConnected(peerID peer.ID) bool
+	// HasPeer returns true if the peer is connected
+	HasPeer(peerID peer.ID) bool
 
 	// Connect attempts to connect to the specified peer
-	Connect(context.Context, peer.AddrInfo) error
+	Connect(peer.AddrInfo) error
 
 	// DisconnectFromPeer attempts to disconnect from the specified peer
 	DisconnectFromPeer(peerID peer.ID, reason string)
@@ -70,7 +71,7 @@ type networkingServer interface {
 	AddToPeerStore(peerInfo *peer.AddrInfo)
 
 	// RemoveFromPeerStore removes peer information from the server's peer store
-	RemoveFromPeerStore(peerInfo *peer.AddrInfo)
+	RemoveFromPeerStore(peerID peer.ID)
 
 	// GetPeerInfo fetches the peer information from the server's peer store
 	GetPeerInfo(peerID peer.ID) *peer.AddrInfo
@@ -87,6 +88,74 @@ type networkingServer interface {
 	PeerCount() int64
 }
 
+// peerAddreStore is a struct that contains the peer address information
+type peerAddreStore struct {
+	lcok          sync.RWMutex               // protects the peerAddress map
+	peerAddresses map[peer.ID]*peer.AddrInfo // stores the peer address information
+}
+
+func (p *peerAddreStore) GetPeerInfo(peerID peer.ID) *peer.AddrInfo {
+	p.lcok.RLock()
+	defer p.lcok.RUnlock()
+
+	peerInfo, ok := p.peerAddresses[peerID]
+	if !ok {
+		return nil
+	}
+
+	return peerInfo
+}
+
+func (p *peerAddreStore) GetPeers() []peer.ID {
+	p.lcok.RLock()
+	defer p.lcok.RUnlock()
+
+	peers := make([]peer.ID, 0, len(p.peerAddresses))
+	for peerID := range p.peerAddresses {
+		peers = append(peers, peerID)
+	}
+
+	return peers
+}
+
+func (p *peerAddreStore) AddToPeerStore(peerInfo *peer.AddrInfo) {
+	p.lcok.Lock()
+	defer p.lcok.Unlock()
+
+	p.peerAddresses[peerInfo.ID] = peerInfo
+}
+
+func (p *peerAddreStore) Prune(routingTable *kb.RoutingTable) {
+	p.lcok.Lock()
+	defer p.lcok.Unlock()
+
+	// if the peer address store is less than twice the size of the routing table
+	// then there is no need to prune
+	if len(p.peerAddresses) < (routingTable.Size() * 2) {
+		return
+	}
+
+	// create a new peer address store
+	// and copy over the peer address information
+	// if peer exist in the routing table
+	newPeerAddress := make(map[peer.ID]*peer.AddrInfo)
+	peers := routingTable.ListPeers()
+
+	for _, peerID := range peers {
+		if peerInfo, ok := p.peerAddresses[peerID]; ok {
+			newPeerAddress[peerID] = peerInfo
+		}
+	}
+
+	p.peerAddresses = newPeerAddress
+}
+
+func newPeerAddreStore() *peerAddreStore {
+	return &peerAddreStore{
+		peerAddresses: make(map[peer.ID]*peer.AddrInfo),
+	}
+}
+
 // DiscoveryService is a service that finds other peers in the network
 // and connects them to the current running node
 type DiscoveryService struct {
@@ -95,6 +164,8 @@ type DiscoveryService struct {
 	baseServer   networkingServer // The interface towards the base networking server
 	logger       hclog.Logger     // The DiscoveryService logger
 	routingTable *kb.RoutingTable // Kademlia 'k-bucket' routing table that contains connected nodes info
+
+	peerAddress *peerAddreStore // stores the peer address information
 
 	ignoreCIDR ranger.Ranger // CIDR ranges to ignore when finding peers
 
@@ -116,6 +187,7 @@ func NewDiscoveryService(
 		baseServer:   server,
 		logger:       logger.Named("discovery"),
 		routingTable: routingTable,
+		peerAddress:  newPeerAddreStore(),
 		ignoreCIDR:   ignoreCIDR,
 		ctx:          ctx,
 		ctxCancel:    cancel,
@@ -137,27 +209,42 @@ func (d *DiscoveryService) RoutingTableSize() int {
 	return d.routingTable.Size()
 }
 
-// RoutingTablePeers fetches the peers from the routing table
-func (d *DiscoveryService) RoutingTablePeers() []peer.ID {
-	return d.routingTable.ListPeers()
+// GetConfirmPeers fetches the peers (pass identity check)
+func (d *DiscoveryService) GetConfirmPeers() []peer.ID {
+	return d.peerAddress.GetPeers()
+}
+
+// GetConfirmPeerInfo fetches the peer information (pass identity check)
+func (d *DiscoveryService) GetConfirmPeerInfo(peerID peer.ID) *peer.AddrInfo {
+	return d.peerAddress.GetPeerInfo(peerID)
 }
 
 // HandleNetworkEvent handles base network events for the DiscoveryService
 func (d *DiscoveryService) HandleNetworkEvent(peerEvent *event.PeerEvent) {
+	// ignore event.PeerDisconnected and event.PeerFailedToConnect,
+	// routingTable save all discovered peers (pass identity check)
+	// and we don't want to remove them from the routing table
+	// if bootnode disconnects and shutdown, can use this reconnect to network
 	peerID := peerEvent.PeerID
 
+	// identity service trigger PeerDialCompleted event
 	switch peerEvent.Type {
-	case event.PeerConnected:
+	case event.PeerDialCompleted:
 		// Add peer to the routing table and to our local peer table
-		_, err := d.routingTable.TryAddPeer(peerID, false, false)
+		_, err := d.routingTable.TryAddPeer(peerID, false, true)
 		if err != nil {
 			d.logger.Error("failed to add peer to routing table", "err", err)
 
 			return
 		}
-	case event.PeerDisconnected, event.PeerFailedToConnect:
-		// Run cleanup for the local routing / reference peers table
-		d.routingTable.RemovePeer(peerID)
+
+		peerInfo := d.baseServer.GetPeerInfo(peerID)
+		// save peer address information
+		d.peerAddress.AddToPeerStore(peerInfo)
+		d.peerAddress.Prune(d.routingTable)
+
+		// update last use time
+		d.routingTable.UpdateLastUsefulAt(peerID, time.Now())
 	}
 }
 
@@ -186,15 +273,12 @@ func (d *DiscoveryService) addToTable(node *peer.AddrInfo) error {
 	// available to all the libp2p services
 	d.baseServer.AddToPeerStore(node)
 
-	if _, err := d.routingTable.TryAddPeer(
-		node.ID,
-		false,
-		true, // allow replacing existing peers
-	); err != nil {
+	_, err := d.routingTable.TryAddPeer(node.ID, false, true) // allow replacing existing peers
+	if err != nil {
 		// Since the routing table addition failed,
 		// the peer can be removed from the libp2p peer store
 		// in the base networking server
-		d.baseServer.RemoveFromPeerStore(node)
+		d.baseServer.RemoveFromPeerStore(node.ID)
 
 		return err
 	}
@@ -246,7 +330,6 @@ func (d *DiscoveryService) attemptToFindPeers(peerID peer.ID) error {
 	d.logger.Debug("Querying a peer for near peers", "peer", peerID)
 	nodes, err := d.findPeersCall(peerID)
 
-	d.logger.Debug("Found new near peers", "peer", len(nodes))
 	d.addPeersToTable(nodes)
 
 	return err
@@ -299,7 +382,7 @@ func (d *DiscoveryService) findPeersCall(
 
 	clt, clientErr := d.baseServer.NewDiscoveryClient(peerID)
 	if clientErr != nil {
-		return nil, fmt.Errorf("unable to create new discovery client connection, %w", clientErr)
+		return nil, clientErr
 	}
 
 	resp, err := clt.FindPeers(
@@ -311,6 +394,9 @@ func (d *DiscoveryService) findPeersCall(
 	if err != nil {
 		return nil, err
 	}
+
+	// update last use time
+	d.routingTable.UpdateLastUsefulAt(peerID, time.Now())
 
 	var filterNode []string
 
@@ -414,13 +500,10 @@ func (d *DiscoveryService) bootnodePeerDiscovery() {
 	}
 
 	// If bootnode is not connected try reonnect
-	if !d.baseServer.IsConnected(bootnode.ID) {
+	if !d.baseServer.HasPeer(bootnode.ID) {
 		d.logger.Debug("bootnode is not connected, try to reconnect")
 
-		connectCtx, cancel := context.WithTimeout(d.ctx, bootnodeDiscoveryInterval/2)
-		defer cancel()
-
-		if err := d.baseServer.Connect(connectCtx, *bootnode); err != nil {
+		if err := d.baseServer.Connect(*bootnode); err != nil {
 			d.logger.Error("Unable to connect to bootnode",
 				"bootnode", bootnode.ID.String(),
 				"err", err.Error(),
@@ -431,18 +514,15 @@ func (d *DiscoveryService) bootnodePeerDiscovery() {
 	}
 
 	// Find peers from the referenced bootnode
-	foundNodes, err := d.findPeersCall(bootnode.ID)
-	if err != nil {
-		d.logger.Error("Unable to execute bootnode peer discovery",
-			"bootnode", bootnode.ID.String(),
-			"err", err.Error(),
+	if err := d.attemptToFindPeers(bootnode.ID); err != nil {
+		d.logger.Error(
+			"Failed to find new peers",
+			"peer",
+			bootnode.ID,
+			"err",
+			err,
 		)
-
-		return
 	}
-
-	// Save the peers for subsequent dialing
-	d.addPeersToTable(foundNodes)
 }
 
 // FindPeers implements the proto service for finding the target's peers

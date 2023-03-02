@@ -3,6 +3,7 @@ package network
 import (
 	"context"
 
+	"github.com/dogechain-lab/dogechain/network/client"
 	"github.com/dogechain-lab/dogechain/network/event"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -27,8 +28,6 @@ type Network interface {
 	HasPeer(peerID peer.ID) bool
 	// IsStaticPeer returns true if the peer is a static peer
 	IsStaticPeer(peerID peer.ID) bool
-	// IsConnected returns the node is connecting to the peer associated with the given ID
-	IsConnected(peerID peer.ID) bool
 	// DisconnectFromPeer disconnects the networking server from the specified peer
 	DisconnectFromPeer(peer peer.ID, reason string)
 	// ForgetPeer disconnects, remove and forget peer to prevent broadcast discovery to other peers
@@ -47,14 +46,14 @@ type Network interface {
 	RegisterProtocol(string, Protocol)
 	// GetProtocols returns the list of protocols supported by the peer
 	GetProtocols(peerID peer.ID) ([]string, error)
-	// GetProtoStream returns an active protocol stream if present, otherwise
-	// it returns nil
-	GetProtoStream(protocol string, peerID peer.ID) *rawGrpc.ClientConn
-	// NewProtoConnection opens up a new stream on the set protocol to the peer,
+	// NewProtoConnection opens up a new client connect on the set protocol to the peer,
 	// and returns a reference to the connection
 	NewProtoConnection(protocol string, peerID peer.ID) (*rawGrpc.ClientConn, error)
-	// SaveProtocolStream saves stream
-	SaveProtocolStream(protocol string, stream *rawGrpc.ClientConn, peerID peer.ID)
+	// GetProtoClient returns an active protocol client if present, otherwise
+	// it returns nil
+	GetProtoClient(protocol string, peerID peer.ID) client.GrpcClientCloser
+	// SaveProtoClient saves protocol client
+	SaveProtoClient(protocol string, stream client.GrpcClientCloser, peerID peer.ID)
 }
 
 type Protocol interface {

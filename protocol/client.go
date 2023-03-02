@@ -15,6 +15,8 @@ import (
 	"go.uber.org/atomic"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/emptypb"
+
+	rpcClient "github.com/dogechain-lab/dogechain/network/client"
 )
 
 const (
@@ -80,7 +82,7 @@ func (client *syncPeerClient) Start() error {
 
 // Close terminates running processes for SyncPeerClient
 func (client *syncPeerClient) Close() {
-	if !client.isClosed.CAS(false, true) {
+	if !client.isClosed.CompareAndSwap(false, true) {
 		return
 	}
 
@@ -199,11 +201,7 @@ func (client *syncPeerClient) handleStatusUpdate(obj interface{}, from peer.ID) 
 		return
 	}
 
-	if !client.network.IsConnected(from) {
-		if client.selfID != from.String() {
-			client.logger.Debug("received status from non-connected peer, ignore", "id", from)
-		}
-
+	if !client.network.HasPeer(from) {
 		return
 	}
 
@@ -383,12 +381,14 @@ func (client *syncPeerClient) broadcastBlockTo(
 }
 
 // newSyncPeerClient creates gRPC client [thread safe]
-func (client *syncPeerClient) newSyncPeerClient(peerID peer.ID) (proto.V1Client, error) {
+func (client *syncPeerClient) newSyncPeerClient(peerID peer.ID) (rpcClient.SyncerV1Client, error) {
 	client.connLock.Lock()
 	defer client.connLock.Unlock()
 
-	if conn := client.network.GetProtoStream(_syncerV1, peerID); conn != nil {
-		return proto.NewV1Client(conn), nil
+	if conn := client.network.GetProtoClient(_syncerV1, peerID); conn != nil {
+		if syncer, ok := conn.(rpcClient.SyncerV1Client); ok {
+			return syncer, nil
+		}
 	}
 
 	// create new connection
@@ -400,7 +400,8 @@ func (client *syncPeerClient) newSyncPeerClient(peerID peer.ID) (proto.V1Client,
 	}
 
 	// save protocol stream
-	client.network.SaveProtocolStream(_syncerV1, conn, peerID)
+	clt := rpcClient.NewSyncerV1Client(client.logger, proto.NewV1Client(conn), conn)
+	client.network.SaveProtoClient(_syncerV1, clt, peerID)
 
-	return proto.NewV1Client(conn), nil
+	return clt, nil
 }

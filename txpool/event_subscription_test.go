@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dogechain-lab/dogechain/helper/common"
 	"github.com/dogechain-lab/dogechain/helper/tests"
 	"github.com/dogechain-lab/dogechain/txpool/proto"
 	"github.com/dogechain-lab/dogechain/types"
@@ -119,7 +120,7 @@ func TestEventSubscription_ProcessedEvents(t *testing.T) {
 				eventStore: &eventQueue{
 					events: make([]*proto.TxPoolEvent, 0),
 				},
-				notifyCh: make(chan struct{}),
+				notifyCh: make(chan struct{}, 1),
 			}
 			go subscription.runLoop()
 			t.Cleanup(func() {
@@ -146,8 +147,12 @@ func TestEventSubscription_ProcessedEvents(t *testing.T) {
 			}
 
 			wg.Wait()
-			eventWaitCtx, eventWaitFn := context.WithTimeout(context.Background(), time.Second*10)
+
+			eventWaitCtx, eventWaitFn := context.WithTimeout(
+				context.Background(),
+				time.Second*time.Duration(common.MaxInt(testCase.expectedProcessed*2, 5)))
 			defer eventWaitFn()
+
 			if _, err := tests.RetryUntilTimeout(eventWaitCtx, func() (interface{}, bool) {
 				return nil, atomic.LoadInt64(&processed) < int64(testCase.expectedProcessed)
 			}); err != nil {
