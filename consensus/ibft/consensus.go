@@ -87,22 +87,22 @@ func (i *Ibft) runCycle(ctx context.Context) (shouldStop bool) {
 	// Based on the current state, execute the corresponding section
 	switch i.getState() {
 	case currentstate.AcceptState:
-		i.runAcceptState(ctx)
+		shouldStop = i.runAcceptState(ctx)
 
 	case currentstate.ValidateState:
-		i.runValidateState(ctx)
+		shouldStop = i.runValidateState(ctx)
 
 	case currentstate.RoundChangeState:
-		i.runRoundChangeState(ctx)
+		shouldStop = i.runRoundChangeState(ctx)
 
 	case currentstate.CommitState:
-		i.runCommitState(ctx)
+		shouldStop = i.runCommitState(ctx)
 
 	case currentstate.FinState:
-		return true
+		shouldStop = true
 	}
 
-	return false
+	return shouldStop
 }
 
 // getState returns the current IBFT state
@@ -129,7 +129,7 @@ func (i *Ibft) setState(s currentstate.IbftState) {
 // and sends preprepare and then prepare messages.
 func (i *Ibft) runAcceptState(ctx context.Context) (shouldStop bool) { // start new round
 	if i.isClosed.Load() {
-		return
+		return true
 	}
 
 	// set log output
@@ -144,7 +144,8 @@ func (i *Ibft) runAcceptState(ctx context.Context) (shouldStop bool) { // start 
 
 	if number != i.state.Sequence() {
 		logger.Error("sequence not correct", "parent", parent.Number, "sequence", i.state.Sequence())
-		time.Sleep(1 * time.Second)
+
+		shouldStop = true
 
 		return
 	}
@@ -162,7 +163,8 @@ func (i *Ibft) runAcceptState(ctx context.Context) (shouldStop bool) { // start 
 
 	if err != nil {
 		logger.Error("cannot find snapshot", "num", parent.Number)
-		time.Sleep(1 * time.Second)
+
+		shouldStop = true
 
 		return
 	}
@@ -170,7 +172,8 @@ func (i *Ibft) runAcceptState(ctx context.Context) (shouldStop bool) { // start 
 	if !snap.Set.Includes(i.validatorKeyAddr) {
 		// we are not a validator anymore, move back to sync state
 		logger.Info("we are not a validator anymore")
-		time.Sleep(1 * time.Second)
+
+		shouldStop = true
 
 		return
 	}
@@ -220,6 +223,8 @@ func (i *Ibft) runAcceptState(ctx context.Context) (shouldStop bool) { // start 
 			select {
 			case <-delayTimer.C:
 			case <-i.closeCh:
+				shouldStop = true
+
 				return
 			}
 		}
@@ -245,7 +250,9 @@ func (i *Ibft) runAcceptState(ctx context.Context) (shouldStop bool) { // start 
 	for i.getState() == currentstate.AcceptState {
 		msg, continuable := i.getNextMessage(ctx, timeout)
 		if !continuable {
-			return true
+			shouldStop = true
+
+			return
 		}
 
 		if msg == nil {
