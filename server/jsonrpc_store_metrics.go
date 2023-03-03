@@ -5,169 +5,169 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-type JSONRPCStoreMetrics struct {
+type jsonrpcStoreMetrics struct {
 	counter *prometheus.CounterVec
 }
 
 // GetNonce api calls
-func (m *JSONRPCStoreMetrics) GetNonceInc() {
+func (m *jsonrpcStoreMetrics) GetNonceInc() {
 	if m.counter != nil {
 		m.counter.With(prometheus.Labels{"method": "GetNonce"}).Inc()
 	}
 }
 
 // AddTx api calls
-func (m *JSONRPCStoreMetrics) AddTxInc() {
+func (m *jsonrpcStoreMetrics) AddTxInc() {
 	if m.counter != nil {
 		m.counter.With(prometheus.Labels{"method": "AddTx"}).Inc()
 	}
 }
 
 // GetPendingTx api calls
-func (m *JSONRPCStoreMetrics) GetPendingTxInc() {
+func (m *jsonrpcStoreMetrics) GetPendingTxInc() {
 	if m.counter != nil {
 		m.counter.With(prometheus.Labels{"method": "GetPendingTx"}).Inc()
 	}
 }
 
 // GetAccount api calls
-func (m *JSONRPCStoreMetrics) GetAccountInc() {
+func (m *jsonrpcStoreMetrics) GetAccountInc() {
 	if m.counter != nil {
 		m.counter.With(prometheus.Labels{"method": "GetAccount"}).Inc()
 	}
 }
 
 // GetGetStorage api calls
-func (m *JSONRPCStoreMetrics) GetStorageInc() {
+func (m *jsonrpcStoreMetrics) GetStorageInc() {
 	if m.counter != nil {
 		m.counter.With(prometheus.Labels{"method": "GetStorage"}).Inc()
 	}
 }
 
 // GetForksInTime api calls
-func (m *JSONRPCStoreMetrics) GetForksInTimeInc() {
+func (m *jsonrpcStoreMetrics) GetForksInTimeInc() {
 	if m.counter != nil {
 		m.counter.With(prometheus.Labels{"method": "GetForksInTime"}).Inc()
 	}
 }
 
 // GetCode api calls
-func (m *JSONRPCStoreMetrics) GetCodeInc() {
+func (m *jsonrpcStoreMetrics) GetCodeInc() {
 	if m.counter != nil {
 		m.counter.With(prometheus.Labels{"method": "GetCode"}).Inc()
 	}
 }
 
 // Header api calls
-func (m *JSONRPCStoreMetrics) HeaderInc() {
+func (m *jsonrpcStoreMetrics) HeaderInc() {
 	if m.counter != nil {
 		m.counter.With(prometheus.Labels{"method": "Header"}).Inc()
 	}
 }
 
 // GetHeaderByNumber api calls
-func (m *JSONRPCStoreMetrics) GetHeaderByNumberInc() {
+func (m *jsonrpcStoreMetrics) GetHeaderByNumberInc() {
 	if m.counter != nil {
 		m.counter.With(prometheus.Labels{"method": "GetHeaderByNumber"}).Inc()
 	}
 }
 
 // GetHeaderByHash api calls
-func (m *JSONRPCStoreMetrics) GetHeaderByHashInc() {
+func (m *jsonrpcStoreMetrics) GetHeaderByHashInc() {
 	if m.counter != nil {
 		m.counter.With(prometheus.Labels{"method": "GetHeaderByHash"}).Inc()
 	}
 }
 
 // GetBlockByHash api calls
-func (m *JSONRPCStoreMetrics) GetBlockByHashInc() {
+func (m *jsonrpcStoreMetrics) GetBlockByHashInc() {
 	if m.counter != nil {
 		m.counter.With(prometheus.Labels{"method": "GetBlockByHash"}).Inc()
 	}
 }
 
 // GetBlockByNumber api calls
-func (m *JSONRPCStoreMetrics) GetBlockByNumberInc() {
+func (m *jsonrpcStoreMetrics) GetBlockByNumberInc() {
 	if m.counter != nil {
 		m.counter.With(prometheus.Labels{"method": "GetBlockByNumber"}).Inc()
 	}
 }
 
 // ReadTxLookup api calls
-func (m *JSONRPCStoreMetrics) ReadTxLookupInc() {
+func (m *jsonrpcStoreMetrics) ReadTxLookupInc() {
 	if m.counter != nil {
 		m.counter.With(prometheus.Labels{"method": "ReadTxLookup"}).Inc()
 	}
 }
 
 // GetReceiptsByHash api calls
-func (m *JSONRPCStoreMetrics) GetReceiptsByHashInc() {
+func (m *jsonrpcStoreMetrics) GetReceiptsByHashInc() {
 	if m.counter != nil {
 		m.counter.With(prometheus.Labels{"method": "GetReceiptsByHash"}).Inc()
 	}
 }
 
 // GetAvgGasPrice api calls
-func (m *JSONRPCStoreMetrics) GetAvgGasPriceInc() {
+func (m *jsonrpcStoreMetrics) GetAvgGasPriceInc() {
 	if m.counter != nil {
 		m.counter.With(prometheus.Labels{"method": "GetAvgGasPrice"}).Inc()
 	}
 }
 
 // ApplyTxn api calls
-func (m *JSONRPCStoreMetrics) ApplyTxnInc() {
+func (m *jsonrpcStoreMetrics) ApplyTxnInc() {
 	if m.counter != nil {
 		m.counter.With(prometheus.Labels{"method": "ApplyTxn"}).Inc()
 	}
 }
 
 // GetSyncProgression api calls
-func (m *JSONRPCStoreMetrics) GetSyncProgressionInc() {
+func (m *jsonrpcStoreMetrics) GetSyncProgressionInc() {
 	if m.counter != nil {
 		m.counter.With(prometheus.Labels{"method": "GetSyncProgression"}).Inc()
 	}
 }
 
 // StateAtTransaction api calls
-func (m *JSONRPCStoreMetrics) StateAtTransactionInc() {
+func (m *jsonrpcStoreMetrics) StateAtTransactionInc() {
 	if m.counter != nil {
 		m.counter.With(prometheus.Labels{"method": "StateAtTransaction"}).Inc()
 	}
 }
 
 // PeerCount api calls
-func (m *JSONRPCStoreMetrics) PeerCountInc() {
+func (m *jsonrpcStoreMetrics) PeerCountInc() {
 	if m.counter != nil {
 		m.counter.With(prometheus.Labels{"method": "PeerCount"}).Inc()
 	}
 }
 
 // GetTxs api calls
-func (m *JSONRPCStoreMetrics) GetTxsInc() {
+func (m *jsonrpcStoreMetrics) GetTxsInc() {
 	if m.counter != nil {
 		m.counter.With(prometheus.Labels{"method": "GetTxs"}).Inc()
 	}
 }
 
 // GetCapacity api calls
-func (m *JSONRPCStoreMetrics) GetCapacityInc() {
+func (m *jsonrpcStoreMetrics) GetCapacityInc() {
 	if m.counter != nil {
 		m.counter.With(prometheus.Labels{"method": "GetCapacity"}).Inc()
 	}
 }
 
 // SubscribeEvents api calls
-func (m *JSONRPCStoreMetrics) SubscribeEventsInc() {
+func (m *jsonrpcStoreMetrics) SubscribeEventsInc() {
 	if m.counter != nil {
 		m.counter.With(prometheus.Labels{"method": "SubscribeEvents"}).Inc()
 	}
 }
 
 // NewJSONRPCStoreMetrics return the JSONRPCStore metrics instance
-func NewJSONRPCStoreMetrics(namespace string, labelsWithValues ...string) *JSONRPCStoreMetrics {
+func NewJSONRPCStoreMetrics(namespace string, labelsWithValues ...string) *jsonrpcStoreMetrics {
 	constLabels := metrics.ParseLables(labelsWithValues...)
 
-	m := &JSONRPCStoreMetrics{
+	m := &jsonrpcStoreMetrics{
 		counter: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace:   namespace,
 			Subsystem:   "jsonrpc_store",
@@ -183,8 +183,8 @@ func NewJSONRPCStoreMetrics(namespace string, labelsWithValues ...string) *JSONR
 }
 
 // JSONRPCStoreNilMetrics will return the non operational jsonrpc metrics
-func JSONRPCStoreNilMetrics() *JSONRPCStoreMetrics {
-	return &JSONRPCStoreMetrics{
+func JSONRPCStoreNilMetrics() *jsonrpcStoreMetrics {
+	return &jsonrpcStoreMetrics{
 		counter: nil,
 	}
 }

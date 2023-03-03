@@ -17,7 +17,7 @@ type serverMetrics struct {
 	network      *network.Metrics
 	txpool       *txpool.Metrics
 	jsonrpc      *jsonrpc.Metrics
-	jsonrpcStore *JSONRPCStoreMetrics
+	jsonrpcStore *jsonrpcStoreMetrics
 	trie         itrie.Metrics
 }
 

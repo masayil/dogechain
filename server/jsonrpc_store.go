@@ -31,7 +31,7 @@ type jsonRPCStore struct {
 	state     state.State
 	snaps     *snapshot.Tree
 
-	metrics *JSONRPCStoreMetrics
+	metrics *jsonrpcStoreMetrics
 }
 
 func NewJSONRPCStore(
@@ -43,7 +43,7 @@ func NewJSONRPCStore(
 	executor *state.Executor,
 	consensus consensus.Consensus,
 	network network.Server,
-	metrics *JSONRPCStoreMetrics,
+	metrics *jsonrpcStoreMetrics,
 ) jsonrpc.JSONRPCStore {
 	if metrics == nil {
 		metrics = JSONRPCStoreNilMetrics()
