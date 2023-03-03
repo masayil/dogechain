@@ -141,11 +141,12 @@ func checkSnapRoot(t *testing.T, snap *diskLayer, trieRoot types.Hash) {
 }
 
 type testHelper struct {
-	diskdb  kvdb.Database
-	triedb  *trie.Database
-	accTrie *trie.StateTrie
-	nodes   *trie.MergedNodeSet
-	logger  kvdb.Logger
+	diskdb      kvdb.Database
+	triedb      *trie.Database
+	accTrie     *trie.StateTrie
+	nodes       *trie.MergedNodeSet
+	logger      kvdb.Logger
+	snapmetrics *Metrics
 }
 
 func newHelper() *testHelper {
@@ -155,11 +156,12 @@ func newHelper() *testHelper {
 	accTrie, _ := trie.NewStateTrie(trie.StateTrieID(types.Hash{}), triedb, logger)
 
 	return &testHelper{
-		diskdb:  diskdb,
-		triedb:  triedb,
-		accTrie: accTrie,
-		nodes:   trie.NewMergedNodeSet(),
-		logger:  logger,
+		diskdb:      diskdb,
+		triedb:      triedb,
+		accTrie:     accTrie,
+		nodes:       trie.NewMergedNodeSet(),
+		logger:      logger,
+		snapmetrics: NilMetrics(),
 	}
 }
 
@@ -214,7 +216,7 @@ func (t *testHelper) Commit() types.Hash {
 
 func (t *testHelper) CommitAndGenerate() (types.Hash, *diskLayer) {
 	root := t.Commit()
-	snap := generateSnapshot(t.diskdb, t.triedb, 16, root, t.logger)
+	snap := generateSnapshot(t.diskdb, t.triedb, 16, root, t.logger, t.snapmetrics)
 
 	return root, snap
 }
@@ -400,7 +402,7 @@ func TestGenerateCorruptAccountTrie(t *testing.T) {
 	helper.triedb.Commit(root, false, nil)
 	helper.diskdb.Delete(types.StringToHash("0x65145f923027566669a1ae5ccac66f945b55ff6eaeb17d2ea8e048b7d381f2d7").Bytes())
 
-	snap := generateSnapshot(helper.diskdb, helper.triedb, 16, root, helper.logger)
+	snap := generateSnapshot(helper.diskdb, helper.triedb, 16, root, helper.logger, helper.snapmetrics)
 	select {
 	case <-snap.genPending:
 		// Snapshot generation succeeded
@@ -435,7 +437,7 @@ func TestGenerateMissingStorageTrie(t *testing.T) {
 	// Delete a storage trie root and ensure the generator chokes
 	helper.diskdb.Delete(stRoot)
 
-	snap := generateSnapshot(helper.diskdb, helper.triedb, 16, root, helper.logger)
+	snap := generateSnapshot(helper.diskdb, helper.triedb, 16, root, helper.logger, helper.snapmetrics)
 	select {
 	case <-snap.genPending:
 		// Snapshot generation succeeded
@@ -469,7 +471,7 @@ func TestGenerateCorruptStorageTrie(t *testing.T) {
 	// Delete a storage trie leaf and ensure the generator chokes
 	helper.diskdb.Delete(types.StringToHash("0x18a0f4d79cff4459642dd7604f303886ad9d77c30cf3d7d7cedb3a693ab6d371").Bytes())
 
-	snap := generateSnapshot(helper.diskdb, helper.triedb, 16, root, helper.logger)
+	snap := generateSnapshot(helper.diskdb, helper.triedb, 16, root, helper.logger, helper.snapmetrics)
 	select {
 	case <-snap.genPending:
 		// Snapshot generation succeeded
@@ -528,7 +530,7 @@ func TestGenerateWithExtraAccounts(t *testing.T) {
 	if data := rawdb.ReadStorageSnapshot(helper.diskdb, hashData([]byte("acc-2")), hashData([]byte("b-key-1"))); data == nil {
 		t.Fatalf("expected snap storage to exist")
 	}
-	snap := generateSnapshot(helper.diskdb, helper.triedb, 16, root, helper.logger)
+	snap := generateSnapshot(helper.diskdb, helper.triedb, 16, root, helper.logger, helper.snapmetrics)
 	select {
 	case <-snap.genPending:
 		// Snapshot generation succeeded

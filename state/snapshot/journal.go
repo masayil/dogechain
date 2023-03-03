@@ -146,6 +146,7 @@ func (dl *diskLayer) Journal(buffer *bytes.Buffer) (types.Hash, error) {
 // loadSnapshot loads a pre-existing state snapshot backed by a key-value store.
 func loadSnapshot(
 	logger kvdb.Logger,
+	metrics *Metrics,
 	diskdb kvdb.KVBatchStorage,
 	triedb *trie.Database,
 	root types.Hash,
@@ -167,11 +168,12 @@ func loadSnapshot(
 	}
 
 	base := &diskLayer{
-		diskdb: diskdb,
-		triedb: triedb,
-		cache:  fastcache.New(cache * 1024 * 1024),
-		root:   baseRoot,
-		logger: logger,
+		diskdb:      diskdb,
+		triedb:      triedb,
+		cache:       fastcache.New(cache * 1024 * 1024),
+		root:        baseRoot,
+		logger:      logger,
+		snapmetrics: metrics,
 	}
 
 	snapshot, generator, err := loadAndParseJournal(logger, diskdb, base)
@@ -269,7 +271,7 @@ func loadAndParseJournal(
 			accountData map[types.Hash][]byte,
 			storageData map[types.Hash]map[types.Hash][]byte,
 		) error {
-			current = newDiffLayer(current, root, destructSet, accountData, storageData, logger)
+			current = newDiffLayer(current, root, destructSet, accountData, storageData, logger, base.snapmetrics)
 
 			return nil
 		},

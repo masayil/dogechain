@@ -118,7 +118,8 @@ type Tree struct {
 	layers map[types.Hash]snapshot // Collection of all known layers
 	lock   sync.RWMutex
 
-	logger kvdb.Logger
+	logger      kvdb.Logger
+	snapmetrics *Metrics
 
 	// Test hooks
 	onFlatten func() // Hook invoked when the bottom most diff layers are flattened
@@ -146,18 +147,21 @@ func New(
 	triedb *trie.Database,
 	root types.Hash,
 	logger kvdb.Logger,
+	snapmetrics *Metrics,
 ) (*Tree, error) {
 	// Create a new, empty snapshot tree
 	snap := &Tree{
-		config: config,
-		diskdb: diskdb,
-		triedb: triedb,
-		layers: make(map[types.Hash]snapshot),
-		logger: logger,
+		config:      config,
+		diskdb:      diskdb,
+		triedb:      triedb,
+		layers:      make(map[types.Hash]snapshot),
+		logger:      logger,
+		snapmetrics: snapmetrics,
 	}
 
 	// Attempt to load a previously persisted snapshot and rebuild one if failed
-	head, disabled, err := loadSnapshot(logger, diskdb, triedb, root, config.CacheSize, config.Recovery, config.NoBuild)
+	head, disabled, err := loadSnapshot(logger, snapmetrics, diskdb, triedb,
+		root, config.CacheSize, config.Recovery, config.NoBuild)
 	if disabled {
 		snap.logger.Warn("Snapshot maintenance disabled (syncing)")
 
@@ -778,7 +782,7 @@ func (t *Tree) Rebuild(root types.Hash) {
 	t.logger.Info("Rebuilding state snapshot")
 
 	t.layers = map[types.Hash]snapshot{
-		root: generateSnapshot(t.diskdb, t.triedb, t.config.CacheSize, root, t.logger),
+		root: generateSnapshot(t.diskdb, t.triedb, t.config.CacheSize, root, t.logger, t.snapmetrics),
 	}
 }
 

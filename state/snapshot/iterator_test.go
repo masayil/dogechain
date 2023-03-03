@@ -54,7 +54,7 @@ func TestAccountIteratorBasics(t *testing.T) {
 		}
 	}
 	// Add some (identical) layers on top
-	diffLayer := newDiffLayer(emptyLayer(), types.Hash{}, copyDestructs(destructs), copyAccounts(accounts), copyStorage(storage), hclog.NewNullLogger())
+	diffLayer := newDiffLayer(emptyLayer(), types.Hash{}, copyDestructs(destructs), copyAccounts(accounts), copyStorage(storage), hclog.NewNullLogger(), NilMetrics())
 	it := diffLayer.AccountIterator(types.Hash{})
 	verifyIterator(t, 100, it, verifyNothing) // Nil is allowed for single layer iterator
 
@@ -92,7 +92,8 @@ func TestStorageIteratorBasics(t *testing.T) {
 		nilStorage[h] = nilstorage
 	}
 	// Add some (identical) layers on top
-	diffLayer := newDiffLayer(emptyLayer(), types.Hash{}, nil, copyAccounts(accounts), copyStorage(storage), hclog.NewNullLogger())
+	diffLayer := newDiffLayer(emptyLayer(), types.Hash{}, nil, copyAccounts(accounts),
+		copyStorage(storage), hclog.NewNullLogger(), NilMetrics())
 	for account := range accounts {
 		it, _ := diffLayer.StorageIterator(account, types.Hash{})
 		verifyIterator(t, 100, it, verifyNothing) // Nil is allowed for single layer iterator
@@ -211,18 +212,21 @@ func verifyIterator(t *testing.T, expCount int, it Iterator, verify verifyConten
 // TestAccountIteratorTraversal tests some simple multi-layer iteration.
 func TestAccountIteratorTraversal(t *testing.T) {
 	logger := hclog.NewNullLogger()
+	metrics := NilMetrics()
 	// Create an empty base layer and a snapshot tree out of it
 	base := &diskLayer{
-		diskdb: rawdb.NewMemoryDatabase(),
-		root:   types.StringToHash("0x01"),
-		cache:  fastcache.New(1024 * 500),
-		logger: logger,
+		diskdb:      rawdb.NewMemoryDatabase(),
+		root:        types.StringToHash("0x01"),
+		cache:       fastcache.New(1024 * 500),
+		logger:      logger,
+		snapmetrics: metrics,
 	}
 	snaps := &Tree{
 		layers: map[types.Hash]snapshot{
 			base.root: base,
 		},
-		logger: logger,
+		logger:      logger,
+		snapmetrics: metrics,
 	}
 	// Stack three diff layers on top with various overlaps
 	snaps.Update(types.StringToHash("0x02"), types.StringToHash("0x01"), nil,
@@ -261,18 +265,21 @@ func TestAccountIteratorTraversal(t *testing.T) {
 
 func TestStorageIteratorTraversal(t *testing.T) {
 	logger := hclog.NewNullLogger()
+	metrics := NilMetrics()
 	// Create an empty base layer and a snapshot tree out of it
 	base := &diskLayer{
-		diskdb: rawdb.NewMemoryDatabase(),
-		root:   types.StringToHash("0x01"),
-		cache:  fastcache.New(1024 * 500),
-		logger: logger,
+		diskdb:      rawdb.NewMemoryDatabase(),
+		root:        types.StringToHash("0x01"),
+		cache:       fastcache.New(1024 * 500),
+		logger:      logger,
+		snapmetrics: metrics,
 	}
 	snaps := &Tree{
 		layers: map[types.Hash]snapshot{
 			base.root: base,
 		},
-		logger: logger,
+		logger:      logger,
+		snapmetrics: metrics,
 	}
 	// Stack three diff layers on top with various overlaps
 	snaps.Update(types.StringToHash("0x02"), types.StringToHash("0x01"), nil,
@@ -314,18 +321,21 @@ func TestStorageIteratorTraversal(t *testing.T) {
 // also expect the correct values to show up.
 func TestAccountIteratorTraversalValues(t *testing.T) {
 	logger := hclog.NewNullLogger()
+	metrics := NilMetrics()
 	// Create an empty base layer and a snapshot tree out of it
 	base := &diskLayer{
-		diskdb: rawdb.NewMemoryDatabase(),
-		root:   types.StringToHash("0x01"),
-		cache:  fastcache.New(1024 * 500),
-		logger: logger,
+		diskdb:      rawdb.NewMemoryDatabase(),
+		root:        types.StringToHash("0x01"),
+		cache:       fastcache.New(1024 * 500),
+		logger:      logger,
+		snapmetrics: metrics,
 	}
 	snaps := &Tree{
 		layers: map[types.Hash]snapshot{
 			base.root: base,
 		},
-		logger: logger,
+		logger:      logger,
+		snapmetrics: metrics,
 	}
 	// Create a batch of account sets to seed subsequent layers with
 	var (
@@ -412,18 +422,21 @@ func TestAccountIteratorTraversalValues(t *testing.T) {
 
 func TestStorageIteratorTraversalValues(t *testing.T) {
 	logger := hclog.NewNullLogger()
+	metrics := NilMetrics()
 	// Create an empty base layer and a snapshot tree out of it
 	base := &diskLayer{
-		diskdb: rawdb.NewMemoryDatabase(),
-		root:   types.StringToHash("0x01"),
-		cache:  fastcache.New(1024 * 500),
-		logger: logger,
+		diskdb:      rawdb.NewMemoryDatabase(),
+		root:        types.StringToHash("0x01"),
+		cache:       fastcache.New(1024 * 500),
+		logger:      logger,
+		snapmetrics: metrics,
 	}
 	snaps := &Tree{
 		layers: map[types.Hash]snapshot{
 			base.root: base,
 		},
-		logger: logger,
+		logger:      logger,
+		snapmetrics: metrics,
 	}
 	wrapStorage := func(storage map[types.Hash][]byte) map[types.Hash]map[types.Hash][]byte {
 		return map[types.Hash]map[types.Hash][]byte{
@@ -526,18 +539,21 @@ func TestAccountIteratorLargeTraversal(t *testing.T) {
 		return accounts
 	}
 	logger := hclog.NewNullLogger()
+	metrics := NilMetrics()
 	// Build up a large stack of snapshots
 	base := &diskLayer{
-		diskdb: rawdb.NewMemoryDatabase(),
-		root:   types.StringToHash("0x01"),
-		cache:  fastcache.New(1024 * 500),
-		logger: logger,
+		diskdb:      rawdb.NewMemoryDatabase(),
+		root:        types.StringToHash("0x01"),
+		cache:       fastcache.New(1024 * 500),
+		logger:      logger,
+		snapmetrics: metrics,
 	}
 	snaps := &Tree{
 		layers: map[types.Hash]snapshot{
 			base.root: base,
 		},
-		logger: logger,
+		logger:      logger,
+		snapmetrics: metrics,
 	}
 	for i := 1; i < 128; i++ {
 		snaps.Update(types.StringToHash(fmt.Sprintf("0x%02x", i+1)), types.StringToHash(fmt.Sprintf("0x%02x", i)), nil, makeAccounts(200), nil, logger)
@@ -573,18 +589,21 @@ func TestAccountIteratorLargeTraversal(t *testing.T) {
 // - continues iterating
 func TestAccountIteratorFlattening(t *testing.T) {
 	logger := hclog.NewNullLogger()
+	metrics := NilMetrics()
 	// Create an empty base layer and a snapshot tree out of it
 	base := &diskLayer{
-		diskdb: rawdb.NewMemoryDatabase(),
-		root:   types.StringToHash("0x01"),
-		cache:  fastcache.New(1024 * 500),
-		logger: logger,
+		diskdb:      rawdb.NewMemoryDatabase(),
+		root:        types.StringToHash("0x01"),
+		cache:       fastcache.New(1024 * 500),
+		logger:      logger,
+		snapmetrics: metrics,
 	}
 	snaps := &Tree{
 		layers: map[types.Hash]snapshot{
 			base.root: base,
 		},
-		logger: logger,
+		logger:      logger,
+		snapmetrics: metrics,
 	}
 	// Create a stack of diffs on top
 	snaps.Update(types.StringToHash("0x02"), types.StringToHash("0x01"), nil,
@@ -608,17 +627,21 @@ func TestAccountIteratorFlattening(t *testing.T) {
 
 func TestAccountIteratorSeek(t *testing.T) {
 	logger := hclog.NewNullLogger()
+	metrics := NilMetrics()
 	// Create a snapshot stack with some initial data
 	base := &diskLayer{
-		diskdb: rawdb.NewMemoryDatabase(),
-		root:   types.StringToHash("0x01"),
-		cache:  fastcache.New(1024 * 500),
-		logger: logger,
+		diskdb:      rawdb.NewMemoryDatabase(),
+		root:        types.StringToHash("0x01"),
+		cache:       fastcache.New(1024 * 500),
+		logger:      logger,
+		snapmetrics: metrics,
 	}
 	snaps := &Tree{
 		layers: map[types.Hash]snapshot{
 			base.root: base,
 		},
+		logger:      logger,
+		snapmetrics: metrics,
 	}
 	snaps.Update(types.StringToHash("0x02"), types.StringToHash("0x01"), nil,
 		randomAccountSet("0xaa", "0xee", "0xff", "0xf0"), nil, logger)
@@ -673,18 +696,21 @@ func TestAccountIteratorSeek(t *testing.T) {
 
 func TestStorageIteratorSeek(t *testing.T) {
 	logger := hclog.NewNullLogger()
+	metrics := NilMetrics()
 	// Create a snapshot stack with some initial data
 	base := &diskLayer{
-		diskdb: rawdb.NewMemoryDatabase(),
-		root:   types.StringToHash("0x01"),
-		cache:  fastcache.New(1024 * 500),
-		logger: logger,
+		diskdb:      rawdb.NewMemoryDatabase(),
+		root:        types.StringToHash("0x01"),
+		cache:       fastcache.New(1024 * 500),
+		logger:      logger,
+		snapmetrics: metrics,
 	}
 	snaps := &Tree{
 		layers: map[types.Hash]snapshot{
 			base.root: base,
 		},
-		logger: logger,
+		logger:      logger,
+		snapmetrics: metrics,
 	}
 	// Stack three diff layers on top with various overlaps
 	snaps.Update(types.StringToHash("0x02"), types.StringToHash("0x01"), nil,
@@ -738,18 +764,21 @@ func TestStorageIteratorSeek(t *testing.T) {
 // should not output any accounts or nil-values for those cases.
 func TestAccountIteratorDeletions(t *testing.T) {
 	logger := hclog.NewNullLogger()
+	metrics := NilMetrics()
 	// Create an empty base layer and a snapshot tree out of it
 	base := &diskLayer{
-		diskdb: rawdb.NewMemoryDatabase(),
-		root:   types.StringToHash("0x01"),
-		cache:  fastcache.New(1024 * 500),
-		logger: logger,
+		diskdb:      rawdb.NewMemoryDatabase(),
+		root:        types.StringToHash("0x01"),
+		cache:       fastcache.New(1024 * 500),
+		logger:      logger,
+		snapmetrics: metrics,
 	}
 	snaps := &Tree{
 		layers: map[types.Hash]snapshot{
 			base.root: base,
 		},
-		logger: logger,
+		logger:      logger,
+		snapmetrics: metrics,
 	}
 	// Stack three diff layers on top with various overlaps
 	snaps.Update(types.StringToHash("0x02"), types.StringToHash("0x01"),
@@ -787,18 +816,21 @@ func TestAccountIteratorDeletions(t *testing.T) {
 
 func TestStorageIteratorDeletions(t *testing.T) {
 	logger := hclog.NewNullLogger()
+	metrics := NilMetrics()
 	// Create an empty base layer and a snapshot tree out of it
 	base := &diskLayer{
-		diskdb: rawdb.NewMemoryDatabase(),
-		root:   types.StringToHash("0x01"),
-		cache:  fastcache.New(1024 * 500),
-		logger: logger,
+		diskdb:      rawdb.NewMemoryDatabase(),
+		root:        types.StringToHash("0x01"),
+		cache:       fastcache.New(1024 * 500),
+		logger:      logger,
+		snapmetrics: metrics,
 	}
 	snaps := &Tree{
 		layers: map[types.Hash]snapshot{
 			base.root: base,
 		},
-		logger: logger,
+		logger:      logger,
+		snapmetrics: metrics,
 	}
 	// Stack three diff layers on top with various overlaps
 	snaps.Update(types.StringToHash("0x02"), types.StringToHash("0x01"), nil,
@@ -868,18 +900,21 @@ func BenchmarkAccountIteratorTraversal(b *testing.B) {
 		return accounts
 	}
 	logger := hclog.NewNullLogger()
+	metrics := NilMetrics()
 	// Build up a large stack of snapshots
 	base := &diskLayer{
-		diskdb: rawdb.NewMemoryDatabase(),
-		root:   types.StringToHash("0x01"),
-		cache:  fastcache.New(1024 * 500),
-		logger: logger,
+		diskdb:      rawdb.NewMemoryDatabase(),
+		root:        types.StringToHash("0x01"),
+		cache:       fastcache.New(1024 * 500),
+		logger:      logger,
+		snapmetrics: metrics,
 	}
 	snaps := &Tree{
 		layers: map[types.Hash]snapshot{
 			base.root: base,
 		},
-		logger: logger,
+		logger:      logger,
+		snapmetrics: metrics,
 	}
 	for i := 1; i <= 100; i++ {
 		snaps.Update(types.StringToHash(fmt.Sprintf("0x%02x", i+1)), types.StringToHash(fmt.Sprintf("0x%02x", i)), nil, makeAccounts(200), nil, logger)
@@ -967,18 +1002,21 @@ func BenchmarkAccountIteratorLargeBaselayer(b *testing.B) {
 		return accounts
 	}
 	logger := hclog.NewNullLogger()
+	metrics := NilMetrics()
 	// Build up a large stack of snapshots
 	base := &diskLayer{
-		diskdb: rawdb.NewMemoryDatabase(),
-		root:   types.StringToHash("0x01"),
-		cache:  fastcache.New(1024 * 500),
-		logger: logger,
+		diskdb:      rawdb.NewMemoryDatabase(),
+		root:        types.StringToHash("0x01"),
+		cache:       fastcache.New(1024 * 500),
+		logger:      logger,
+		snapmetrics: metrics,
 	}
 	snaps := &Tree{
 		layers: map[types.Hash]snapshot{
 			base.root: base,
 		},
-		logger: logger,
+		logger:      logger,
+		snapmetrics: metrics,
 	}
 	snaps.Update(types.StringToHash("0x02"), types.StringToHash("0x01"), nil, makeAccounts(2000), nil, logger)
 	for i := 2; i <= 100; i++ {

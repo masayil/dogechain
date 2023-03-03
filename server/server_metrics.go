@@ -8,6 +8,7 @@ import (
 	"github.com/dogechain-lab/dogechain/txpool"
 
 	itrie "github.com/dogechain-lab/dogechain/state/immutable-trie"
+	"github.com/dogechain-lab/dogechain/state/snapshot"
 )
 
 // serverMetrics holds the metric instances of all sub systems
@@ -19,6 +20,7 @@ type serverMetrics struct {
 	jsonrpc      *jsonrpc.Metrics
 	jsonrpcStore *jsonrpcStoreMetrics
 	trie         itrie.Metrics
+	snapshot     *snapshot.Metrics
 }
 
 // metricProvider serverMetric instance for the given ChainID and nameSpace
@@ -32,6 +34,7 @@ func metricProvider(nameSpace string, chainID string, metricsRequired bool, trac
 			jsonrpc:      jsonrpc.GetPrometheusMetrics(nameSpace, "chain_id", chainID),
 			jsonrpcStore: NewJSONRPCStoreMetrics(nameSpace, "chain_id", chainID),
 			trie:         itrie.GetPrometheusMetrics(nameSpace, trackingIOTimer, "chain_id", chainID),
+			snapshot:     snapshot.GetPrometheusMetrics(nameSpace, trackingIOTimer, "chain_id", chainID),
 		}
 	}
 
@@ -43,5 +46,6 @@ func metricProvider(nameSpace string, chainID string, metricsRequired bool, trac
 		jsonrpc:      jsonrpc.NilMetrics(),
 		jsonrpcStore: JSONRPCStoreNilMetrics(),
 		trie:         itrie.NilMetrics(),
+		snapshot:     snapshot.NilMetrics(),
 	}
 }

@@ -45,7 +45,8 @@ type diskLayer struct {
 
 	lock sync.RWMutex
 
-	logger kvdb.Logger
+	logger      kvdb.Logger
+	snapmetrics *Metrics
 }
 
 // Root returns  root hash for which this snapshot was made.
@@ -177,5 +178,5 @@ func (dl *diskLayer) Update(
 	storage map[types.Hash]map[types.Hash][]byte,
 	logger kvdb.Logger,
 ) *diffLayer {
-	return newDiffLayer(dl, blockHash, destructs, accounts, storage, logger)
+	return newDiffLayer(dl, blockHash, destructs, accounts, storage, logger, dl.snapmetrics)
 }

@@ -416,7 +416,7 @@ func (s *Server) setupSnapshots() error {
 		AsyncBuild: !s.cacheConfig.SnapshotWait,
 	}
 
-	snaps, err := snapshot.New(snapCfg, trieDB, s.snpTrieDB, headStateRoot, logger)
+	snaps, err := snapshot.New(snapCfg, trieDB, s.snpTrieDB, headStateRoot, logger, s.serverMetrics.snapshot)
 	if err != nil {
 		return err
 	}

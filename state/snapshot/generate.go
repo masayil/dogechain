@@ -44,6 +44,7 @@ func generateSnapshot(
 	cache int,
 	root types.Hash,
 	logger kvdb.Logger,
+	snapmetrics *Metrics,
 ) *diskLayer {
 	// Create a new disk layer with an initialized state marker at zero
 	var (
@@ -62,14 +63,15 @@ func generateSnapshot(
 	}
 
 	base := &diskLayer{
-		diskdb:     diskdb,
-		triedb:     triedb,
-		root:       root,
-		cache:      fastcache.New(cache * 1024 * 1024),
-		genMarker:  genMarker,
-		genPending: make(chan struct{}),
-		genAbort:   make(chan chan *generatorStats),
-		logger:     logger,
+		diskdb:      diskdb,
+		triedb:      triedb,
+		root:        root,
+		cache:       fastcache.New(cache * 1024 * 1024),
+		genMarker:   genMarker,
+		genPending:  make(chan struct{}),
+		genAbort:    make(chan chan *generatorStats),
+		logger:      logger,
+		snapmetrics: snapmetrics,
 	}
 
 	go base.generate(stats)
@@ -168,7 +170,7 @@ func (result *proofResult) forEach(callback func(key []byte, val []byte) error) 
 // generateAccounts generates the missing snapshot accounts as well as their
 // storage slots in the main trie. It's supposed to restart the generation
 // from the given origin position.
-func generateAccounts(ctx *generatorContext, dl *diskLayer, accMarker []byte) error {
+func generateAccounts(ctx *generatorContext, dl *diskLayer, accMarker []byte, metrics *Metrics) error {
 	onAccount := func(key []byte, val []byte, write bool, needDelete bool) error {
 		// Make sure to clear all dangling storages before this account
 		account := types.BytesToHash(key)
@@ -313,7 +315,7 @@ func (dl *diskLayer) generate(stats *generatorStats) {
 	ctx := newGeneratorContext(stats, dl.diskdb, accMarker, dl.genMarker)
 	defer ctx.close()
 
-	if err := generateAccounts(ctx, dl, accMarker); err != nil {
+	if err := generateAccounts(ctx, dl, accMarker, dl.snapmetrics); err != nil {
 		// Extract the received interruption signal if exists
 		var aerr = new(abortError)
 		if errors.As(err, &aerr) {

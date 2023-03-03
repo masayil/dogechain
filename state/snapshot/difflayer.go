@@ -117,6 +117,8 @@ type diffLayer struct {
 
 	// shared logger for print out debug info
 	logger kvdb.Logger
+	// shared snapshot metrics
+	snapmetrics *Metrics
 }
 
 // newDiffLayer creates a new diff on top of an existing snapshot, whether that's a low
@@ -128,6 +130,7 @@ func newDiffLayer(
 	accounts map[types.Hash][]byte,
 	storage map[types.Hash]map[types.Hash][]byte,
 	logger kvdb.Logger,
+	snapmetrics *Metrics,
 ) *diffLayer {
 	// Create the new layer with some pre-allocated data segments
 	dl := &diffLayer{
@@ -138,6 +141,7 @@ func newDiffLayer(
 		storageData: storage,
 		storageList: make(map[types.Hash][]types.Hash),
 		logger:      logger,
+		snapmetrics: snapmetrics,
 	}
 
 	switch parent := parent.(type) {
@@ -370,7 +374,7 @@ func (dl *diffLayer) Update(
 	storage map[types.Hash]map[types.Hash][]byte,
 	logger kvdb.Logger,
 ) *diffLayer {
-	return newDiffLayer(dl, blockRoot, destructs, accounts, storage, logger)
+	return newDiffLayer(dl, blockRoot, destructs, accounts, storage, logger, dl.snapmetrics)
 }
 
 // AccountList returns a sorted list of all accounts in this diffLayer, including
