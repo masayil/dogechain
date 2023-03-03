@@ -704,10 +704,14 @@ func (b *Blockchain) VerifyFinalizedBlock(block *types.Block) error {
 		return ErrNoBlockHeader
 	}
 
+	b.logger.Debug("verify finalized block header", "number", block.Number())
+
 	// Make sure the consensus layer verifies this block header
 	if err := b.consensus.VerifyHeader(block.Header); err != nil {
 		return fmt.Errorf("failed to verify the header: %w", err)
 	}
+
+	b.logger.Debug("verify finalized block body", "number", block.Number())
 
 	// Do the initial block verification
 	if err := b.verifyBlock(block); err != nil {
@@ -1059,6 +1063,7 @@ func (b *Blockchain) extractBlockReceipts(block *types.Block) ([]*types.Receipt,
 	// Check the cache for the block receipts
 	receipts, ok := b.receiptsCache.Get(block.Header.Hash)
 	if !ok {
+		b.logger.Info("execute block transactions due to no receipts cache")
 		// No receipts found in the cache, execute the transactions from the block
 		// and fetch them
 		blockResult, err := b.executeBlockTransactions(block)
