@@ -140,6 +140,8 @@ func rlpHashLogs(logs []*types.Log) (res types.Hash) {
 }
 
 func TestEVM(t *testing.T) {
+	t.Parallel()
+
 	folders, err := listFolders(vmTests)
 	if err != nil {
 		t.Fatal(err)
@@ -152,15 +154,18 @@ func TestEVM(t *testing.T) {
 	}
 
 	for _, folder := range folders {
-		files, err := listFiles(folder)
-		if err != nil {
-			t.Fatal(err)
-		}
+		folder := folder
+		t.Run(folder, func(t *testing.T) {
+			t.Parallel()
 
-		for _, file := range files {
-			t.Run(file, func(t *testing.T) {
+			files, err := listFiles(folder)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			for _, file := range files {
 				if !strings.HasSuffix(file, ".json") {
-					return
+					continue
 				}
 
 				data, err := ioutil.ReadFile(file)
@@ -176,13 +181,12 @@ func TestEVM(t *testing.T) {
 				for name, cc := range vmcases {
 					if contains(long, name) && testing.Short() {
 						t.Skip()
-
 						continue
 					}
 					testVMCase(t, name, cc)
 				}
-			})
-		}
+			}
+		})
 	}
 }
 
