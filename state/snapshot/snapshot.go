@@ -677,13 +677,14 @@ func diffToDisk(bottom *diffLayer) *diskLayer {
 	logger.Debug("Journalled disk layer", "root", bottom.root, "complete", base.genMarker == nil)
 
 	res := &diskLayer{
-		root:       bottom.root,
-		cache:      base.cache,
-		diskdb:     base.diskdb,
-		triedb:     base.triedb,
-		genMarker:  base.genMarker,
-		genPending: base.genPending,
-		logger:     logger,
+		root:        bottom.root,
+		cache:       base.cache,
+		diskdb:      base.diskdb,
+		triedb:      base.triedb,
+		genMarker:   base.genMarker,
+		genPending:  base.genPending,
+		logger:      base.logger,
+		snapmetrics: base.snapmetrics,
 	}
 
 	// If snapshot generation hasn't finished yet, port over all the starts and

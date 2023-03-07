@@ -550,6 +550,7 @@ func (dl *diffLayer) flatten() snapshot {
 		diffed:      dl.diffed,
 		memory:      parent.memory + dl.memory,
 		logger:      dl.logger,
+		snapmetrics: dl.snapmetrics,
 	}
 }
 
