@@ -12,50 +12,12 @@ import (
 	"github.com/dogechain-lab/dogechain/types"
 )
 
-// runSequence starts the underlying consensus mechanism for the given height.
-// It may be called by a single thread at any given time
-func (i *Ibft) runSequence(height uint64) <-chan struct{} {
-	done := make(chan struct{})
-	ctx, cancel := context.WithCancel(context.Background()) // never stop until cancel
-
-	i.cancelSequence = cancel
-
-	i.wg.Add(1)
-
-	go func(ctx context.Context,
-		cancel context.CancelFunc,
-		height uint64,
-		done chan struct{}) {
-		defer func() {
-			cancel()
-			i.wg.Done()
-			close(done)
-		}()
-
-		i.runSequenceAtHeight(ctx, height)
-	}(ctx, cancel, height, done)
-
-	return done
-}
-
-// stopSequence terminates the running IBFT sequence gracefully and waits for it to return
-func (i *Ibft) stopSequence() {
-	if i.cancelSequence != nil {
-		i.cancelSequence()
-
-		i.cancelSequence = nil
-	}
-
-	i.wg.Wait()
-}
-
-func (i *Ibft) runSequenceAtHeight(ctx context.Context, height uint64) {
+func (i *Ibft) runSequenceAtHeight(ctx context.Context, height uint64, done chan struct{}) {
 	// Set the starting state data
 	i.state.Clear(height)
 	i.msgQueue.PruneByHeight(height)
 
 	i.logger.Info("sequence started", "height", height)
-	defer i.logger.Info("sequence done", "height", height)
 
 	for {
 		select {
@@ -64,7 +26,9 @@ func (i *Ibft) runSequenceAtHeight(ctx context.Context, height uint64) {
 		default:
 		}
 
-		if done := i.runCycle(ctx); done {
+		if isDone := i.runCycle(ctx); isDone {
+			done <- struct{}{}
+
 			return
 		}
 	}

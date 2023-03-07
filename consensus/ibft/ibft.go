@@ -126,8 +126,7 @@ type Ibft struct {
 	exhaustingContracts map[types.Address]uint64
 
 	// consensus associated
-	cancelSequence context.CancelFunc
-	wg             sync.WaitGroup
+	wg sync.WaitGroup
 }
 
 // runHook runs a specified hook if it is present in the hook map
@@ -280,10 +279,10 @@ func (i *Ibft) startSyncing() {
 			logger.Error("unable to run hook", "hook", InsertBlockHook, "err", hookErr)
 		}
 
-		// update module cache
-		if err := i.updateCurrentModules(blockNumber + 1); err != nil {
-			logger.Error("failed to update sub modules", "height", blockNumber+1, "err", err)
-		}
+		// // update module cache
+		// if err := i.updateCurrentModules(blockNumber + 1); err != nil {
+		// 	logger.Error("failed to update sub modules", "height", blockNumber+1, "err", err)
+		// }
 
 		// reset headers of txpool
 		i.txpool.ResetWithHeaders(block.Header)
@@ -519,7 +518,7 @@ func (i *Ibft) startConsensus() {
 	}()
 
 	var (
-		sequenceCh  = make(<-chan struct{})
+		sequenceCh  = make(chan struct{})
 		isValidator bool
 	)
 
@@ -538,24 +537,23 @@ func (i *Ibft) startConsensus() {
 		}
 
 		isValidator = i.isValidSnapshot()
+		ctx, cancel := context.WithCancel(context.Background())
 
 		// validator must not be in syncing mode to start a new block
 		if isValidator && !i.syncer.IsSyncing() {
-			sequenceCh = i.runSequence(pending)
+			go i.runSequenceAtHeight(ctx, pending, sequenceCh)
 		}
 
 		select {
 		case <-syncerBlockCh:
-			if isValidator {
-				i.stopSequence()
-				i.logger.Info("canceled sequence", "sequence", pending)
-			}
+			cancel()
+			i.logger.Info("sequence canceled due to new block", "sequence", pending)
 		case <-sequenceCh:
+			cancel()
+			i.logger.Info("sequence done", "height", pending)
 		case <-i.closeCh:
-			if isValidator {
-				i.stopSequence()
-				i.logger.Info("ibft close", "sequence", pending)
-			}
+			cancel()
+			i.logger.Info("ibft close", "sequence", pending)
 
 			return
 		}
@@ -570,8 +568,8 @@ func (i *Ibft) isValidSnapshot() bool {
 
 	// check if we are a validator and enabled
 	header := i.blockchain.Header()
-	snap, err := i.getSnapshot(header.Number)
 
+	snap, err := i.getSnapshot(header.Number)
 	if err != nil {
 		return false
 	}
@@ -892,13 +890,16 @@ func (i *Ibft) isActiveValidator(addr types.Address) bool {
 // updateCurrentModules updates Txsigner and Validators
 // that are used at specified height
 func (i *Ibft) updateCurrentModules(height uint64) error {
+	if !i.currentValidatorsMux.TryLock() { // so many new chan event trigger
+		return errUpdateValidators
+	}
+
+	defer i.currentValidatorsMux.Unlock()
+
 	snap, err := i.getSnapshot(height)
 	if err != nil {
 		return err
 	}
-
-	i.currentValidatorsMux.Lock()
-	defer i.currentValidatorsMux.Unlock()
 
 	i.currentValidators = snap.Set
 
@@ -1237,6 +1238,7 @@ var (
 	errIncorrectBlockHeight    = errors.New("proposed block number is incorrect")
 	errBlockVerificationFailed = errors.New("block verification failed")
 	errFailedToInsertBlock     = errors.New("failed to insert block")
+	errUpdateValidators        = errors.New("get validator update lock failed")
 )
 
 func (i *Ibft) handleStateErr(err error) {
