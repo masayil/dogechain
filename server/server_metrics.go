@@ -34,7 +34,7 @@ func metricProvider(nameSpace string, chainID string, metricsRequired bool, trac
 			jsonrpc:      jsonrpc.GetPrometheusMetrics(nameSpace, "chain_id", chainID),
 			jsonrpcStore: NewJSONRPCStoreMetrics(nameSpace, "chain_id", chainID),
 			trie:         itrie.GetPrometheusMetrics(nameSpace, trackingIOTimer, "chain_id", chainID),
-			snapshot:     snapshot.GetPrometheusMetrics(nameSpace, trackingIOTimer, "chain_id", chainID),
+			snapshot:     snapshot.GetPrometheusMetrics(nameSpace, "chain_id", chainID),
 		}
 	}
 
