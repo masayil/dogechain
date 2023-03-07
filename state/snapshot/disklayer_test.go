@@ -103,9 +103,11 @@ func TestDiskMerge(t *testing.T) {
 	snaps := &Tree{
 		layers: map[types.Hash]snapshot{
 			baseRoot: &diskLayer{
-				diskdb: db,
-				cache:  fastcache.New(500 * 1024),
-				root:   baseRoot,
+				diskdb:      db,
+				cache:       fastcache.New(500 * 1024),
+				root:        baseRoot,
+				logger:      hclog.NewNullLogger(),
+				snapmetrics: NilMetrics(),
 			},
 		},
 	}
@@ -315,9 +317,11 @@ func TestDiskPartialMerge(t *testing.T) {
 		snaps := &Tree{
 			layers: map[types.Hash]snapshot{
 				baseRoot: &diskLayer{
-					diskdb: db,
-					cache:  fastcache.New(500 * 1024),
-					root:   baseRoot,
+					diskdb:      db,
+					cache:       fastcache.New(500 * 1024),
+					root:        baseRoot,
+					logger:      hclog.NewNullLogger(),
+					snapmetrics: NilMetrics(),
 				},
 			},
 		}
@@ -487,10 +491,12 @@ func TestDiskGeneratorPersistence(t *testing.T) {
 	snaps := &Tree{
 		layers: map[types.Hash]snapshot{
 			baseRoot: &diskLayer{
-				diskdb:    db,
-				cache:     fastcache.New(500 * 1024),
-				root:      baseRoot,
-				genMarker: genMarker,
+				diskdb:      db,
+				cache:       fastcache.New(500 * 1024),
+				root:        baseRoot,
+				genMarker:   genMarker,
+				logger:      hclog.NewNullLogger(),
+				snapmetrics: NilMetrics(),
 			},
 		},
 	}
@@ -591,9 +597,11 @@ func TestDiskSeek(t *testing.T) {
 	snaps := &Tree{
 		layers: map[types.Hash]snapshot{
 			baseRoot: &diskLayer{
-				diskdb: db,
-				cache:  fastcache.New(500 * 1024),
-				root:   baseRoot,
+				diskdb:      db,
+				cache:       fastcache.New(500 * 1024),
+				root:        baseRoot,
+				logger:      hclog.NewNullLogger(),
+				snapmetrics: NilMetrics(),
 			},
 		},
 	}

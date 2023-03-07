@@ -263,8 +263,10 @@ func TestInsertAndMerge(t *testing.T) {
 
 func emptyLayer() *diskLayer {
 	return &diskLayer{
-		diskdb: memorydb.New(),
-		cache:  fastcache.New(500 * 1024),
+		diskdb:      memorydb.New(),
+		cache:       fastcache.New(500 * 1024),
+		logger:      hclog.NewNullLogger(),
+		snapmetrics: NilMetrics(),
 	}
 }
 
