@@ -23,6 +23,7 @@ import (
 
 	"github.com/VictoriaMetrics/fastcache"
 	"github.com/dogechain-lab/dogechain/helper/kvdb"
+	"github.com/dogechain-lab/dogechain/helper/metrics"
 	"github.com/dogechain-lab/dogechain/helper/rawdb"
 	"github.com/dogechain-lab/dogechain/helper/rlp"
 	"github.com/dogechain-lab/dogechain/state/stypes"
@@ -114,11 +115,13 @@ func (dl *diskLayer) AccountRLP(hash types.Hash) ([]byte, error) {
 	}
 
 	// If we're in the disk layer, all diff layers missed
-	// NOTE: dirty account miss Counter
+	metrics.CounterInc(dl.snapmetrics.dirtyAccountMissCount)
 
 	// Try to retrieve the account from the memory cache
 	if blob, found := dl.cache.HasGet(nil, hash[:]); found {
-		// NOTE: clean account hit Counter, read data size Counter
+		metrics.CounterInc(dl.snapmetrics.cleanAccountHitCount)
+		metrics.AddCounter(dl.snapmetrics.cleanAccountReadSize, float64(len(blob)))
+
 		return blob, nil
 	}
 
@@ -126,7 +129,13 @@ func (dl *diskLayer) AccountRLP(hash types.Hash) ([]byte, error) {
 	blob := rawdb.ReadAccountSnapshot(dl.diskdb, hash)
 	dl.cache.Set(hash[:], blob)
 
-	// NOTE: clean account miss Counter, write size Counter, inex Counter
+	metrics.CounterInc(dl.snapmetrics.cleanAccountMissCount)
+	// write or inex
+	if n := len(blob); n > 0 {
+		metrics.AddCounter(dl.snapmetrics.cleanAccountWriteSize, float64(n))
+	} else {
+		metrics.CounterInc(dl.snapmetrics.cleanAccountInexCount)
+	}
 
 	return blob, nil
 }
@@ -152,18 +161,26 @@ func (dl *diskLayer) Storage(accountHash, storageHash types.Hash) ([]byte, error
 	}
 
 	// If we're in the disk layer, all diff layers missed
-	// NOTE: dirty storage miss Counter
+	metrics.CounterInc(dl.snapmetrics.dirtyStorageMissCount)
 
 	// Try to retrieve the storage slot from the memory cache
 	if blob, found := dl.cache.HasGet(nil, key); found {
-		// NOTE: clean storage hit Counter, read size Counter
+		metrics.CounterInc(dl.snapmetrics.cleanStorageHitCount)
+		metrics.AddCounter(dl.snapmetrics.cleanStorageReadSize, float64(len(blob)))
+
 		return blob, nil
 	}
 	// Cache doesn't contain storage slot, pull from disk and cache for later
 	blob := rawdb.ReadStorageSnapshot(dl.diskdb, accountHash, storageHash)
 	dl.cache.Set(key, blob)
 
-	// NOTE: clean storage miss Counter, write size Counter, inex Counter
+	metrics.CounterInc(dl.snapmetrics.cleanStorageMissCount)
+	// write or inex
+	if n := len(blob); n > 0 {
+		metrics.AddCounter(dl.snapmetrics.cleanStorageWriteSize, float64(n))
+	} else {
+		metrics.CounterInc(dl.snapmetrics.cleanStorageInexCount)
+	}
 
 	return blob, nil
 }
