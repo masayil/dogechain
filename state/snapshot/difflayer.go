@@ -560,7 +560,7 @@ func (dl *diffLayer) rebloom(origin *diskLayer) {
 	defer dl.lock.Unlock()
 
 	defer func(start time.Time) {
-		metrics.HistogramObserve(dl.snapmetrics.bloomIndexSeconds, time.Since(start).Seconds())
+		metrics.HistogramObserve(dl.snapmetrics.bloomIndexNanoseconds, float64(time.Since(start).Nanoseconds()))
 	}(time.Now())
 
 	// Inject the new origin that triggered the rebloom
