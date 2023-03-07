@@ -22,7 +22,10 @@ func (i *Ibft) runSequence(height uint64) <-chan struct{} {
 
 	i.wg.Add(1)
 
-	go func() {
+	go func(ctx context.Context,
+		cancel context.CancelFunc,
+		height uint64,
+		done chan struct{}) {
 		defer func() {
 			cancel()
 			i.wg.Done()
@@ -30,7 +33,7 @@ func (i *Ibft) runSequence(height uint64) <-chan struct{} {
 		}()
 
 		i.runSequenceAtHeight(ctx, height)
-	}()
+	}(ctx, cancel, height, done)
 
 	return done
 }
@@ -41,9 +44,9 @@ func (i *Ibft) stopSequence() {
 		i.cancelSequence()
 
 		i.cancelSequence = nil
-
-		i.wg.Wait()
 	}
+
+	i.wg.Wait()
 }
 
 func (i *Ibft) runSequenceAtHeight(ctx context.Context, height uint64) {
