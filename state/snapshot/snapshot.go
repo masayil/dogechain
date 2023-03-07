@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 
 	"github.com/dogechain-lab/dogechain/helper/kvdb"
+	"github.com/dogechain-lab/dogechain/helper/metrics"
 	"github.com/dogechain-lab/dogechain/helper/rawdb"
 	"github.com/dogechain-lab/dogechain/helper/rlp"
 	"github.com/dogechain-lab/dogechain/state/stypes"
@@ -582,8 +583,7 @@ func diffToDisk(bottom *diffLayer) *diskLayer {
 			batch.Delete(key)
 			// delete all cache snapshot key
 			base.cache.Del(key[rawdb.SnapshotPrefixLength:])
-
-			// NOTE: flush storage item Counter
+			metrics.CounterInc(base.snapmetrics.flushStorageItemCount)
 
 			// Ensure we don't delete too much data blindly (contract can be
 			// huge). It's ok to flush, the root will go missing in case of a
@@ -611,7 +611,10 @@ func diffToDisk(bottom *diffLayer) *diskLayer {
 		rawdb.WriteAccountSnapshot(batch, hash, data)
 		base.cache.Set(hash[:], data)
 
-		// NOTE: clean account write size Counter, flush account item Counter, flush account size Counter
+		// collect metrics
+		metrics.AddCounter(base.snapmetrics.cleanAccountWriteSize, float64(len(data)))
+		metrics.CounterInc(base.snapmetrics.flushAccountItemCount)
+		metrics.AddCounter(base.snapmetrics.flushAccountSize, float64(len(data)))
 
 		// Ensure we don't write too much data blindly. It's ok to flush, the
 		// root will go missing in case of a crash and we'll detect and regen
@@ -643,16 +646,18 @@ func diffToDisk(bottom *diffLayer) *diskLayer {
 				continue
 			}
 
-			//NOTE: flush storage item Counter, flush storage size Counter
-
 			if len(data) > 0 {
-				//NOTE: clean storage write size Counter
 				rawdb.WriteStorageSnapshot(batch, accountHash, storageHash, data)
 				base.cache.Set(append(accountHash[:], storageHash[:]...), data)
+				metrics.AddCounter(base.snapmetrics.cleanStorageWriteSize, float64(len(data)))
 			} else {
 				rawdb.DeleteStorageSnapshot(batch, accountHash, storageHash)
 				base.cache.Set(append(accountHash[:], storageHash[:]...), nil)
 			}
+
+			// collection metrics
+			metrics.CounterInc(base.snapmetrics.flushStorageItemCount)
+			metrics.AddCounter(base.snapmetrics.flushStorageSize, float64(len(data)))
 		}
 	}
 
