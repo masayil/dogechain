@@ -149,15 +149,7 @@ func (i *Ibft) runAcceptState(ctx context.Context) (shouldStop bool) { // start 
 		return
 	}
 
-	// update current module cache
-	if err := i.updateCurrentModules(number); err != nil {
-		logger.Error(
-			"failed to update submodules",
-			"height", number,
-			"err", err,
-		)
-	}
-
+	// snapshot is already updated when syncing, no need to update module here
 	snap, err := i.getSnapshot(parent.Number)
 
 	if err != nil {

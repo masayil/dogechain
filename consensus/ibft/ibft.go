@@ -239,11 +239,6 @@ func (i *Ibft) Initialize() error {
 		return err
 	}
 
-	// // initialize fork manager
-	// if err := i.forkManager.Initialize(); err != nil {
-	// 	return err
-	// }
-
 	// Set up the snapshots
 	if err := i.setupSnapshot(); err != nil {
 		return err
