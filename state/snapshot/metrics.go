@@ -73,8 +73,8 @@ type Metrics struct {
 	flushStorageItemCount prometheus.Counter
 	flushStorageSize      prometheus.Counter
 
-	bloomIndexTimer prometheus.Histogram
-	bloomErrorCount prometheus.Gauge
+	bloomIndexSeconds prometheus.Histogram
+	bloomErrorCount   prometheus.Gauge
 
 	bloomAccountTrueHitCount  prometheus.Counter
 	bloomAccountFalseHitCount prometheus.Counter
@@ -136,7 +136,7 @@ func GetPrometheusMetrics(namespace string, constLabelsWithValues ...string) *Me
 		flushAccountSize:          newCounter(namespace, "flush_account_size", constLabels),
 		flushStorageItemCount:     newCounter(namespace, "flush_storage_item_count", constLabels),
 		flushStorageSize:          newCounter(namespace, "flush_storage_size", constLabels),
-		bloomIndexTimer:           newHistogram(namespace, "bloom_index_timer", constLabels),
+		bloomIndexSeconds:         newHistogram(namespace, "bloom_index_seconds", constLabels),
 		bloomErrorCount:           newGauge(namespace, "bloom_error_count", constLabels),
 		bloomAccountTrueHitCount:  newCounter(namespace, "bloom_account_true_hit_count", constLabels),
 		bloomAccountFalseHitCount: newCounter(namespace, "bloom_account_false_hit_count", constLabels),
@@ -193,7 +193,7 @@ func GetPrometheusMetrics(namespace string, constLabelsWithValues ...string) *Me
 		m.flushAccountSize,
 		m.flushStorageItemCount,
 		m.flushStorageSize,
-		m.bloomIndexTimer,
+		m.bloomIndexSeconds,
 		m.bloomErrorCount,
 		m.bloomAccountTrueHitCount,
 		m.bloomAccountFalseHitCount,

@@ -24,8 +24,10 @@ import (
 	"sort"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/dogechain-lab/dogechain/helper/kvdb"
+	"github.com/dogechain-lab/dogechain/helper/metrics"
 	"github.com/dogechain-lab/dogechain/helper/rlp"
 	"github.com/dogechain-lab/dogechain/state/stypes"
 	"github.com/dogechain-lab/dogechain/types"
@@ -159,9 +161,9 @@ func newDiffLayer(
 			panic(fmt.Sprintf("account %s nil", accountHash))
 		}
 
-		// NOTE: dirty account memory gauge
 		// Determine memory size and track the dirty writes
 		dl.memory += uint64(types.HashLength + len(blob))
+		metrics.AddCounter(dl.snapmetrics.dirtyAccountWriteSize, float64(len(blob)))
 	}
 
 	for accountHash, slots := range storage {
@@ -170,8 +172,8 @@ func newDiffLayer(
 		}
 		// Determine memory size and track the dirty writes
 		for _, data := range slots {
-			// NOTE: dirty storage memory gauge
 			dl.memory += uint64(types.HashLength + len(data))
+			metrics.AddCounter(dl.snapmetrics.dirtyStorageWriteSize, float64(len(data)))
 		}
 	}
 
@@ -253,7 +255,8 @@ func (dl *diffLayer) AccountRLP(hash types.Hash) ([]byte, error) {
 	// If the bloom filter misses, don't even bother with traversing the memory
 	// diff layers, reach straight into the bottom persistent disk layer
 	if origin != nil {
-		// NOTE: bloom account miss Counter
+		metrics.CounterInc(dl.snapmetrics.bloomAccountMissCount)
+
 		return origin.AccountRLP(hash)
 	}
 
@@ -275,14 +278,20 @@ func (dl *diffLayer) accountRLP(hash types.Hash, depth int) ([]byte, error) {
 	}
 	// If the account is known locally, return it
 	if data, ok := dl.accountData[hash]; ok {
-		// NOTE: dirty account hit Counter, hit depth Histogram, read data size Counter,
-		// bloom account true hit Counter
+		metrics.CounterInc(dl.snapmetrics.dirtyAccountHitCount)
+		metrics.HistogramObserve(dl.snapmetrics.dirtyAccountHitDepth, float64(depth))
+		metrics.AddCounter(dl.snapmetrics.dirtyAccountReadSize, float64(len(data)))
+		metrics.CounterInc(dl.snapmetrics.bloomAccountTrueHitCount)
+
 		return data, nil
 	}
 	// If the account is known locally, but deleted, return it
 	if _, ok := dl.destructSet[hash]; ok {
-		// NOTE: dirty account hit Counter, hit depth Histogram, inex Counter,
-		// bloom account true hit Counter
+		metrics.CounterInc(dl.snapmetrics.dirtyAccountHitCount)
+		metrics.HistogramObserve(dl.snapmetrics.dirtyAccountHitDepth, float64(depth))
+		metrics.CounterInc(dl.snapmetrics.dirtyAccountInexCount)
+		metrics.CounterInc(dl.snapmetrics.bloomAccountTrueHitCount)
+
 		return nil, nil
 	}
 	// Account unknown to this diff, resolve from parent
@@ -291,7 +300,7 @@ func (dl *diffLayer) accountRLP(hash types.Hash, depth int) ([]byte, error) {
 	}
 
 	// Failed to resolve through diff layers, mark a bloom error and use the disk
-	// NOTE: bloom account false hit Counter
+	metrics.CounterInc(dl.snapmetrics.bloomAccountFalseHitCount)
 
 	return dl.parent.AccountRLP(hash)
 }
@@ -321,7 +330,8 @@ func (dl *diffLayer) Storage(accountHash, storageHash types.Hash) ([]byte, error
 	// If the bloom filter misses, don't even bother with traversing the memory
 	// diff layers, reach straight into the bottom persistent disk layer
 	if origin != nil {
-		// NOTE: bloom storage miss Counter
+		metrics.CounterInc(dl.snapmetrics.bloomStorageMissCount)
+
 		return origin.Storage(accountHash, storageHash)
 	}
 	// The bloom filter hit, start poking in the internal maps
@@ -343,15 +353,26 @@ func (dl *diffLayer) storage(accountHash, storageHash types.Hash, depth int) ([]
 	// If the account is known locally, try to resolve the slot locally
 	if storage, ok := dl.storageData[accountHash]; ok {
 		if data, ok := storage[storageHash]; ok {
-			//NOTE: dirty storage hit Counter, hit depth Gauge, read size Counter,
-			// inex Counter, bloom true hit Counter
+			metrics.CounterInc(dl.snapmetrics.dirtyStorageHitCount)
+			metrics.HistogramObserve(dl.snapmetrics.dirtyStorageHitDepth, float64(depth))
+			metrics.CounterInc(dl.snapmetrics.bloomStorageTrueHitCount)
+
+			if n := len(data); n > 0 {
+				metrics.AddCounter(dl.snapmetrics.dirtyStorageReadSize, float64(n))
+			} else {
+				metrics.CounterInc(dl.snapmetrics.dirtyStorageInexCount)
+			}
+
 			return data, nil
 		}
 	}
 	// If the account is known locally, but deleted, return an empty slot
 	if _, ok := dl.destructSet[accountHash]; ok {
-		//NOTE: dirty storage hit Counter, hit depth Gauge,
-		// inex Counter, bloom true hit Counter
+		metrics.CounterInc(dl.snapmetrics.dirtyStorageHitCount)
+		metrics.HistogramObserve(dl.snapmetrics.dirtyStorageHitDepth, float64(depth))
+		metrics.CounterInc(dl.snapmetrics.dirtyStorageInexCount)
+		metrics.CounterInc(dl.snapmetrics.bloomStorageTrueHitCount)
+
 		return nil, nil
 	}
 	// Storage slot unknown to this diff, resolve from parent
@@ -360,7 +381,7 @@ func (dl *diffLayer) storage(accountHash, storageHash types.Hash, depth int) ([]
 	}
 
 	// Failed to resolve through diff layers, mark a bloom error and use the disk
-	//NOTE: bloom storage false hit Counter
+	metrics.CounterInc(dl.snapmetrics.bloomStorageFalseHitCount)
 
 	return dl.parent.Storage(accountHash, storageHash)
 }
@@ -538,7 +559,9 @@ func (dl *diffLayer) rebloom(origin *diskLayer) {
 	dl.lock.Lock()
 	defer dl.lock.Unlock()
 
-	// NOTE: index duration metrics
+	defer func(start time.Time) {
+		metrics.HistogramObserve(dl.snapmetrics.bloomIndexSeconds, time.Since(start).Seconds())
+	}(time.Now())
 
 	// Inject the new origin that triggered the rebloom
 	dl.origin = origin
@@ -561,20 +584,20 @@ func (dl *diffLayer) rebloom(origin *diskLayer) {
 		dl.diffed.Add(accountBloomHasher(hash))
 	}
 
-	// NOTE: bloom error gauge at last
-	// // Calculate the current false positive rate and update the error rate meter.
-	// // This is a bit cheating because subsequent layers will overwrite it, but it
-	// // should be fine, we're only interested in ballpark figures.
-	// k := float64(dl.diffed.K())
-	// n := float64(dl.diffed.N())
-	// m := float64(dl.diffed.M())
-	// snapshotBloomErrorGauge.Update(math.Pow(1.0-math.Exp((-k)*(n+0.5)/(m-1)), k))
-
 	for accountHash, slots := range dl.storageData {
 		for storageHash := range slots {
 			dl.diffed.Add(storageBloomHasher{accountHash, storageHash})
 		}
 	}
+
+	// Calculate the current false positive rate and update the error rate meter.
+	// This is a bit cheating because subsequent layers will overwrite it, but it
+	// should be fine, we're only interested in ballpark figures.
+	k := float64(dl.diffed.K())
+	n := float64(dl.diffed.N())
+	m := float64(dl.diffed.M())
+
+	metrics.SetGauge(dl.snapmetrics.bloomErrorCount, math.Pow(1.0-math.Exp((-k)*(n+0.5)/(m-1)), k))
 }
 
 // destructBloomHasher is a wrapper around a types.Hash to satisfy the interface

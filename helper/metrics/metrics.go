@@ -26,6 +26,14 @@ func CounterInc(counter prometheus.Counter) {
 	counter.Inc()
 }
 
+func AddCounter(counter prometheus.Counter, v float64) {
+	if counter == nil {
+		return
+	}
+
+	counter.Add(v)
+}
+
 func SetGauge(gauge prometheus.Gauge, v float64) {
 	if gauge == nil {
 		return
