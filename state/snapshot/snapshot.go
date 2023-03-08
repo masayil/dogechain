@@ -600,6 +600,11 @@ func diffToDisk(bottom *diffLayer) *diskLayer {
 		it.Release()
 	}
 
+	var (
+		cleanAccountWriteSize int64 = 0
+		flushAccountSize      int64 = 0
+	)
+
 	// Push all updated accounts into the database
 	for hash, data := range bottom.accountData {
 		// Skip any account not covered yet by the snapshot
@@ -612,9 +617,9 @@ func diffToDisk(bottom *diffLayer) *diskLayer {
 		base.cache.Set(hash[:], data)
 
 		// collect metrics
-		metrics.AddCounter(base.snapmetrics.cleanAccountWriteSize, float64(len(data)))
 		metrics.CounterInc(base.snapmetrics.flushAccountItemCount)
-		metrics.AddCounter(base.snapmetrics.flushAccountSize, float64(len(data)))
+		cleanAccountWriteSize += int64(len(data))
+		flushAccountSize += int64(len(data))
 
 		// Ensure we don't write too much data blindly. It's ok to flush, the
 		// root will go missing in case of a crash and we'll detect and regen
@@ -629,6 +634,15 @@ func diffToDisk(bottom *diffLayer) *diskLayer {
 			batch.Reset()
 		}
 	}
+
+	metrics.CounterInc(base.snapmetrics.flushAccountItemCount)
+	metrics.HistogramObserve(base.snapmetrics.cleanAccountWriteSize, float64(cleanAccountWriteSize))
+	metrics.HistogramObserve(base.snapmetrics.flushAccountSize, float64(flushAccountSize))
+
+	var (
+		cleanStorageWriteSize int64 = 0
+		flushStorageSize      int64 = 0
+	)
 
 	// Push all the storage slots into the database
 	for accountHash, storage := range bottom.storageData {
@@ -649,7 +663,7 @@ func diffToDisk(bottom *diffLayer) *diskLayer {
 			if len(data) > 0 {
 				rawdb.WriteStorageSnapshot(batch, accountHash, storageHash, data)
 				base.cache.Set(append(accountHash[:], storageHash[:]...), data)
-				metrics.AddCounter(base.snapmetrics.cleanStorageWriteSize, float64(len(data)))
+				cleanStorageWriteSize += int64(len(data))
 			} else {
 				rawdb.DeleteStorageSnapshot(batch, accountHash, storageHash)
 				base.cache.Set(append(accountHash[:], storageHash[:]...), nil)
@@ -657,9 +671,12 @@ func diffToDisk(bottom *diffLayer) *diskLayer {
 
 			// collection metrics
 			metrics.CounterInc(base.snapmetrics.flushStorageItemCount)
-			metrics.AddCounter(base.snapmetrics.flushStorageSize, float64(len(data)))
+			flushStorageSize += int64(len(data))
 		}
 	}
+
+	metrics.HistogramObserve(base.snapmetrics.cleanStorageWriteSize, float64(cleanStorageWriteSize))
+	metrics.HistogramObserve(base.snapmetrics.flushStorageSize, float64(flushStorageSize))
 
 	// Update the snapshot block marker and write any remainder data
 	rawdb.WriteSnapshotRoot(batch, bottom.root)

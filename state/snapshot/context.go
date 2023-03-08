@@ -91,26 +91,29 @@ func (gs *generatorStats) Log(msg string, root types.Hash, marker []byte) {
 
 // generatorContext carries a few global values to be shared by all generation functions.
 type generatorContext struct {
-	stats   *generatorStats     // Generation statistic collection
-	db      kvdb.KVBatchStorage // Key-value store containing the snapshot data
-	account *holdableIterator   // Iterator of account snapshot data
-	storage *holdableIterator   // Iterator of storage snapshot data
-	batch   kvdb.Batch          // Database batch for writing batch data atomically
-	logged  time.Time           // The timestamp when last generation progress was displayed
+	stats         *generatorStats        // Generation statistic collection
+	db            kvdb.KVBatchStorage    // Key-value store containing the snapshot data
+	account       *holdableIterator      // Iterator of account snapshot data
+	storage       *holdableIterator      // Iterator of storage snapshot data
+	batch         kvdb.Batch             // Database batch for writing batch data atomically
+	logged        time.Time              // The timestamp when last generation progress was displayed
+	metricContext *generateMetricContext // The metric context
 }
 
 // newGeneratorContext initializes the context for generation.
 func newGeneratorContext(
+	metricContext *generateMetricContext,
 	stats *generatorStats,
 	db kvdb.KVBatchStorage,
 	accMarker []byte,
 	storageMarker []byte,
 ) *generatorContext {
 	ctx := &generatorContext{
-		stats:  stats,
-		db:     db,
-		batch:  db.NewBatch(),
-		logged: time.Now(),
+		stats:         stats,
+		db:            db,
+		batch:         db.NewBatch(),
+		logged:        time.Now(),
+		metricContext: metricContext,
 	}
 
 	ctx.openIterator(snapAccount, accMarker)
@@ -288,7 +291,9 @@ func (ctx *generatorContext) removeStorageLeft() {
 		}
 	}
 
+	// NOTE: collect metrics
 	// snapDanglingStorageMeter.Mark(int64(count))
 	// snapStorageCleanCounter.Inc(time.Since(start).Nanoseconds())
+
 	ctx.stats.dangling += count
 }

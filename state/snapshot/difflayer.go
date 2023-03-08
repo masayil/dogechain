@@ -163,7 +163,7 @@ func newDiffLayer(
 
 		// Determine memory size and track the dirty writes
 		dl.memory += uint64(types.HashLength + len(blob))
-		metrics.AddCounter(dl.snapmetrics.dirtyAccountWriteSize, float64(len(blob)))
+		metrics.HistogramObserve(dl.snapmetrics.dirtyAccountWriteSize, float64(len(blob)))
 	}
 
 	for accountHash, slots := range storage {
@@ -173,7 +173,7 @@ func newDiffLayer(
 		// Determine memory size and track the dirty writes
 		for _, data := range slots {
 			dl.memory += uint64(types.HashLength + len(data))
-			metrics.AddCounter(dl.snapmetrics.dirtyStorageWriteSize, float64(len(data)))
+			metrics.HistogramObserve(dl.snapmetrics.dirtyStorageWriteSize, float64(len(data)))
 		}
 	}
 
@@ -280,7 +280,7 @@ func (dl *diffLayer) accountRLP(hash types.Hash, depth int) ([]byte, error) {
 	if data, ok := dl.accountData[hash]; ok {
 		metrics.CounterInc(dl.snapmetrics.dirtyAccountHitCount)
 		metrics.HistogramObserve(dl.snapmetrics.dirtyAccountHitDepth, float64(depth))
-		metrics.AddCounter(dl.snapmetrics.dirtyAccountReadSize, float64(len(data)))
+		metrics.HistogramObserve(dl.snapmetrics.dirtyAccountReadSize, float64(len(data)))
 		metrics.CounterInc(dl.snapmetrics.bloomAccountTrueHitCount)
 
 		return data, nil
@@ -358,7 +358,7 @@ func (dl *diffLayer) storage(accountHash, storageHash types.Hash, depth int) ([]
 			metrics.CounterInc(dl.snapmetrics.bloomStorageTrueHitCount)
 
 			if n := len(data); n > 0 {
-				metrics.AddCounter(dl.snapmetrics.dirtyStorageReadSize, float64(n))
+				metrics.HistogramObserve(dl.snapmetrics.dirtyStorageReadSize, float64(n))
 			} else {
 				metrics.CounterInc(dl.snapmetrics.dirtyStorageInexCount)
 			}

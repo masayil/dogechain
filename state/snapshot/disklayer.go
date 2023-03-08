@@ -120,7 +120,7 @@ func (dl *diskLayer) AccountRLP(hash types.Hash) ([]byte, error) {
 	// Try to retrieve the account from the memory cache
 	if blob, found := dl.cache.HasGet(nil, hash[:]); found {
 		metrics.CounterInc(dl.snapmetrics.cleanAccountHitCount)
-		metrics.AddCounter(dl.snapmetrics.cleanAccountReadSize, float64(len(blob)))
+		metrics.HistogramObserve(dl.snapmetrics.cleanAccountReadSize, float64(len(blob)))
 
 		return blob, nil
 	}
@@ -132,7 +132,7 @@ func (dl *diskLayer) AccountRLP(hash types.Hash) ([]byte, error) {
 	metrics.CounterInc(dl.snapmetrics.cleanAccountMissCount)
 	// write or inex
 	if n := len(blob); n > 0 {
-		metrics.AddCounter(dl.snapmetrics.cleanAccountWriteSize, float64(n))
+		metrics.HistogramObserve(dl.snapmetrics.cleanAccountWriteSize, float64(n))
 	} else {
 		metrics.CounterInc(dl.snapmetrics.cleanAccountInexCount)
 	}
@@ -166,7 +166,7 @@ func (dl *diskLayer) Storage(accountHash, storageHash types.Hash) ([]byte, error
 	// Try to retrieve the storage slot from the memory cache
 	if blob, found := dl.cache.HasGet(nil, key); found {
 		metrics.CounterInc(dl.snapmetrics.cleanStorageHitCount)
-		metrics.AddCounter(dl.snapmetrics.cleanStorageReadSize, float64(len(blob)))
+		metrics.HistogramObserve(dl.snapmetrics.cleanStorageReadSize, float64(len(blob)))
 
 		return blob, nil
 	}
@@ -177,7 +177,7 @@ func (dl *diskLayer) Storage(accountHash, storageHash types.Hash) ([]byte, error
 	metrics.CounterInc(dl.snapmetrics.cleanStorageMissCount)
 	// write or inex
 	if n := len(blob); n > 0 {
-		metrics.AddCounter(dl.snapmetrics.cleanStorageWriteSize, float64(n))
+		metrics.HistogramObserve(dl.snapmetrics.cleanStorageWriteSize, float64(n))
 	} else {
 		metrics.CounterInc(dl.snapmetrics.cleanStorageInexCount)
 	}
