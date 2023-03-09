@@ -158,6 +158,7 @@ func nilGenerateMetrics() *generateMetrics {
 		danglingStorageSize:        metrics.NilTotalCounterHistogram(),
 		successfulRangeProofCount:  metrics.NilTotalCounterHistogram(),
 		failedRangeProofCount:      metrics.NilTotalCounterHistogram(),
+		generateSeconds:            metrics.NilHistogramDurationMetric(),
 		accountProveNanoseconds:    metrics.NilHistogramDurationMetric(),
 		accountTrieReadNanoseconds: metrics.NilHistogramDurationMetric(),
 		accountSnapReadNanoseconds: metrics.NilHistogramDurationMetric(),
