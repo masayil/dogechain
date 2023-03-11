@@ -148,7 +148,7 @@ func createDir(path string) error {
 	}
 
 	if os.IsNotExist(err) {
-		if err := os.MkdirAll(path, os.FileMode(0755)); err != nil {
+		if err := os.MkdirAll(path, 0755); err != nil {
 			return err
 		}
 	}
