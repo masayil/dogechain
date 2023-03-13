@@ -282,7 +282,7 @@ func (i *Ibft) startSyncing() {
 
 		// update module cache
 		if err := i.updateCurrentModules(blockNumber + 1); err != nil {
-			logger.Error("failed to update sub modules", "height", blockNumber+1, "err", err)
+			logger.Warn("failed to update sub modules when syncing", "height", blockNumber+1, "err", err)
 		}
 
 		// reset headers of txpool
@@ -530,8 +530,8 @@ func (i *Ibft) startConsensus() {
 		)
 
 		if err := i.updateCurrentModules(pending); err != nil {
-			i.logger.Error(
-				"failed to update submodules",
+			i.logger.Warn(
+				"failed to update submodules in consensus",
 				"height", pending,
 				"err", err,
 			)
@@ -899,15 +899,18 @@ func (i *Ibft) updateCurrentModules(height uint64) error {
 		return err
 	}
 
-	i.currentValidatorsMux.Lock()
+	if !i.currentValidatorsMux.TryLock() {
+		return errFailedToGetUpdateLock
+	}
+
 	defer i.currentValidatorsMux.Unlock()
 
 	i.currentValidators = snap.Set
 
-	i.logger.Info("update current module",
-		"height", height,
-		"validators", i.currentValidators,
-	)
+	// i.logger.Debug("update current module",
+	// 	"height", height,
+	// 	"validators", i.currentValidators,
+	// )
 
 	return nil
 }
@@ -1239,6 +1242,7 @@ var (
 	errIncorrectBlockHeight    = errors.New("proposed block number is incorrect")
 	errBlockVerificationFailed = errors.New("block verification failed")
 	errFailedToInsertBlock     = errors.New("failed to insert block")
+	errFailedToGetUpdateLock   = errors.New("failed to get update lock")
 )
 
 func (i *Ibft) handleStateErr(err error) {
