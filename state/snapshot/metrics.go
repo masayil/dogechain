@@ -247,67 +247,6 @@ func (m *generateMetrics) Summary(ctx *generateMetricContext) {
 	m.storageCleanNanoseconds.TimeAccumulator()(ctx.storageClean)
 }
 
-type cleanTotalMetrics struct {
-	cleanAccountHitCount  prometheus.Counter
-	cleanAccountMissCount prometheus.Counter
-	cleanAccountInexCount prometheus.Counter
-	cleanAccountReadSize  prometheus.Counter
-	cleanAccountWriteSize prometheus.Counter
-
-	cleanStorageHitCount  prometheus.Counter
-	cleanStorageMissCount prometheus.Counter
-	cleanStorageInexCount prometheus.Counter
-	cleanStorageReadSize  prometheus.Counter
-	cleanStorageWriteSize prometheus.Counter
-}
-
-type dirtyAvgMetrics struct {
-	dirtyAccountHitDepth prometheus.Histogram
-	dirtyStorageHitDepth prometheus.Histogram
-}
-
-type dirtyTotalMetrics struct {
-	dirtyAccountHitCount  prometheus.Counter
-	dirtyAccountMissCount prometheus.Counter
-	dirtyAccountInexCount prometheus.Counter
-	dirtyAccountReadSize  prometheus.Counter
-	dirtyAccountWriteSize prometheus.Counter
-
-	dirtyStorageHitCount  prometheus.Counter
-	dirtyStorageMissCount prometheus.Counter
-	dirtyStorageInexCount prometheus.Counter
-	dirtyStorageReadSize  prometheus.Counter
-	dirtyStorageWriteSize prometheus.Counter
-}
-
-type flushAvgMetrics struct {
-	flushAccountSize prometheus.Histogram
-	flushStorageSize prometheus.Histogram
-}
-
-type flushTotalMetrics struct {
-	flushAccountItemCount prometheus.Counter
-	flushStorageItemCount prometheus.Counter
-}
-
-type bloomAvgMetrics struct {
-	bloomIndexNanoseconds prometheus.Histogram
-	bloomErrorCount       prometheus.Histogram
-}
-
-type bloomSumMetrics struct {
-	bloomAccountTrueHitCount  prometheus.Counter
-	bloomAccountFalseHitCount prometheus.Counter
-	bloomAccountMissCount     prometheus.Counter
-
-	bloomStorageTrueHitCount  prometheus.Counter
-	bloomStorageFalseHitCount prometheus.Counter
-	bloomStorageMissCount     prometheus.Counter
-}
-
-type cacheSumMetrics struct {
-}
-
 type Metrics struct {
 	*generateMetrics
 
