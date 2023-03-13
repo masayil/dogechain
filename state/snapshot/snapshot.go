@@ -635,7 +635,6 @@ func diffToDisk(bottom *diffLayer) *diskLayer {
 		}
 	}
 
-	metrics.CounterInc(base.snapmetrics.flushAccountItemCount)
 	metrics.HistogramObserve(base.snapmetrics.cleanAccountWriteSize, float64(cleanAccountWriteSize))
 	metrics.HistogramObserve(base.snapmetrics.flushAccountSize, float64(flushAccountSize))
 
