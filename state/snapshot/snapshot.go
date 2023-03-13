@@ -618,6 +618,7 @@ func diffToDisk(bottom *diffLayer) *diskLayer {
 
 		// collect metrics
 		metrics.CounterInc(base.snapmetrics.flushAccountItemCount)
+		// whole data count
 		cleanAccountWriteSize += int64(len(data))
 		flushAccountSize += int64(len(data))
 
@@ -670,6 +671,7 @@ func diffToDisk(bottom *diffLayer) *diskLayer {
 
 			// collection metrics
 			metrics.CounterInc(base.snapmetrics.flushStorageItemCount)
+			// whole data count
 			flushStorageSize += int64(len(data))
 		}
 	}
