@@ -899,10 +899,7 @@ func (i *Ibft) updateCurrentModules(height uint64) error {
 		return err
 	}
 
-	if !i.currentValidatorsMux.TryLock() {
-		return errFailedToGetUpdateLock
-	}
-
+	i.currentValidatorsMux.Lock()
 	defer i.currentValidatorsMux.Unlock()
 
 	i.currentValidators = snap.Set
