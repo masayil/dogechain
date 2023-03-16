@@ -6,10 +6,14 @@ import (
 	"github.com/dogechain-lab/dogechain/helper/kvdb"
 	"github.com/hashicorp/go-hclog"
 	"github.com/syndtr/goleveldb/leveldb"
+	"github.com/syndtr/goleveldb/leveldb/opt"
 	"github.com/syndtr/goleveldb/leveldb/util"
 )
 
 const (
+	// base block size
+	blockSize = 2 * opt.MiB // default 4kb, but one key-value pair need 0.5kb
+
 	// minCache is the minimum memory allocate to leveldb
 	// half write, half read
 	minCache = 16 // 16 MiB
