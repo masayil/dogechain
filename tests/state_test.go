@@ -304,6 +304,8 @@ func RunSpecificTestWithSnapshot(t *testing.T, file string, c *stateCase, name, 
 }
 
 func TestState(t *testing.T) {
+	t.Parallel()
+
 	long := []string{
 		"static_Call50000",
 		"static_Return50000",
@@ -324,30 +326,30 @@ func TestState(t *testing.T) {
 	}
 
 	for _, folder := range folders {
-		folder := folder
-		t.Run(folder, func(t *testing.T) {
-			t.Parallel()
+		files, err := listFiles(folder)
+		if err != nil {
+			t.Fatal(err)
+		}
 
-			files, err := listFiles(folder)
-			if err != nil {
-				t.Fatal(err)
-			}
+		for _, file := range files {
+			file := file
+			t.Run(file, func(t *testing.T) {
+				t.Parallel()
 
-			for _, file := range files {
 				if !strings.HasSuffix(file, ".json") {
-					continue
+					return
 				}
 
 				if contains(long, file) && testing.Short() {
 					t.Skipf("Long tests are skipped in short mode")
 
-					continue
+					return
 				}
 
 				if contains(skip, file) {
 					t.Skip()
 
-					continue
+					return
 				}
 
 				data, err := ioutil.ReadFile(file)
@@ -367,12 +369,14 @@ func TestState(t *testing.T) {
 						}
 					}
 				}
-			}
-		})
+			})
+		}
 	}
 }
 
 func TestStateWithSnapshot(t *testing.T) {
+	t.Parallel()
+
 	long := []string{
 		"static_Call50000",
 		"static_Return50000",
@@ -393,30 +397,30 @@ func TestStateWithSnapshot(t *testing.T) {
 	}
 
 	for _, folder := range folders {
-		folder := folder
-		t.Run(folder, func(t *testing.T) {
-			t.Parallel()
+		files, err := listFiles(folder)
+		if err != nil {
+			t.Fatal(err)
+		}
 
-			files, err := listFiles(folder)
-			if err != nil {
-				t.Fatal(err)
-			}
+		for _, file := range files {
+			file := file
+			t.Run(file, func(t *testing.T) {
+				t.Parallel()
 
-			for _, file := range files {
 				if !strings.HasSuffix(file, ".json") {
-					continue
+					return
 				}
 
 				if contains(long, file) && testing.Short() {
 					t.Skipf("Long tests are skipped in short mode")
 
-					continue
+					return
 				}
 
 				if contains(skip, file) {
 					t.Skip()
 
-					continue
+					return
 				}
 
 				data, err := ioutil.ReadFile(file)
@@ -436,7 +440,7 @@ func TestStateWithSnapshot(t *testing.T) {
 						}
 					}
 				}
-			}
-		})
+			})
+		}
 	}
 }

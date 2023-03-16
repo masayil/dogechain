@@ -140,6 +140,8 @@ func rlpHashLogs(logs []*types.Log) (res types.Hash) {
 }
 
 func TestEVM(t *testing.T) {
+	t.Parallel()
+
 	folders, err := listFolders(vmTests)
 	if err != nil {
 		t.Fatal(err)
@@ -153,17 +155,18 @@ func TestEVM(t *testing.T) {
 
 	for _, folder := range folders {
 		folder := folder
-		t.Run(folder, func(t *testing.T) {
-			t.Parallel()
+		files, err := listFiles(folder)
+		if err != nil {
+			t.Fatal(err)
+		}
 
-			files, err := listFiles(folder)
-			if err != nil {
-				t.Fatal(err)
-			}
+		for _, file := range files {
+			file := file
+			t.Run(file, func(t *testing.T) {
+				t.Parallel()
 
-			for _, file := range files {
 				if !strings.HasSuffix(file, ".json") {
-					continue
+					return
 				}
 
 				data, err := ioutil.ReadFile(file)
@@ -183,8 +186,8 @@ func TestEVM(t *testing.T) {
 					}
 					testVMCase(t, name, cc)
 				}
-			}
-		})
+			})
+		}
 	}
 }
 
@@ -193,6 +196,8 @@ func vmTestBlockHash(n uint64) types.Hash {
 }
 
 func TestEVMWithSnapshot(t *testing.T) {
+	t.Parallel()
+
 	folders, err := listFolders(vmTests)
 	if err != nil {
 		t.Fatal(err)
@@ -205,18 +210,18 @@ func TestEVMWithSnapshot(t *testing.T) {
 	}
 
 	for _, folder := range folders {
-		folder := folder
-		t.Run(folder, func(t *testing.T) {
-			t.Parallel()
+		files, err := listFiles(folder)
+		if err != nil {
+			t.Fatal(err)
+		}
 
-			files, err := listFiles(folder)
-			if err != nil {
-				t.Fatal(err)
-			}
+		for _, file := range files {
+			file := file
+			t.Run(folder, func(t *testing.T) {
+				t.Parallel()
 
-			for _, file := range files {
 				if !strings.HasSuffix(file, ".json") {
-					continue
+					return
 				}
 
 				data, err := ioutil.ReadFile(file)
@@ -236,8 +241,8 @@ func TestEVMWithSnapshot(t *testing.T) {
 					}
 					testVMCaseWithSnapshot(t, name, cc)
 				}
-			}
-		})
+			})
+		}
 	}
 }
 
