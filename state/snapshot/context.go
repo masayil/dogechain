@@ -91,29 +91,29 @@ func (gs *generatorStats) Log(msg string, root types.Hash, marker []byte) {
 
 // generatorContext carries a few global values to be shared by all generation functions.
 type generatorContext struct {
-	stats         *generatorStats        // Generation statistic collection
-	db            kvdb.KVBatchStorage    // Key-value store containing the snapshot data
-	account       *holdableIterator      // Iterator of account snapshot data
-	storage       *holdableIterator      // Iterator of storage snapshot data
-	batch         kvdb.Batch             // Database batch for writing batch data atomically
-	logged        time.Time              // The timestamp when last generation progress was displayed
-	metricContext *generateMetricContext // The metric context
+	stats           *generatorStats     // Generation statistic collection
+	db              kvdb.KVBatchStorage // Key-value store containing the snapshot data
+	account         *holdableIterator   // Iterator of account snapshot data
+	storage         *holdableIterator   // Iterator of storage snapshot data
+	batch           kvdb.Batch          // Database batch for writing batch data atomically
+	logged          time.Time           // The timestamp when last generation progress was displayed
+	generateMetrics *Metrics            // The metric
 }
 
 // newGeneratorContext initializes the context for generation.
 func newGeneratorContext(
-	metricContext *generateMetricContext,
+	generateMetrics *Metrics,
 	stats *generatorStats,
 	db kvdb.KVBatchStorage,
 	accMarker []byte,
 	storageMarker []byte,
 ) *generatorContext {
 	ctx := &generatorContext{
-		stats:         stats,
-		db:            db,
-		batch:         db.NewBatch(),
-		logged:        time.Now(),
-		metricContext: metricContext,
+		stats:           stats,
+		db:              db,
+		batch:           db.NewBatch(),
+		logged:          time.Now(),
+		generateMetrics: generateMetrics,
 	}
 
 	ctx.openIterator(snapAccount, accMarker)

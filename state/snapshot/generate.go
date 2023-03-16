@@ -11,6 +11,7 @@ import (
 	"github.com/VictoriaMetrics/fastcache"
 	"github.com/dogechain-lab/dogechain/helper/hex"
 	"github.com/dogechain-lab/dogechain/helper/kvdb"
+	"github.com/dogechain-lab/dogechain/helper/metrics"
 	"github.com/dogechain-lab/dogechain/helper/rawdb"
 	"github.com/dogechain-lab/dogechain/helper/rlp"
 	"github.com/dogechain-lab/dogechain/trie"
@@ -182,9 +183,10 @@ func generateAccounts(ctx *generatorContext, dl *diskLayer, accMarker []byte, sn
 		// delete acount and return
 		if needDelete {
 			rawdb.DeleteAccountSnapshot(ctx.batch, account)
-			ctx.metricContext.wipedAccount.Add(1)
-			ctx.metricContext.accountWrite.Add(time.Since(start))
+			// might take longer time than we suppose
 			ctx.removeStorageAt(account)
+			metrics.CounterInc(snapmetrics.wipedAccountCount)
+			metrics.HistogramObserve(snapmetrics.accountWriteNanoseconds, float64(time.Since(start).Nanoseconds()))
 
 			return nil
 		}
@@ -213,12 +215,12 @@ func generateAccounts(ctx *generatorContext, dl *diskLayer, accMarker []byte, sn
 					dataLen -= 32
 				}
 
-				ctx.metricContext.recoveredAccount.Add(1)
+				metrics.CounterInc(snapmetrics.recoveredAccountCount)
 			} else {
 				data := SlimAccountRLP(acc.Nonce, acc.Balance, acc.Root, acc.CodeHash)
 				dataLen = len(data)
 				rawdb.WriteAccountSnapshot(ctx.batch, account, data)
-				ctx.metricContext.generatedAccount.Add(1)
+				metrics.CounterInc(snapmetrics.generatedAccountCount)
 			}
 
 			ctx.stats.storage += types.StorageSize(rawdb.SnapshotPrefixLength + types.HashLength + dataLen)
@@ -237,7 +239,7 @@ func generateAccounts(ctx *generatorContext, dl *diskLayer, accMarker []byte, sn
 			return err
 		}
 
-		ctx.metricContext.accountWrite.Add(time.Since(start))
+		metrics.HistogramObserve(snapmetrics.accountWriteNanoseconds, float64(time.Since(start).Nanoseconds()))
 
 		// If the iterated account is the contract, create a further loop to
 		// verify or regenerate the contract storage.
@@ -318,16 +320,8 @@ func (dl *diskLayer) generate(stats *generatorStats) {
 	// For the account or storage slot at the interruption, they will be
 	// processed twice by the generator(they are already processed in the
 	// last run) but it's fine.
-	metricContext := dl.snapmetrics.Context()
-	ctx := newGeneratorContext(metricContext, stats, dl.diskdb, accMarker, dl.genMarker)
-
-	defer func() {
-		dl.snapmetrics.Summary(metricContext)
-		ctx.close()
-	}()
-
-	// start collecting metrics
-	metricContext.Start()
+	ctx := newGeneratorContext(dl.snapmetrics, stats, dl.diskdb, accMarker, dl.genMarker)
+	defer ctx.close()
 
 	if err := generateAccounts(ctx, dl, accMarker, dl.snapmetrics); err != nil {
 		// Extract the received interruption signal if exists
@@ -457,16 +451,20 @@ func (dl *diskLayer) proveRange(
 
 	// Update metrics for database iteration and merkle proving
 	if kind == snapStorage {
-		ctx.metricContext.storageSnapRead.Add(time.Since(start))
+		metrics.HistogramObserve(dl.snapmetrics.storageSnapReadNanoseconds,
+			float64(time.Since(start).Nanoseconds()))
 	} else {
-		ctx.metricContext.accountSnapRead.Add(time.Since(start))
+		metrics.HistogramObserve(dl.snapmetrics.accountSnapReadNanoseconds,
+			float64(time.Since(start).Nanoseconds()))
 	}
 
 	defer func(start time.Time) {
 		if kind == snapStorage {
-			ctx.metricContext.storageProve.Add(time.Since(start))
+			metrics.HistogramObserve(dl.snapmetrics.storageProveNanoseconds,
+				float64(time.Since(start).Nanoseconds()))
 		} else {
-			ctx.metricContext.accountProve.Add(time.Since(start))
+			metrics.HistogramObserve(dl.snapmetrics.accountProveNanoseconds,
+				float64(time.Since(start).Nanoseconds()))
 		}
 	}(time.Now())
 
@@ -581,7 +579,7 @@ func (dl *diskLayer) generateRange(
 
 	// The range prover says the range is correct, skip trie iteration
 	if result.valid() {
-		ctx.metricContext.successfulRangeProof.Add(1)
+		metrics.CounterInc(dl.snapmetrics.successfulRangeProofCount)
 
 		// The verification is passed, process each state with the given
 		// callback function. If this state represents a contract, the
@@ -600,7 +598,7 @@ func (dl *diskLayer) generateRange(
 	// 	"last", hex.EncodeToHex(last),
 	// 	"err", result.proofErr,
 	// )
-	ctx.metricContext.failedRangeProof.Add(1)
+	metrics.CounterInc(dl.snapmetrics.failedRangeProofCount)
 
 	// Special case, the entire trie is missing. In the original trie scheme,
 	// all the duplicated subtries will be filtered out (only one copy of data
@@ -609,9 +607,9 @@ func (dl *diskLayer) generateRange(
 	// Track it to a certain extent remove the noise data used for statistics.
 	if origin == nil && last == nil {
 		if kind == snapStorage {
-			ctx.metricContext.missallStorage.Add(1)
+			metrics.CounterInc(dl.snapmetrics.missallStorageCount)
 		} else {
-			ctx.metricContext.missallAccount.Add(1)
+			metrics.CounterInc(dl.snapmetrics.missallAccountCount)
 		}
 	}
 
@@ -738,9 +736,11 @@ func (dl *diskLayer) generateRange(
 	internal += time.Since(istart)
 
 	if kind == snapStorage {
-		ctx.metricContext.storageTrieRead.Add(time.Since(start) - internal)
+		metrics.HistogramObserve(dl.snapmetrics.storageTrieReadNanoseconds,
+			float64((time.Since(start) - internal).Nanoseconds()))
 	} else {
-		ctx.metricContext.accountTrieRead.Add(time.Since(start) - internal)
+		metrics.HistogramObserve(dl.snapmetrics.accountTrieReadNanoseconds,
+			float64((time.Since(start) - internal).Nanoseconds()))
 	}
 
 	dl.logger.Debug("Regenerated state range",
@@ -824,21 +824,22 @@ func generateStorages(
 ) error {
 	onStorage := func(key []byte, val []byte, write bool, needDelete bool) error {
 		defer func(start time.Time) {
-			ctx.metricContext.storageWrite.Add(time.Since(start))
+			metrics.HistogramObserve(dl.snapmetrics.storageWriteNanoseconds,
+				float64(time.Since(start).Nanoseconds()))
 		}(time.Now())
 
 		if needDelete {
 			rawdb.DeleteStorageSnapshot(ctx.batch, account, types.BytesToHash(key))
-			ctx.metricContext.wipedStorage.Add(1)
+			metrics.CounterInc(dl.snapmetrics.wipedStorageCount)
 
 			return nil
 		}
 
 		if write {
 			rawdb.WriteStorageSnapshot(ctx.batch, account, types.BytesToHash(key), val)
-			ctx.metricContext.generatedStorage.Add(1)
+			metrics.CounterInc(dl.snapmetrics.generatedStorageCount)
 		} else {
-			ctx.metricContext.recoveredStorage.Add(1)
+			metrics.CounterInc(dl.snapmetrics.recoveredStorageCount)
 		}
 
 		ctx.stats.storage += types.StorageSize(rawdb.SnapshotPrefixLength + 2*types.HashLength + len(val))

@@ -12,27 +12,16 @@ const (
 )
 
 type generateMetricContext struct {
-	generatedAccount     metrics.CounterContext
-	recoveredAccount     metrics.CounterContext
-	wipedAccount         metrics.CounterContext
-	missallAccount       metrics.CounterContext
-	generatedStorage     metrics.CounterContext
-	recoveredStorage     metrics.CounterContext
-	wipedStorage         metrics.CounterContext
-	missallStorage       metrics.CounterContext
-	danglingStorageSize  metrics.CounterContext
-	successfulRangeProof metrics.CounterContext
-	failedRangeProof     metrics.CounterContext
-	generateSeconds      metrics.DurationContext
-	accountProve         metrics.DurationContext
-	accountTrieRead      metrics.DurationContext
-	accountSnapRead      metrics.DurationContext
-	accountWrite         metrics.DurationContext
-	storageProve         metrics.DurationContext
-	storageTrieRead      metrics.DurationContext
-	storageSnapRead      metrics.DurationContext
-	storageWrite         metrics.DurationContext
-	storageClean         metrics.DurationContext
+	generateSeconds metrics.DurationContext
+	accountProve    metrics.DurationContext
+	accountTrieRead metrics.DurationContext
+	accountSnapRead metrics.DurationContext
+	accountWrite    metrics.DurationContext
+	storageProve    metrics.DurationContext
+	storageTrieRead metrics.DurationContext
+	storageSnapRead metrics.DurationContext
+	storageWrite    metrics.DurationContext
+	storageClean    metrics.DurationContext
 }
 
 func (ctx *generateMetricContext) Start() {
@@ -40,53 +29,54 @@ func (ctx *generateMetricContext) Start() {
 }
 
 type generateMetrics struct {
-	generatedAccountCount     metrics.TotalCountHistogram
-	recoveredAccountCount     metrics.TotalCountHistogram
-	wipedAccountCount         metrics.TotalCountHistogram
-	missallAccountCount       metrics.TotalCountHistogram
-	generatedStorageCount     metrics.TotalCountHistogram
-	recoveredStorageCount     metrics.TotalCountHistogram
-	wipedStorageCount         metrics.TotalCountHistogram
-	missallStorageCount       metrics.TotalCountHistogram
-	danglingStorageSize       metrics.TotalCountHistogram
-	successfulRangeProofCount metrics.TotalCountHistogram
-	failedRangeProofCount     metrics.TotalCountHistogram
-	generateSeconds           metrics.DurationHistogram
+	generatedAccountCount prometheus.Counter
+	recoveredAccountCount prometheus.Counter
+	wipedAccountCount     prometheus.Counter
+	missallAccountCount   prometheus.Counter
+	generatedStorageCount prometheus.Counter
+	recoveredStorageCount prometheus.Counter
+	wipedStorageCount     prometheus.Counter
+	missallStorageCount   prometheus.Counter
+	// danglingStorageSize       metrics.TotalCountHistogram
+	successfulRangeProofCount prometheus.Counter
+	failedRangeProofCount     prometheus.Counter
+	generateSeconds           prometheus.Gauge
 
 	// accountProveNanoseconds measures time spent on the account proving
-	accountProveNanoseconds metrics.DurationHistogram
+	accountProveNanoseconds prometheus.Histogram
 	// accountTrieReadNanoseconds measures time spent on the account trie iteration
-	accountTrieReadNanoseconds metrics.DurationHistogram
+	accountTrieReadNanoseconds prometheus.Histogram
 	// accountSnapReadNanoseconds measures time spent on the snapshot account iteration
-	accountSnapReadNanoseconds metrics.DurationHistogram
+	accountSnapReadNanoseconds prometheus.Histogram
 	// accountWriteNanoseconds measures time spent on writing/updating/deleting accounts
-	accountWriteNanoseconds metrics.DurationHistogram
+	accountWriteNanoseconds prometheus.Histogram
 	// storageProveNanoseconds measures time spent on storage proving
-	storageProveNanoseconds metrics.DurationHistogram
+	storageProveNanoseconds prometheus.Histogram
 	// storageTrieReadNanoseconds measures time spent on the storage trie iteration
-	storageTrieReadNanoseconds metrics.DurationHistogram
+	storageTrieReadNanoseconds prometheus.Histogram
 	// storageSnapReadNanoseconds measures time spent on the snapshot storage iteration
-	storageSnapReadNanoseconds metrics.DurationHistogram
+	storageSnapReadNanoseconds prometheus.Histogram
 	// storageWriteNanoseconds measures time spent on writing/updating storages
-	storageWriteNanoseconds metrics.DurationHistogram
+	storageWriteNanoseconds prometheus.Histogram
 	// storageCleanNanoseconds measures time spent on deleting storages
-	storageCleanNanoseconds metrics.DurationHistogram
+	storageCleanNanoseconds prometheus.Histogram
 }
 
 func newGenerateMetrics(namespace string, constLabels prometheus.Labels) *generateMetrics {
 	var (
-		generatedAccountCount      = newHistogram(namespace, "generate_generated_account_count", constLabels)
-		recoveredAccountCount      = newHistogram(namespace, "generate_recovered_account_count", constLabels)
-		wipedAccountCount          = newHistogram(namespace, "generate_wiped_account_count", constLabels)
-		missallAccountCount        = newHistogram(namespace, "generate_missall_account_count", constLabels)
-		generatedStorageCount      = newHistogram(namespace, "generate_generated_storage_count", constLabels)
-		recoveredStorageCount      = newHistogram(namespace, "generate_recovered_storage_count", constLabels)
-		wipedStorageCount          = newHistogram(namespace, "generate_wiped_storage_count", constLabels)
-		missallStorageCount        = newHistogram(namespace, "generate_missall_storage_count", constLabels)
-		danglingStorageSize        = newHistogram(namespace, "generate_dangling_storage_size", constLabels)
-		successfulRangeProofCount  = newHistogram(namespace, "generate_successful_range_proof_count", constLabels)
-		failedRangeProofCount      = newHistogram(namespace, "generate_failed_range_proof_count", constLabels)
-		generateSeconds            = newHistogram(namespace, "generate_generate_seconds", constLabels)
+		generatedAccountCount = newCounter(namespace, "generate_generated_account_count", constLabels)
+		recoveredAccountCount = newCounter(namespace, "generate_recovered_account_count", constLabels)
+		wipedAccountCount     = newCounter(namespace, "generate_wiped_account_count", constLabels)
+		missallAccountCount   = newCounter(namespace, "generate_missall_account_count", constLabels)
+		generatedStorageCount = newCounter(namespace, "generate_generated_storage_count", constLabels)
+		recoveredStorageCount = newCounter(namespace, "generate_recovered_storage_count", constLabels)
+		wipedStorageCount     = newCounter(namespace, "generate_wiped_storage_count", constLabels)
+		missallStorageCount   = newCounter(namespace, "generate_missall_storage_count", constLabels)
+		// danglingStorageSize        = newHistogram(namespace, "generate_dangling_storage_size", constLabels)
+		successfulRangeProofCount = newCounter(namespace, "generate_successful_range_proof_count", constLabels)
+		failedRangeProofCount     = newCounter(namespace, "generate_failed_range_proof_count", constLabels)
+		generateSeconds           = newGauge(namespace, "generate_generate_seconds", constLabels)
+		// all nanoseconds metrics
 		accountProveNanoseconds    = newHistogram(namespace, "generate_account_prove_nanoseconds", constLabels)
 		accountTrieReadNanoSeconds = newHistogram(namespace, "generate_account_trie_read_nanoseconds", constLabels)
 		accountSnapReadNanoseconds = newHistogram(namespace, "generate_account_snap_read_nanoseconds", constLabels)
@@ -106,7 +96,7 @@ func newGenerateMetrics(namespace string, constLabels prometheus.Labels) *genera
 	prometheus.MustRegister(recoveredStorageCount)
 	prometheus.MustRegister(wipedStorageCount)
 	prometheus.MustRegister(missallStorageCount)
-	prometheus.MustRegister(danglingStorageSize)
+	// prometheus.MustRegister(danglingStorageSize)
 	prometheus.MustRegister(successfulRangeProofCount)
 	prometheus.MustRegister(failedRangeProofCount)
 	prometheus.MustRegister(generateSeconds)
@@ -121,130 +111,47 @@ func newGenerateMetrics(namespace string, constLabels prometheus.Labels) *genera
 	prometheus.MustRegister(storageCleanNanoseconds)
 
 	return &generateMetrics{
-		generatedAccountCount:      metrics.NewTotalCounterHistogram(generatedAccountCount),
-		recoveredAccountCount:      metrics.NewTotalCounterHistogram(recoveredAccountCount),
-		wipedAccountCount:          metrics.NewTotalCounterHistogram(wipedAccountCount),
-		missallAccountCount:        metrics.NewTotalCounterHistogram(missallAccountCount),
-		generatedStorageCount:      metrics.NewTotalCounterHistogram(generatedStorageCount),
-		recoveredStorageCount:      metrics.NewTotalCounterHistogram(recoveredStorageCount),
-		wipedStorageCount:          metrics.NewTotalCounterHistogram(wipedStorageCount),
-		missallStorageCount:        metrics.NewTotalCounterHistogram(missallStorageCount),
-		danglingStorageSize:        metrics.NewTotalCounterHistogram(danglingStorageSize),
-		successfulRangeProofCount:  metrics.NewTotalCounterHistogram(successfulRangeProofCount),
-		failedRangeProofCount:      metrics.NewTotalCounterHistogram(failedRangeProofCount),
-		generateSeconds:            metrics.NewHistogramDurationMetric(generateSeconds),
-		accountProveNanoseconds:    metrics.NewHistogramDurationMetric(accountProveNanoseconds),
-		accountTrieReadNanoseconds: metrics.NewHistogramDurationMetric(accountTrieReadNanoSeconds),
-		accountSnapReadNanoseconds: metrics.NewHistogramDurationMetric(accountSnapReadNanoseconds),
-		accountWriteNanoseconds:    metrics.NewHistogramDurationMetric(accountWriteNanoseconds),
-		storageProveNanoseconds:    metrics.NewHistogramDurationMetric(storageProveNanoseconds),
-		storageTrieReadNanoseconds: metrics.NewHistogramDurationMetric(storageTrieReadNanoseconds),
-		storageSnapReadNanoseconds: metrics.NewHistogramDurationMetric(storageSnapReadNanoseconds),
-		storageWriteNanoseconds:    metrics.NewHistogramDurationMetric(storageWriteNanoseconds),
-		storageCleanNanoseconds:    metrics.NewHistogramDurationMetric(storageCleanNanoseconds),
+		generatedAccountCount: generatedAccountCount,
+		recoveredAccountCount: recoveredAccountCount,
+		wipedAccountCount:     wipedAccountCount,
+		missallAccountCount:   missallAccountCount,
+		generatedStorageCount: generatedStorageCount,
+		recoveredStorageCount: recoveredStorageCount,
+		wipedStorageCount:     wipedStorageCount,
+		missallStorageCount:   missallStorageCount,
+		// danglingStorageSize:        metrics.NewTotalCounterHistogram(danglingStorageSize),
+		successfulRangeProofCount:  successfulRangeProofCount,
+		failedRangeProofCount:      failedRangeProofCount,
+		generateSeconds:            generateSeconds,
+		accountProveNanoseconds:    accountProveNanoseconds,
+		accountTrieReadNanoseconds: accountTrieReadNanoSeconds,
+		accountSnapReadNanoseconds: accountSnapReadNanoseconds,
+		accountWriteNanoseconds:    accountWriteNanoseconds,
+		storageProveNanoseconds:    storageProveNanoseconds,
+		storageTrieReadNanoseconds: storageTrieReadNanoseconds,
+		storageSnapReadNanoseconds: storageSnapReadNanoseconds,
+		storageWriteNanoseconds:    storageWriteNanoseconds,
+		storageCleanNanoseconds:    storageCleanNanoseconds,
 	}
 }
 
 func nilGenerateMetrics() *generateMetrics {
-	return &generateMetrics{
-		generatedAccountCount:      metrics.NilTotalCounterHistogram(),
-		recoveredAccountCount:      metrics.NilTotalCounterHistogram(),
-		wipedAccountCount:          metrics.NilTotalCounterHistogram(),
-		missallAccountCount:        metrics.NilTotalCounterHistogram(),
-		generatedStorageCount:      metrics.NilTotalCounterHistogram(),
-		recoveredStorageCount:      metrics.NilTotalCounterHistogram(),
-		wipedStorageCount:          metrics.NilTotalCounterHistogram(),
-		missallStorageCount:        metrics.NilTotalCounterHistogram(),
-		danglingStorageSize:        metrics.NilTotalCounterHistogram(),
-		successfulRangeProofCount:  metrics.NilTotalCounterHistogram(),
-		failedRangeProofCount:      metrics.NilTotalCounterHistogram(),
-		generateSeconds:            metrics.NilHistogramDurationMetric(),
-		accountProveNanoseconds:    metrics.NilHistogramDurationMetric(),
-		accountTrieReadNanoseconds: metrics.NilHistogramDurationMetric(),
-		accountSnapReadNanoseconds: metrics.NilHistogramDurationMetric(),
-		accountWriteNanoseconds:    metrics.NilHistogramDurationMetric(),
-		storageProveNanoseconds:    metrics.NilHistogramDurationMetric(),
-		storageTrieReadNanoseconds: metrics.NilHistogramDurationMetric(),
-		storageSnapReadNanoseconds: metrics.NilHistogramDurationMetric(),
-		storageWriteNanoseconds:    metrics.NilHistogramDurationMetric(),
-		storageCleanNanoseconds:    metrics.NilHistogramDurationMetric(),
-	}
+	return &generateMetrics{}
 }
 
 func (m *generateMetrics) Context() *generateMetricContext {
 	return &generateMetricContext{
-		generatedAccount:     metrics.NewCounterContext(),
-		recoveredAccount:     metrics.NewCounterContext(),
-		wipedAccount:         metrics.NewCounterContext(),
-		missallAccount:       metrics.NewCounterContext(),
-		generatedStorage:     metrics.NewCounterContext(),
-		recoveredStorage:     metrics.NewCounterContext(),
-		wipedStorage:         metrics.NewCounterContext(),
-		missallStorage:       metrics.NewCounterContext(),
-		danglingStorageSize:  metrics.NewCounterContext(),
-		successfulRangeProof: metrics.NewCounterContext(),
-		failedRangeProof:     metrics.NewCounterContext(),
-		generateSeconds:      metrics.NewDurationContextWithUnit(metrics.DurationSecond),
-		accountProve:         metrics.NewDurationContextWithUnit(metrics.DurationNanosecond),
-		accountTrieRead:      metrics.NewDurationContextWithUnit(metrics.DurationNanosecond),
-		accountSnapRead:      metrics.NewDurationContextWithUnit(metrics.DurationNanosecond),
-		accountWrite:         metrics.NewDurationContextWithUnit(metrics.DurationNanosecond),
-		storageProve:         metrics.NewDurationContextWithUnit(metrics.DurationNanosecond),
-		storageTrieRead:      metrics.NewDurationContextWithUnit(metrics.DurationNanosecond),
-		storageSnapRead:      metrics.NewDurationContextWithUnit(metrics.DurationNanosecond),
-		storageWrite:         metrics.NewDurationContextWithUnit(metrics.DurationNanosecond),
-		storageClean:         metrics.NewDurationContextWithUnit(metrics.DurationNanosecond),
+		generateSeconds: metrics.NewDurationContextWithUnit(metrics.DurationSecond),
+		accountProve:    metrics.NewDurationContextWithUnit(metrics.DurationNanosecond),
+		accountTrieRead: metrics.NewDurationContextWithUnit(metrics.DurationNanosecond),
+		accountSnapRead: metrics.NewDurationContextWithUnit(metrics.DurationNanosecond),
+		accountWrite:    metrics.NewDurationContextWithUnit(metrics.DurationNanosecond),
+		storageProve:    metrics.NewDurationContextWithUnit(metrics.DurationNanosecond),
+		storageTrieRead: metrics.NewDurationContextWithUnit(metrics.DurationNanosecond),
+		storageSnapRead: metrics.NewDurationContextWithUnit(metrics.DurationNanosecond),
+		storageWrite:    metrics.NewDurationContextWithUnit(metrics.DurationNanosecond),
+		storageClean:    metrics.NewDurationContextWithUnit(metrics.DurationNanosecond),
 	}
-}
-
-func (m *generateMetrics) NilContext() *generateMetricContext {
-	return &generateMetricContext{
-		generatedAccount:     metrics.NilCounterContext(),
-		recoveredAccount:     metrics.NilCounterContext(),
-		wipedAccount:         metrics.NilCounterContext(),
-		missallAccount:       metrics.NilCounterContext(),
-		generatedStorage:     metrics.NilCounterContext(),
-		recoveredStorage:     metrics.NilCounterContext(),
-		wipedStorage:         metrics.NilCounterContext(),
-		missallStorage:       metrics.NilCounterContext(),
-		danglingStorageSize:  metrics.NilCounterContext(),
-		successfulRangeProof: metrics.NilCounterContext(),
-		failedRangeProof:     metrics.NilCounterContext(),
-		generateSeconds:      metrics.NilDurationContext(),
-		accountProve:         metrics.NilDurationContext(),
-		accountTrieRead:      metrics.NilDurationContext(),
-		accountSnapRead:      metrics.NilDurationContext(),
-		accountWrite:         metrics.NilDurationContext(),
-		storageProve:         metrics.NilDurationContext(),
-		storageTrieRead:      metrics.NilDurationContext(),
-		storageSnapRead:      metrics.NilDurationContext(),
-		storageWrite:         metrics.NilDurationContext(),
-		storageClean:         metrics.NilDurationContext(),
-	}
-}
-
-func (m *generateMetrics) Summary(ctx *generateMetricContext) {
-	m.generatedAccountCount.CountAccumulator()(ctx.generatedAccount)
-	m.recoveredAccountCount.CountAccumulator()(ctx.recoveredAccount)
-	m.wipedAccountCount.CountAccumulator()(ctx.wipedAccount)
-	m.missallAccountCount.CountAccumulator()(ctx.missallAccount)
-	m.generatedStorageCount.CountAccumulator()(ctx.generatedStorage)
-	m.recoveredStorageCount.CountAccumulator()(ctx.recoveredStorage)
-	m.wipedStorageCount.CountAccumulator()(ctx.wipedStorage)
-	m.missallStorageCount.CountAccumulator()(ctx.missallStorage)
-	m.danglingStorageSize.CountAccumulator()(ctx.danglingStorageSize)
-	m.successfulRangeProofCount.CountAccumulator()(ctx.successfulRangeProof)
-	m.failedRangeProofCount.CountAccumulator()(ctx.failedRangeProof)
-	m.generateSeconds.TimeAccumulator()(ctx.generateSeconds)
-	m.accountProveNanoseconds.TimeAccumulator()(ctx.accountProve)
-	m.accountTrieReadNanoseconds.TimeAccumulator()(ctx.accountTrieRead)
-	m.accountSnapReadNanoseconds.TimeAccumulator()(ctx.accountSnapRead)
-	m.accountWriteNanoseconds.TimeAccumulator()(ctx.accountWrite)
-	m.storageProveNanoseconds.TimeAccumulator()(ctx.storageProve)
-	m.storageTrieReadNanoseconds.TimeAccumulator()(ctx.storageTrieRead)
-	m.storageSnapReadNanoseconds.TimeAccumulator()(ctx.storageSnapRead)
-	m.storageWriteNanoseconds.TimeAccumulator()(ctx.storageWrite)
-	m.storageCleanNanoseconds.TimeAccumulator()(ctx.storageClean)
 }
 
 type Metrics struct {
