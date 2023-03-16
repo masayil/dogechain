@@ -304,8 +304,6 @@ func RunSpecificTestWithSnapshot(t *testing.T, file string, c *stateCase, name, 
 }
 
 func TestState(t *testing.T) {
-	t.Parallel()
-
 	long := []string{
 		"static_Call50000",
 		"static_Return50000",
@@ -375,8 +373,6 @@ func TestState(t *testing.T) {
 }
 
 func TestStateWithSnapshot(t *testing.T) {
-	t.Parallel()
-
 	long := []string{
 		"static_Call50000",
 		"static_Return50000",

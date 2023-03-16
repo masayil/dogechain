@@ -140,8 +140,6 @@ func rlpHashLogs(logs []*types.Log) (res types.Hash) {
 }
 
 func TestEVM(t *testing.T) {
-	t.Parallel()
-
 	folders, err := listFolders(vmTests)
 	if err != nil {
 		t.Fatal(err)
@@ -195,8 +193,6 @@ func vmTestBlockHash(n uint64) types.Hash {
 }
 
 func TestEVMWithSnapshot(t *testing.T) {
-	t.Parallel()
-
 	folders, err := listFolders(vmTests)
 	if err != nil {
 		t.Fatal(err)
