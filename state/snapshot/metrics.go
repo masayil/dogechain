@@ -29,15 +29,15 @@ func (ctx *generateMetricContext) Start() {
 }
 
 type generateMetrics struct {
-	generatedAccountCount prometheus.Counter
-	recoveredAccountCount prometheus.Counter
-	wipedAccountCount     prometheus.Counter
-	missallAccountCount   prometheus.Counter
-	generatedStorageCount prometheus.Counter
-	recoveredStorageCount prometheus.Counter
-	wipedStorageCount     prometheus.Counter
-	missallStorageCount   prometheus.Counter
-	// danglingStorageSize       metrics.TotalCountHistogram
+	generatedAccountCount     prometheus.Counter
+	recoveredAccountCount     prometheus.Counter
+	wipedAccountCount         prometheus.Counter
+	missallAccountCount       prometheus.Counter
+	generatedStorageCount     prometheus.Counter
+	recoveredStorageCount     prometheus.Counter
+	wipedStorageCount         prometheus.Counter
+	missallStorageCount       prometheus.Counter
+	danglingStorageCount      prometheus.Counter
 	successfulRangeProofCount prometheus.Counter
 	failedRangeProofCount     prometheus.Counter
 	generateSeconds           prometheus.Gauge
@@ -64,15 +64,15 @@ type generateMetrics struct {
 
 func newGenerateMetrics(namespace string, constLabels prometheus.Labels) *generateMetrics {
 	var (
-		generatedAccountCount = newCounter(namespace, "generate_generated_account_count", constLabels)
-		recoveredAccountCount = newCounter(namespace, "generate_recovered_account_count", constLabels)
-		wipedAccountCount     = newCounter(namespace, "generate_wiped_account_count", constLabels)
-		missallAccountCount   = newCounter(namespace, "generate_missall_account_count", constLabels)
-		generatedStorageCount = newCounter(namespace, "generate_generated_storage_count", constLabels)
-		recoveredStorageCount = newCounter(namespace, "generate_recovered_storage_count", constLabels)
-		wipedStorageCount     = newCounter(namespace, "generate_wiped_storage_count", constLabels)
-		missallStorageCount   = newCounter(namespace, "generate_missall_storage_count", constLabels)
-		// danglingStorageSize        = newHistogram(namespace, "generate_dangling_storage_size", constLabels)
+		generatedAccountCount     = newCounter(namespace, "generate_generated_account_count", constLabels)
+		recoveredAccountCount     = newCounter(namespace, "generate_recovered_account_count", constLabels)
+		wipedAccountCount         = newCounter(namespace, "generate_wiped_account_count", constLabels)
+		missallAccountCount       = newCounter(namespace, "generate_missall_account_count", constLabels)
+		generatedStorageCount     = newCounter(namespace, "generate_generated_storage_count", constLabels)
+		recoveredStorageCount     = newCounter(namespace, "generate_recovered_storage_count", constLabels)
+		wipedStorageCount         = newCounter(namespace, "generate_wiped_storage_count", constLabels)
+		missallStorageCount       = newCounter(namespace, "generate_missall_storage_count", constLabels)
+		danglingStorageCount      = newCounter(namespace, "generate_dangling_storage_size", constLabels)
 		successfulRangeProofCount = newCounter(namespace, "generate_successful_range_proof_count", constLabels)
 		failedRangeProofCount     = newCounter(namespace, "generate_failed_range_proof_count", constLabels)
 		generateSeconds           = newGauge(namespace, "generate_generate_seconds", constLabels)
@@ -96,7 +96,7 @@ func newGenerateMetrics(namespace string, constLabels prometheus.Labels) *genera
 	prometheus.MustRegister(recoveredStorageCount)
 	prometheus.MustRegister(wipedStorageCount)
 	prometheus.MustRegister(missallStorageCount)
-	// prometheus.MustRegister(danglingStorageSize)
+	prometheus.MustRegister(danglingStorageCount)
 	prometheus.MustRegister(successfulRangeProofCount)
 	prometheus.MustRegister(failedRangeProofCount)
 	prometheus.MustRegister(generateSeconds)
@@ -111,15 +111,15 @@ func newGenerateMetrics(namespace string, constLabels prometheus.Labels) *genera
 	prometheus.MustRegister(storageCleanNanoseconds)
 
 	return &generateMetrics{
-		generatedAccountCount: generatedAccountCount,
-		recoveredAccountCount: recoveredAccountCount,
-		wipedAccountCount:     wipedAccountCount,
-		missallAccountCount:   missallAccountCount,
-		generatedStorageCount: generatedStorageCount,
-		recoveredStorageCount: recoveredStorageCount,
-		wipedStorageCount:     wipedStorageCount,
-		missallStorageCount:   missallStorageCount,
-		// danglingStorageSize:        metrics.NewTotalCounterHistogram(danglingStorageSize),
+		generatedAccountCount:      generatedAccountCount,
+		recoveredAccountCount:      recoveredAccountCount,
+		wipedAccountCount:          wipedAccountCount,
+		missallAccountCount:        missallAccountCount,
+		generatedStorageCount:      generatedStorageCount,
+		recoveredStorageCount:      recoveredStorageCount,
+		wipedStorageCount:          wipedStorageCount,
+		missallStorageCount:        missallStorageCount,
+		danglingStorageCount:       danglingStorageCount,
 		successfulRangeProofCount:  successfulRangeProofCount,
 		failedRangeProofCount:      failedRangeProofCount,
 		generateSeconds:            generateSeconds,

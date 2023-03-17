@@ -281,8 +281,8 @@ func (ctx *generatorContext) removeStorageAt(account types.Hash) error {
 func (ctx *generatorContext) removeStorageLeft() {
 	var (
 		count uint64
-		// start = time.Now()
-		iter = ctx.storage
+		start = time.Now()
+		iter  = ctx.storage
 	)
 
 	for iter.Next() {
@@ -296,9 +296,9 @@ func (ctx *generatorContext) removeStorageLeft() {
 		}
 	}
 
-	// NOTE: collect metrics
-	// snapDanglingStorageMeter.Mark(int64(count))
-	// snapStorageCleanCounter.Inc(time.Since(start).Nanoseconds())
+	// collect metrics
+	metrics.AddCounter(ctx.generateMetrics.danglingStorageCount, float64(count))
+	metrics.HistogramObserve(ctx.generateMetrics.storageCleanNanoseconds, float64(time.Since(start).Nanoseconds()))
 
 	ctx.stats.dangling += count
 }
