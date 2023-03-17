@@ -25,6 +25,7 @@ import (
 
 	"github.com/dogechain-lab/dogechain/helper/kvdb"
 	"github.com/dogechain-lab/dogechain/helper/kvdb/memorydb"
+	"github.com/dogechain-lab/dogechain/helper/metrics"
 	"github.com/dogechain-lab/dogechain/helper/rawdb"
 	"github.com/dogechain-lab/dogechain/types"
 )
@@ -195,8 +196,8 @@ func (ctx *generatorContext) iterator(kind string) *holdableIterator {
 func (ctx *generatorContext) removeStorageBefore(account types.Hash) {
 	var (
 		count uint64
-		// start = time.Now()
-		iter = ctx.storage
+		start = time.Now()
+		iter  = ctx.storage
 	)
 
 	for iter.Next() {
@@ -222,8 +223,10 @@ func (ctx *generatorContext) removeStorageBefore(account types.Hash) {
 		}
 	}
 
-	// snapStorageCleanCounter.Inc(time.Since(start).Nanoseconds())
 	ctx.stats.dangling += count
+
+	metrics.HistogramObserve(ctx.generateMetrics.storageCleanNanoseconds,
+		float64(time.Since(start).Nanoseconds()))
 }
 
 // removeStorageAt deletes all storage entries which are located in the specified
@@ -233,8 +236,8 @@ func (ctx *generatorContext) removeStorageBefore(account types.Hash) {
 func (ctx *generatorContext) removeStorageAt(account types.Hash) error {
 	var (
 		count int64
-		// start = time.Now()
-		iter = ctx.storage
+		start = time.Now()
+		iter  = ctx.storage
 	)
 
 	for iter.Next() {
@@ -265,8 +268,10 @@ func (ctx *generatorContext) removeStorageAt(account types.Hash) error {
 		}
 	}
 
-	// snapWipedStorageMeter.Mark(count)
-	// snapStorageCleanCounter.Inc(time.Since(start).Nanoseconds())
+	// collect metrics
+	metrics.AddCounter(ctx.generateMetrics.wipedStorageCount, float64(count))
+	metrics.HistogramObserve(ctx.generateMetrics.storageCleanNanoseconds,
+		float64(time.Since(start).Nanoseconds()))
 
 	return nil
 }
