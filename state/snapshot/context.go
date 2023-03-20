@@ -38,13 +38,14 @@ const (
 // generatorStats is a collection of statistics gathered by the snapshot generator
 // for logging purposes.
 type generatorStats struct {
-	origin   uint64            // Origin prefix where generation started
-	start    time.Time         // Timestamp when generation started
-	accounts uint64            // Number of accounts indexed(generated or recovered)
-	slots    uint64            // Number of storage slots indexed(generated or recovered)
-	dangling uint64            // Number of dangling storage slots
-	storage  types.StorageSize // Total account and storage slot size(generation or recovery)
-	logger   kvdb.Logger       // logger
+	origin          uint64            // Origin prefix where generation started
+	start           time.Time         // Timestamp when generation started
+	accounts        uint64            // Number of accounts indexed(generated or recovered)
+	slots           uint64            // Number of storage slots indexed(generated or recovered)
+	dangling        uint64            // Number of dangling storage slots
+	storage         types.StorageSize // Total account and storage slot size(generation or recovery)
+	logger          kvdb.Logger       // logger
+	generateMetrics *Metrics          // generate metrics
 }
 
 // Log creates an contextual log with the given message and the context pulled
@@ -79,15 +80,21 @@ func (gs *generatorStats) Log(msg string, root types.Hash, marker []byte) {
 	if len(marker) > 0 {
 		if done := binary.BigEndian.Uint64(marker[:8]) - gs.origin; done > 0 {
 			left := math.MaxUint64 - binary.BigEndian.Uint64(marker[:8])
-
 			speed := done/uint64(time.Since(gs.start)/time.Millisecond+1) + 1 // +1s to avoid division by zero
+			eta := time.Duration(left/speed) * time.Millisecond
+
 			ctx = append(ctx, []interface{}{
-				"eta", types.PrettyDuration(time.Duration(left/speed) * time.Millisecond),
+				"eta", types.PrettyDuration(eta),
 			}...)
+
+			// collect metric
+			metrics.SetGauge(gs.generateMetrics.estimateSeconds, eta.Seconds())
 		}
 	}
 
 	gs.logger.Info(msg, ctx...)
+	// used second metric
+	metrics.SetGauge(gs.generateMetrics.usedSeconds, time.Since(gs.start).Seconds())
 }
 
 // generatorContext carries a few global values to be shared by all generation functions.

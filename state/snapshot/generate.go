@@ -49,7 +49,7 @@ func generateSnapshot(
 ) *diskLayer {
 	// Create a new disk layer with an initialized state marker at zero
 	var (
-		stats     = &generatorStats{start: time.Now(), logger: logger}
+		stats     = &generatorStats{start: time.Now(), logger: logger, generateMetrics: snapmetrics}
 		batch     = diskdb.NewBatch()
 		genMarker = []byte{} // Initialized but empty!
 	)
@@ -312,6 +312,10 @@ func (dl *diskLayer) generate(stats *generatorStats) {
 
 	stats.Log("Resuming state snapshot generation", dl.root, dl.genMarker)
 
+	// set status
+	metrics.SetGauge(stats.generateMetrics.estimateSeconds, 0)
+	metrics.SetGauge(stats.generateMetrics.usedSeconds, 0)
+
 	// Initialize the global generator context. The snapshot iterators are
 	// opened at the interrupted position because the assumption is held
 	// that all the snapshot data are generated correctly before the marker.
@@ -361,6 +365,10 @@ func (dl *diskLayer) generate(stats *generatorStats) {
 		"dangling", stats.dangling,
 		"elapsed", types.PrettyDuration(time.Since(stats.start)),
 	)
+
+	// final metrics
+	metrics.SetGauge(stats.generateMetrics.estimateSeconds, 0)
+	metrics.SetGauge(stats.generateMetrics.usedSeconds, time.Since(stats.start).Seconds())
 
 	dl.lock.Lock()
 	dl.genMarker = nil

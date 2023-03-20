@@ -40,7 +40,8 @@ type generateMetrics struct {
 	danglingStorageCount      prometheus.Counter
 	successfulRangeProofCount prometheus.Counter
 	failedRangeProofCount     prometheus.Counter
-	generateSeconds           prometheus.Gauge
+	usedSeconds               prometheus.Gauge
+	estimateSeconds           prometheus.Gauge
 
 	// accountProveNanoseconds measures time spent on the account proving
 	accountProveNanoseconds prometheus.Histogram
@@ -75,7 +76,8 @@ func newGenerateMetrics(namespace string, constLabels prometheus.Labels) *genera
 		danglingStorageCount      = newCounter(namespace, "generate_dangling_storage_size", constLabels)
 		successfulRangeProofCount = newCounter(namespace, "generate_successful_range_proof_count", constLabels)
 		failedRangeProofCount     = newCounter(namespace, "generate_failed_range_proof_count", constLabels)
-		generateSeconds           = newGauge(namespace, "generate_generate_seconds", constLabels)
+		usedSeconds               = newGauge(namespace, "generate_used_seconds", constLabels)
+		estimateSeconds           = newGauge(namespace, "generate_estimate_seconds", constLabels)
 		// all nanoseconds metrics
 		accountProveNanoseconds    = newHistogram(namespace, "generate_account_prove_nanoseconds", constLabels)
 		accountTrieReadNanoSeconds = newHistogram(namespace, "generate_account_trie_read_nanoseconds", constLabels)
@@ -99,7 +101,8 @@ func newGenerateMetrics(namespace string, constLabels prometheus.Labels) *genera
 	prometheus.MustRegister(danglingStorageCount)
 	prometheus.MustRegister(successfulRangeProofCount)
 	prometheus.MustRegister(failedRangeProofCount)
-	prometheus.MustRegister(generateSeconds)
+	prometheus.MustRegister(usedSeconds)
+	prometheus.MustRegister(estimateSeconds)
 	prometheus.MustRegister(accountProveNanoseconds)
 	prometheus.MustRegister(accountTrieReadNanoSeconds)
 	prometheus.MustRegister(accountSnapReadNanoseconds)
@@ -122,7 +125,8 @@ func newGenerateMetrics(namespace string, constLabels prometheus.Labels) *genera
 		danglingStorageCount:       danglingStorageCount,
 		successfulRangeProofCount:  successfulRangeProofCount,
 		failedRangeProofCount:      failedRangeProofCount,
-		generateSeconds:            generateSeconds,
+		usedSeconds:                usedSeconds,
+		estimateSeconds:            estimateSeconds,
 		accountProveNanoseconds:    accountProveNanoseconds,
 		accountTrieReadNanoseconds: accountTrieReadNanoSeconds,
 		accountSnapReadNanoseconds: accountSnapReadNanoseconds,

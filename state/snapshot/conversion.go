@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/dogechain-lab/dogechain/helper/kvdb"
+	"github.com/dogechain-lab/dogechain/helper/metrics"
 	"github.com/dogechain-lab/dogechain/helper/rlp"
 	"github.com/dogechain-lab/dogechain/trie"
 	"github.com/dogechain-lab/dogechain/types"
@@ -60,17 +61,19 @@ type generateStats struct {
 	slotsStart map[types.Hash]time.Time  // Start time for account slot crawling
 	slotsHead  map[types.Hash]types.Hash // Slot head for accounts being crawled
 
-	lock   sync.RWMutex
-	logger kvdb.Logger
+	lock            sync.RWMutex
+	logger          kvdb.Logger
+	generateMetrics *Metrics
 }
 
 // newGenerateStats creates a new generator stats.
-func newGenerateStats(logger kvdb.Logger) *generateStats {
+func newGenerateStats(logger kvdb.Logger, generateMetrics *Metrics) *generateStats {
 	return &generateStats{
-		slotsStart: make(map[types.Hash]time.Time),
-		slotsHead:  make(map[types.Hash]types.Hash),
-		start:      time.Now(),
-		logger:     logger,
+		slotsStart:      make(map[types.Hash]time.Time),
+		slotsHead:       make(map[types.Hash]types.Hash),
+		start:           time.Now(),
+		logger:          logger,
+		generateMetrics: generateMetrics,
 	}
 }
 
@@ -153,8 +156,14 @@ func (stat *generateStats) report() {
 			ctx = append(ctx, []interface{}{
 				"eta", types.PrettyDuration(eta),
 			}...)
+
+			// collect metric
+			metrics.SetGauge(stat.generateMetrics.estimateSeconds, eta.Seconds())
 		}
 	}
+
+	// collect metric
+	metrics.SetGauge(stat.generateMetrics.usedSeconds, time.Since(stat.start).Seconds())
 
 	stat.logger.Info("Iterating state snapshot", ctx...)
 }
@@ -170,6 +179,9 @@ func (stat *generateStats) reportDone() {
 	if stat.slots != 0 {
 		ctx = append(ctx, []interface{}{"slots", stat.slots}...)
 	}
+
+	// collect total used time
+	metrics.SetGauge(stat.generateMetrics.usedSeconds, time.Since(stat.start).Seconds())
 
 	ctx = append(ctx, []interface{}{"elapsed", types.PrettyDuration(time.Since(stat.start))}...)
 	stat.logger.Info("Iterated snapshot", ctx...)

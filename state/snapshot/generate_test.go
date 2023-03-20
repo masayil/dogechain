@@ -128,7 +128,7 @@ func checkSnapRoot(t *testing.T, snap *diskLayer, trieRoot types.Hash) {
 				return types.Hash{}, err
 			}
 			return hash, nil
-		}, newGenerateStats(snap.logger), true)
+		}, newGenerateStats(snap.logger, snap.snapmetrics), true)
 	if err != nil {
 		t.Fatal(err)
 	}

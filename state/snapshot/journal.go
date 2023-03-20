@@ -224,12 +224,13 @@ func loadSnapshot(
 		}
 
 		go base.generate(&generatorStats{
-			origin:   origin,
-			start:    time.Now(),
-			accounts: generator.Accounts,
-			slots:    generator.Slots,
-			storage:  types.StorageSize(generator.Storage),
-			logger:   logger,
+			origin:          origin,
+			start:           time.Now(),
+			accounts:        generator.Accounts,
+			slots:           generator.Slots,
+			storage:         types.StorageSize(generator.Storage),
+			logger:          logger,
+			generateMetrics: metrics,
 		})
 	}
 
