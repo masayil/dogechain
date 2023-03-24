@@ -86,6 +86,9 @@ func (s *DefaultServer) AddToPeerStore(peerInfo *peer.AddrInfo) {
 
 // RemoveFromPeerStore removes peer information from the node's peer store, ignoring static nodes and bootnodes
 func (s *DefaultServer) RemoveFromPeerStore(peerID peer.ID) {
+	span := s.tracer.Start("network.RemoveFromPeerStore")
+	defer span.End()
+
 	s.host.Peerstore().RemovePeer(peerID)
 	s.host.Peerstore().ClearAddrs(peerID)
 }
@@ -151,7 +154,8 @@ func (s *DefaultServer) setupDiscovery() error {
 		// check peer is not connected and has free outbound connections
 		if s.connectionCounts.HasFreeOutboundConn() && !s.HasPeer(p) {
 			info := s.host.Peerstore().PeerInfo(p)
-			s.addToDialQueue(&info, common.PriorityRandomDial)
+			// TODO: use DefaultServer.ctx replace context.Background()
+			s.addToDialQueue(context.Background(), &info, common.PriorityRandomDial)
 		}
 	}
 
@@ -208,7 +212,7 @@ func (s *DefaultServer) setupDiscovery() error {
 
 // registerDiscoveryService registers the discovery protocol to be available
 func (s *DefaultServer) registerDiscoveryService(discovery *discovery.DiscoveryService) {
-	grpcStream := grpc.NewGrpcStream()
+	grpcStream := grpc.NewGrpcStream(context.TODO())
 	proto.RegisterDiscoveryServer(grpcStream.GrpcServer(), discovery)
 	grpcStream.Serve()
 

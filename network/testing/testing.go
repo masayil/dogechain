@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/dogechain-lab/dogechain/helper/telemetry"
 	"github.com/dogechain-lab/dogechain/network/client"
 	"github.com/dogechain-lab/dogechain/network/event"
 	"github.com/dogechain-lab/dogechain/network/proto"
@@ -42,6 +43,9 @@ type MockNetworkingServer struct {
 	isBootnodeFn          isBootnodeDelegate
 	isStaticPeerFn        isStaticPeerDelegate
 	hasPeerFn             hasPeerDelegate
+
+	// tracer
+	getTraceFn getTraceDelegate
 }
 
 func NewMockNetworkingServer() *MockNetworkingServer {
@@ -71,7 +75,7 @@ type connectDelegate func(addrInfo peer.AddrInfo) error
 type disconnectFromPeerDelegate func(peer.ID, string)
 type addPeerDelegate func(peer.ID, network.Direction)
 type updatePendingConnCountDelegate func(int64, network.Direction)
-type emitEventDelegate func(*event.PeerEvent)
+type emitEventDelegate func(context.Context, *event.PeerEvent)
 type hasFreeConnectionSlotDelegate func(network.Direction) bool
 
 // Required for Discovery
@@ -85,6 +89,9 @@ type peerCountDelegate func() int64
 type isBootnodeDelegate func(peer.ID) bool
 type isStaticPeerDelegate func(peer.ID) bool
 type hasPeerDelegate func(peer.ID) bool
+
+// tracer
+type getTraceDelegate func() telemetry.Tracer
 
 func (m *MockNetworkingServer) NewIdentityClient(peerID peer.ID) (client.IdentityClient, error) {
 	if m.newIdentityClientFn != nil {
@@ -140,9 +147,9 @@ func (m *MockNetworkingServer) HookUpdatePendingConnCount(fn updatePendingConnCo
 	m.updatePendingConnCountFn = fn
 }
 
-func (m *MockNetworkingServer) EmitEvent(event *event.PeerEvent) {
+func (m *MockNetworkingServer) EmitEvent(ctx context.Context, event *event.PeerEvent) {
 	if m.emitEventFn != nil {
-		m.emitEventFn(event)
+		m.emitEventFn(ctx, event)
 	}
 }
 
@@ -276,6 +283,18 @@ func (m *MockNetworkingServer) HasPeer(peerID peer.ID) bool {
 
 func (m *MockNetworkingServer) HookHasPeer(fn hasPeerDelegate) {
 	m.hasPeerFn = fn
+}
+
+func (m *MockNetworkingServer) HookGetTracer(fn getTraceDelegate) {
+	m.getTraceFn = fn
+}
+
+func (m *MockNetworkingServer) GetTracer() telemetry.Tracer {
+	if m.getTraceFn != nil {
+		return m.getTraceFn()
+	}
+
+	return nil
 }
 
 // MockIdentityClient mocks an identity client (other peer in the communication)

@@ -43,6 +43,8 @@ type Config struct {
 type Telemetry struct {
 	PrometheusAddr string `json:"prometheus_addr"`
 	EnableIOTimer  bool   `json:"prometheus_enable_disk_io_timer"`
+	EnableJaeger   bool   `json:"enable_jaeger"`
+	JaegerURL      string `json:"jaeger_url"`
 }
 
 // Network defines the network configuration params
@@ -91,6 +93,7 @@ func DefaultConfig() *Config {
 		},
 		Telemetry: &Telemetry{
 			EnableIOTimer: false,
+			EnableJaeger:  false,
 		},
 		ShouldSeal: false,
 		TxPool: &TxPool{

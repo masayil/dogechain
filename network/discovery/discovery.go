@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dogechain-lab/dogechain/helper/telemetry"
 	"github.com/dogechain-lab/dogechain/network/client"
 	"github.com/dogechain-lab/dogechain/network/common"
 	"github.com/dogechain-lab/dogechain/network/event"
@@ -86,6 +87,9 @@ type networkingServer interface {
 
 	// PeerCount connection peer number
 	PeerCount() int64
+
+	// GetTracer returns the tracer instance
+	GetTracer() telemetry.Tracer
 }
 
 // peerAddreStore is a struct that contains the peer address information
@@ -163,6 +167,7 @@ type DiscoveryService struct {
 
 	baseServer   networkingServer // The interface towards the base networking server
 	logger       hclog.Logger     // The DiscoveryService logger
+	tracer       telemetry.Tracer // tracer for the IdentityService
 	routingTable *kb.RoutingTable // Kademlia 'k-bucket' routing table that contains connected nodes info
 
 	peerAddress *peerAddreStore // stores the peer address information
@@ -186,6 +191,7 @@ func NewDiscoveryService(
 	return &DiscoveryService{
 		baseServer:   server,
 		logger:       logger.Named("discovery"),
+		tracer:       server.GetTracer().GetTraceProvider().NewTracer("discovery"),
 		routingTable: routingTable,
 		peerAddress:  newPeerAddreStore(),
 		ignoreCIDR:   ignoreCIDR,
@@ -227,13 +233,22 @@ func (d *DiscoveryService) HandleNetworkEvent(peerEvent *event.PeerEvent) {
 	// if bootnode disconnects and shutdown, can use this reconnect to network
 	peerID := peerEvent.PeerID
 
+	// create tracer span
+	span := d.tracer.StartWithParent(
+		peerEvent.SpanContext,
+		"discovery.HandleNetworkEvent",
+	)
+	defer span.End()
+
 	// identity service trigger PeerDialCompleted event
 	switch peerEvent.Type {
 	case event.PeerDialCompleted:
 		// Add peer to the routing table and to our local peer table
-		_, err := d.routingTable.TryAddPeer(peerID, false, true)
+		exist, err := d.routingTable.TryAddPeer(peerID, false, true)
 		if err != nil {
 			d.logger.Error("failed to add peer to routing table", "err", err)
+			span.RecordError(err)
+			span.SetStatus(telemetry.Error, "failed to add peer to routing table")
 
 			return
 		}
@@ -245,6 +260,11 @@ func (d *DiscoveryService) HandleNetworkEvent(peerEvent *event.PeerEvent) {
 
 		// update last use time
 		d.routingTable.UpdateLastUsefulAt(peerID, time.Now())
+
+		span.AddEvent("peer_added_to_routing_table", map[string]interface{}{
+			"existed":  exist,
+			"peerInfo": peerInfo,
+		})
 	}
 }
 

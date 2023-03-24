@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dogechain-lab/dogechain/helper/telemetry"
 	"github.com/dogechain-lab/dogechain/network/client"
 	"github.com/dogechain-lab/dogechain/network/event"
 	"github.com/dogechain-lab/dogechain/network/proto"
@@ -44,12 +45,15 @@ type networkingServer interface {
 	UpdatePendingConnCount(delta int64, direction network.Direction)
 
 	// EmitEvent emits the specified peer event on the base networking server
-	EmitEvent(event *event.PeerEvent)
+	EmitEvent(ctx context.Context, event *event.PeerEvent)
 
 	// CONNECTION INFORMATION //
 
 	// HasFreeConnectionSlot checks if there are available outbound connection slots [Thread safe]
 	HasFreeConnectionSlot(direction network.Direction) bool
+
+	// GetTracer returns the base networking server's tracer
+	GetTracer() telemetry.Tracer
 }
 
 // IdentityService is a networking service used to handle peer handshaking.
@@ -60,7 +64,9 @@ type IdentityService struct {
 	pendingPeerConnections map[peer.ID]struct{} // Map that keeps track of the pending status of peers; peerID -> bool
 	pendingCountMux        sync.RWMutex         // Mutex for the pendingPeerConnections map
 
-	logger     hclog.Logger     // The IdentityService logger
+	logger hclog.Logger     // The IdentityService logger
+	tracer telemetry.Tracer // tracer for the IdentityService
+
 	baseServer networkingServer // The interface towards the base networking server
 
 	chainID int64   // The chain ID of the network
@@ -76,6 +82,7 @@ func NewIdentityService(
 ) *IdentityService {
 	return &IdentityService{
 		logger:                 logger.Named("identity"),
+		tracer:                 server.GetTracer().GetTraceProvider().NewTracer("identity"),
 		baseServer:             server,
 		chainID:                chainID,
 		hostID:                 hostID,
@@ -86,6 +93,11 @@ func NewIdentityService(
 func (i *IdentityService) GetNotifyBundle() *network.NotifyBundle {
 	return &network.NotifyBundle{
 		ConnectedF: func(net network.Network, conn network.Conn) {
+			tracer := i.baseServer.GetTracer()
+
+			span := tracer.Start("identity.ConnectedF")
+			defer span.End()
+
 			peerID := conn.RemotePeer()
 			direction := conn.Stat().Direction
 
@@ -93,6 +105,8 @@ func (i *IdentityService) GetNotifyBundle() *network.NotifyBundle {
 
 			if i.HasPendingStatus(peerID) {
 				// handshake has already started
+				span.SetStatus(telemetry.Unset, "already pending")
+
 				return
 			}
 
@@ -110,17 +124,33 @@ func (i *IdentityService) GetNotifyBundle() *network.NotifyBundle {
 
 			if !i.baseServer.HasFreeConnectionSlot(direction) {
 				i.disconnectFromPeer(peerID, ErrNoAvailableSlots.Error())
+				span.SetStatus(telemetry.Error, ErrNoAvailableSlots.Error())
 
 				return
 			}
 
 			i.addPendingStatus(peerID, direction)
+			span.AddEvent("pending status added", map[string]interface{}{
+				"peer":      peerID,
+				"direction": direction,
+			})
+
+			spanCtx := span.SpanContext()
 
 			go func() {
+				span := tracer.StartWithParent(spanCtx, "identity.handleConnected")
+				defer span.End()
+
 				connectEvent := &event.PeerEvent{
-					PeerID: peerID,
-					Type:   event.PeerDialCompleted,
+					PeerID:      peerID,
+					Type:        event.PeerDialCompleted,
+					SpanContext: span.SpanContext(),
 				}
+
+				span.SetAttributes(map[string]interface{}{
+					"peer":      peerID,
+					"direction": direction,
+				})
 
 				if err := i.handleConnected(peerID, conn.Stat().Direction); err != nil {
 					i.logger.Debug("identity check failed, disconnect peer", "peer", peerID)
@@ -129,16 +159,17 @@ func (i *IdentityService) GetNotifyBundle() *network.NotifyBundle {
 					i.disconnectFromPeer(peerID, err.Error())
 
 					i.logger.Debug("send PeerFailedToConnect event", "peer", peerID)
+
+					span.RecordError(err)
+					span.SetStatus(telemetry.Error, "identity check failed")
+
 					connectEvent.Type = event.PeerFailedToConnect
 				}
 
 				i.removePendingStatus(peerID, direction)
 
 				// Emit an adequate event
-				i.baseServer.EmitEvent(&event.PeerEvent{
-					PeerID: connectEvent.PeerID,
-					Type:   connectEvent.Type,
-				})
+				i.baseServer.EmitEvent(span.Context(), connectEvent)
 			}()
 		},
 	}

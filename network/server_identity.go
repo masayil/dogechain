@@ -1,6 +1,7 @@
 package network
 
 import (
+	"context"
 	"fmt"
 	"math/big"
 
@@ -32,6 +33,9 @@ func (s *DefaultServer) NewIdentityClient(peerID peer.ID) (client.IdentityClient
 // AddPeer adds a new peer to the networking server's peer list,
 // and updates relevant counters and metrics
 func (s *DefaultServer) AddPeer(id peer.ID, direction network.Direction) {
+	span := s.tracer.Start("network.AddPeer")
+	defer span.End()
+
 	s.logger.Info("Peer connected", "id", id.String())
 
 	// Update the peer connection info
@@ -45,7 +49,7 @@ func (s *DefaultServer) AddPeer(id peer.ID, direction network.Direction) {
 	// WARNING: THIS CALL IS POTENTIALLY BLOCKING
 	// UNDER HEAVY LOAD. IT SHOULD BE SUBSTITUTED
 	// WITH AN EVENT SYSTEM THAT ACTUALLY WORKS
-	s.emitEvent(id, peerEvent.PeerConnected)
+	s.emitEvent(span.Context(), id, peerEvent.PeerConnected)
 }
 
 // addPeerInfo updates the networking server's internal peer info table
@@ -100,8 +104,8 @@ func (s *DefaultServer) UpdatePendingConnCount(delta int64, direction network.Di
 }
 
 // EmitEvent emits a specified event to the networking server's event bus
-func (s *DefaultServer) EmitEvent(event *peerEvent.PeerEvent) {
-	s.emitEvent(event.PeerID, event.Type)
+func (s *DefaultServer) EmitEvent(ctx context.Context, event *peerEvent.PeerEvent) {
+	s.emitEvent(ctx, event.PeerID, event.Type)
 }
 
 // setupIdentity sets up the identity service for the node
@@ -109,6 +113,9 @@ func (s *DefaultServer) setupIdentity() error {
 	if s.identity != nil {
 		return fmt.Errorf("identity service already initialized")
 	}
+
+	span := s.tracer.Start("network.setupIdentity")
+	defer span.End()
 
 	// Create an instance of the identity service
 	s.identity = identity.NewIdentityService(
@@ -129,7 +136,7 @@ func (s *DefaultServer) setupIdentity() error {
 
 // registerIdentityService registers the identity service
 func (s *DefaultServer) registerIdentityService(identityService *identity.IdentityService) {
-	grpcStream := grpc.NewGrpcStream()
+	grpcStream := grpc.NewGrpcStream(context.TODO())
 	proto.RegisterIdentityServer(grpcStream.GrpcServer(), identityService)
 	grpcStream.Serve()
 

@@ -14,6 +14,7 @@ const DefaultGRPCPort int = 9632
 const DefaultJSONRPCPort int = 8545
 const DefaultGraphQLPort int = 9898
 const DefaultPprofPort int = 6060
+const DefaultJaegerPort int = 14268
 
 // Config is used to parametrize the minimal client
 type Config struct {
@@ -65,6 +66,8 @@ type LeveldbOptions struct {
 type Telemetry struct {
 	PrometheusAddr  *net.TCPAddr
 	EnableIOMetrics bool
+	EnableJaeger    bool
+	JaegerURL       string
 }
 
 // JSONRPC holds the config details for the JSON-RPC server

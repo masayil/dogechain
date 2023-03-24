@@ -259,6 +259,36 @@ func GetPprofFlag(cmd *cobra.Command) bool {
 	return v
 }
 
+// RegustreTelemetryFlag registers the telemetry flags
+func RegisterJaegerFlag(cmd *cobra.Command) {
+	cmd.PersistentFlags().Bool(
+		command.JaegerFlag,
+		false,
+		"enable the jaeger telemetry",
+	)
+
+	cmd.PersistentFlags().String(
+		command.JaegerAddressFlag,
+		fmt.Sprintf("http://%s:%d/api/traces", LocalHostBinding, server.DefaultJaegerPort),
+		"jaeger thrift protocol (HTTP POST to /api/traces)",
+	)
+}
+
+// GetJaegerFlag extracts the telemetry flag
+func GetJaegerFlag(cmd *cobra.Command) (bool, string) {
+	enableJaeger, err := cmd.Flags().GetBool(command.JaegerFlag)
+	if err != nil && enableJaeger {
+		addr, err := cmd.Flags().GetString(command.JaegerAddressFlag)
+		if err != nil {
+			return false, ""
+		}
+
+		return true, addr
+	}
+
+	return false, ""
+}
+
 // ParseGraphQLAddress parses the passed in GraphQL address
 func ParseGraphQLAddress(graphqlAddress string) (*url.URL, error) {
 	return url.ParseRequestURI(graphqlAddress)

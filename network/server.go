@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dogechain-lab/dogechain/helper/telemetry"
 	"github.com/dogechain-lab/dogechain/network/client"
 	"github.com/dogechain-lab/dogechain/network/common"
 	"github.com/dogechain-lab/dogechain/network/dial"
@@ -64,8 +65,13 @@ var (
 )
 
 type DefaultServer struct {
-	logger hclog.Logger // the logger
-	config *Config      // the base networking server configuration
+	// TODO: switch to context.Context implementation
+	// ctx context.Context // the context for the networking server
+
+	logger hclog.Logger     // the logger
+	tracer telemetry.Tracer // the tracer for telemetry
+
+	config *Config // the base networking server configuration
 
 	closeCh chan struct{}  // the channel used for closing the networking server
 	closeWg sync.WaitGroup // the waitgroup used for closing the networking server
@@ -103,20 +109,34 @@ type DefaultServer struct {
 }
 
 // NewServer returns a new instance of the networking server
-func NewServer(logger hclog.Logger, config *Config) (Server, error) {
-	return newServer(logger, config)
+func NewServer(ctx context.Context, logger hclog.Logger, tracer telemetry.Tracer, config *Config) (Server, error) {
+	return newServer(ctx, logger, tracer, config)
 }
 
-func newServer(logger hclog.Logger, config *Config) (*DefaultServer, error) {
+func newServer(
+	ctx context.Context,
+	logger hclog.Logger,
+	tracer telemetry.Tracer,
+	config *Config,
+) (*DefaultServer, error) {
 	logger = logger.Named("network")
+
+	span := tracer.StartWithContext(ctx, "DefaultServer.newServer")
+	defer span.End()
 
 	key, err := setupLibp2pKey(config.SecretsManager)
 	if err != nil {
 		return nil, err
 	}
 
+	span.SetAttribute("listen_addr", config.Addr.String())
+	span.SetAttribute("listen_port", config.Addr.Port)
+
 	listenAddr, err := multiaddr.NewMultiaddr(fmt.Sprintf("/ip4/%s/tcp/%d", config.Addr.IP.String(), config.Addr.Port))
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(telemetry.Error, "failed to create listen address")
+
 		return nil, err
 	}
 
@@ -136,6 +156,8 @@ func newServer(logger hclog.Logger, config *Config) (*DefaultServer, error) {
 
 		return addrs
 	}
+
+	span.SetAttribute("max_peers", config.MaxPeers)
 
 	maxPeers := config.MaxInboundPeers + config.MaxOutboundPeers
 	if maxPeers == 0 {
@@ -183,6 +205,7 @@ func newServer(logger hclog.Logger, config *Config) (*DefaultServer, error) {
 
 	srv := &DefaultServer{
 		logger:           logger,
+		tracer:           tracer,
 		config:           config,
 		host:             host,
 		selfID:           host.ID(),
@@ -220,75 +243,6 @@ func newServer(logger hclog.Logger, config *Config) (*DefaultServer, error) {
 	return srv, nil
 }
 
-// HasFreeConnectionSlot checks if there are free connection slots in the specified direction [Thread safe]
-func (s *DefaultServer) HasFreeConnectionSlot(direction network.Direction) bool {
-	return s.connectionCounts.HasFreeConnectionSlot(direction)
-}
-
-// PeerConnInfo holds the connection information about the peer
-type PeerConnInfo struct {
-	Info peer.AddrInfo
-
-	connDirections map[network.Direction]bool
-	protocolClient map[string]client.GrpcClientCloser
-}
-
-// addConnDirection adds a connection direction
-func (pci *PeerConnInfo) addConnDirection(direction network.Direction) {
-	pci.connDirections[direction] = true
-}
-
-// removeConnDirection adds a connection direction
-func (pci *PeerConnInfo) removeConnDirection(direction network.Direction) {
-	pci.connDirections[direction] = false
-}
-
-// existsConnDirection returns the connection direction
-func (pci *PeerConnInfo) existsConnDirection(direction network.Direction) bool {
-	exist, ok := pci.connDirections[direction]
-	if !ok {
-		return false
-	}
-
-	return exist
-}
-
-func (pci *PeerConnInfo) noConnectionAvailable() bool {
-	// if all directions are false, return false
-	for _, v := range pci.connDirections {
-		if v {
-			return false
-		}
-	}
-
-	return true
-}
-
-// addProtocolClient adds a protocol stream
-func (pci *PeerConnInfo) addProtocolClient(protocol string, stream client.GrpcClientCloser) {
-	pci.protocolClient[protocol] = stream
-}
-
-// cleanProtocolStreams clean and closes all protocol stream
-func (pci *PeerConnInfo) cleanProtocolStreams() []error {
-	errs := []error{}
-
-	for _, clt := range pci.protocolClient {
-		if clt != nil {
-			errs = append(errs, clt.Close())
-		}
-	}
-
-	pci.protocolClient = make(map[string]client.GrpcClientCloser)
-
-	return errs
-}
-
-// getProtocolClient fetches the protocol stream, if any
-func (pci *PeerConnInfo) getProtocolClient(protocol string) client.GrpcClientCloser {
-	return pci.protocolClient[protocol]
-}
-
 // setupLibp2pKey is a helper method for setting up the networking private key
 func setupLibp2pKey(secretsManager secrets.SecretsManager) (crypto.PrivKey, error) {
 	var key crypto.PrivKey
@@ -321,6 +275,9 @@ func setupLibp2pKey(secretsManager secrets.SecretsManager) (crypto.PrivKey, erro
 
 // Start starts the networking services
 func (s *DefaultServer) Start() error {
+	span := s.tracer.Start("network.Start")
+	defer span.End()
+
 	s.logger.Info("LibP2P server running", "addr", common.AddrInfoToString(s.AddrInfo()))
 
 	if setupErr := s.setupIdentity(); setupErr != nil {
@@ -355,8 +312,11 @@ func (s *DefaultServer) Start() error {
 	s.host.Network().Notify(&network.NotifyBundle{
 		DisconnectedF: func(net network.Network, conn network.Conn) {
 			s.logger.Info("peer disconnected, remove peer connect info", "id", conn.RemotePeer())
+			span := s.tracer.Start("network.DisconnectedF")
+			defer span.End()
+
 			// Update the local connection metrics
-			s.removePeerConnect(conn.RemotePeer(), conn.Stat().Direction)
+			s.removePeerConnect(context.Background(), conn.RemotePeer(), conn.Stat().Direction)
 		},
 	})
 
@@ -429,6 +389,8 @@ func (s *DefaultServer) keepAliveStaticPeerConnections() {
 
 		allConnected = true
 
+		span := s.tracer.Start("network.keepAliveStaticPeerConnections")
+
 		s.staticnodes.rangeAddrs(func(add *peer.AddrInfo) bool {
 			if s.host.Network().Connectedness(add.ID) == network.Connected {
 				return true
@@ -439,10 +401,12 @@ func (s *DefaultServer) keepAliveStaticPeerConnections() {
 			}
 
 			s.logger.Info("reconnect static peer", "addr", add.String())
-			s.addToDialQueue(add, common.PriorityRequestedDial)
+			s.addToDialQueue(span.Context(), add, common.PriorityRequestedDial)
 
 			return true
 		})
+
+		span.End()
 	}
 }
 
@@ -563,15 +527,25 @@ func (s *DefaultServer) runDial() {
 }
 
 func (s *DefaultServer) Connect(peerInfo peer.AddrInfo) error {
+	span := s.tracer.Start("network.Connect")
+	defer span.End()
+
 	if !s.HasPeer(peerInfo.ID) && s.selfID != peerInfo.ID {
+		span.AddEvent("dialing_peer", map[string]interface{}{
+			"peer": peerInfo.ID.String(),
+			"addr": peerInfo.Addrs,
+		})
+
 		// the connection process is async because it involves connection (here) +
 		// the handshake done in the identity service.
 		ctx := network.WithDialPeerTimeout(context.Background(), DefaultDialTimeout)
 
 		if err := s.host.Connect(ctx, peerInfo); err != nil {
 			s.logger.Debug("failed to dial", "addr", peerInfo.String(), "err", err.Error())
+			span.RecordError(err)
+			span.SetStatus(telemetry.Error, "connect failed")
 
-			s.emitEvent(peerInfo.ID, peerEvent.PeerFailedToConnect)
+			s.emitEvent(span.Context(), peerInfo.ID, peerEvent.PeerFailedToConnect)
 
 			return err
 		}
@@ -602,6 +576,16 @@ func (s *DefaultServer) Peers() []*PeerConnInfo {
 	return peers
 }
 
+// HasFreeConnectionSlot checks if there are free connection slots in the specified direction [Thread safe]
+func (s *DefaultServer) HasFreeConnectionSlot(direction network.Direction) bool {
+	return s.connectionCounts.HasFreeConnectionSlot(direction)
+}
+
+// GetTracer returns the tracer instance
+func (s *DefaultServer) GetTracer() telemetry.Tracer {
+	return s.tracer
+}
+
 // hasPeer checks if the peer is present in the peers list [Thread safe]
 func (s *DefaultServer) HasPeer(peerID peer.ID) bool {
 	s.peersLock.RLock()
@@ -630,7 +614,18 @@ func (s *DefaultServer) GetProtocols(peerID peer.ID) ([]string, error) {
 // removePeerConnect removes a peer from the networking server's peer list,
 // and updates relevant counters and metrics. It only called from the
 // disconnection callback of the libp2p network bundle (when the connection is closed)
-func (s *DefaultServer) removePeerConnect(peerID peer.ID, direction network.Direction) {
+func (s *DefaultServer) removePeerConnect(ctx context.Context, peerID peer.ID, direction network.Direction) {
+	span := func() telemetry.Span {
+		const spanName = "DefaultServer.removePeerConnect"
+
+		if ctx == nil {
+			return s.tracer.Start(spanName)
+		} else {
+			return s.tracer.StartWithContext(ctx, spanName)
+		}
+	}()
+	defer span.End()
+
 	s.peersLock.Lock()
 	defer s.peersLock.Unlock()
 
@@ -643,6 +638,10 @@ func (s *DefaultServer) removePeerConnect(peerID peer.ID, direction network.Dire
 		s.logger.Warn(
 			fmt.Sprintf("Attempted removing missing peer info %s", peerID),
 		)
+		span.AddEvent("remove_peer_store", map[string]interface{}{
+			"peer":      peerID.String(),
+			"dorection": direction.String(),
+		})
 
 		// NOTO: Remove the peer from the peer store,
 		// if not removed, host.Network().Notify never triggered
@@ -661,7 +660,7 @@ func (s *DefaultServer) removePeerConnect(peerID peer.ID, direction network.Dire
 		// No more connections to the peer, remove it from the peers map
 		delete(s.peers, peerID)
 
-		if errs := connectionInfo.cleanProtocolStreams(); len(errs) > 0 {
+		if errs := connectionInfo.cleanProtocolStreams(span.Context(), s.tracer); len(errs) > 0 {
 			for _, err := range errs {
 				if err != nil {
 					s.logger.Error("close protocol streams failed", "err", err)
@@ -669,12 +668,17 @@ func (s *DefaultServer) removePeerConnect(peerID peer.ID, direction network.Dire
 			}
 		}
 
+		span.AddEvent("remove_peer_store", map[string]interface{}{
+			"peer":      peerID.String(),
+			"dorection": direction.String(),
+		})
+
 		// NOTO: Remove the peer from the peer store,
 		// if not removed, host.Network().Notify never triggered
 		s.RemoveFromPeerStore(peerID)
 
 		// Emit the event alerting listeners
-		s.emitEvent(peerID, peerEvent.PeerDisconnected)
+		s.emitEvent(span.Context(), peerID, peerEvent.PeerDisconnected)
 	}
 
 	s.metrics.SetTotalPeerCount(
@@ -704,7 +708,14 @@ func (s *DefaultServer) ForgetPeer(peer peer.ID, reason string) {
 
 // DisconnectFromPeer disconnects the networking server from the specified peer
 func (s *DefaultServer) DisconnectFromPeer(peerID peer.ID, reason string) {
+	span := s.tracer.Start("network.DisconnectFromPeer")
+	defer span.End()
+
+	span.SetAttribute("peer_id", peerID.String())
+
 	if s.IsStaticPeer(peerID) && s.HasPeer(peerID) {
+		span.SetAttribute("ignore_static_peer", true)
+
 		return
 	}
 
@@ -716,6 +727,8 @@ func (s *DefaultServer) DisconnectFromPeer(peerID peer.ID, reason string) {
 	// Close the peer connection
 	if closeErr := s.host.Network().ClosePeer(peerID); closeErr != nil {
 		s.logger.Error("unable to gracefully close peer connection", "err", closeErr)
+		span.RecordError(closeErr)
+		span.SetStatus(telemetry.Error, "closer peer connection failed")
 	}
 }
 
@@ -728,6 +741,9 @@ var (
 
 // JoinPeer attempts to add a new peer to the networking server
 func (s *DefaultServer) JoinPeer(rawPeerMultiaddr string, static bool) error {
+	span := s.tracer.Start("network.JoinPeer")
+	defer span.End()
+
 	// Parse the raw string to a MultiAddr format
 	parsedMultiaddr, err := multiaddr.NewMultiaddr(rawPeerMultiaddr)
 	if err != nil {
@@ -751,7 +767,7 @@ func (s *DefaultServer) JoinPeer(rawPeerMultiaddr string, static bool) error {
 
 	// Mark the peer as ripe for dialing (async)
 	s.logger.Info("start join peer", "addr", peerInfo.String())
-	s.addToDialQueue(peerInfo, common.PriorityRequestedDial)
+	s.addToDialQueue(span.Context(), peerInfo, common.PriorityRequestedDial)
 
 	return nil
 }
@@ -882,20 +898,27 @@ func (s *DefaultServer) AddrInfo() *peer.AddrInfo {
 	}
 }
 
-func (s *DefaultServer) addToDialQueue(addr *peer.AddrInfo, priority common.DialPriority) {
+func (s *DefaultServer) addToDialQueue(ctx context.Context, addr *peer.AddrInfo, priority common.DialPriority) {
+	span := s.tracer.StartWithContext(ctx, "DefaultServer.addToDialQueue")
+	defer span.End()
+
 	if s.selfID == addr.ID {
 		return
 	}
 
 	s.dialQueue.AddTask(addr, priority)
-	s.emitEvent(addr.ID, peerEvent.PeerAddedToDialQueue)
+	s.emitEvent(span.Context(), addr.ID, peerEvent.PeerAddedToDialQueue)
 }
 
-func (s *DefaultServer) emitEvent(peerID peer.ID, peerEventType peerEvent.PeerEventType) {
+func (s *DefaultServer) emitEvent(ctx context.Context, peerID peer.ID, peerEventType peerEvent.PeerEventType) {
+	span := s.tracer.StartWithContext(ctx, "DefaultServer.emitEvent")
+	defer span.End()
+
 	// POTENTIALLY BLOCKING
 	if err := s.emitterPeerEvent.Emit(peerEvent.PeerEvent{
-		PeerID: peerID,
-		Type:   peerEventType,
+		PeerID:      peerID,
+		Type:        peerEventType,
+		SpanContext: span.SpanContext(),
 	}); err != nil {
 		s.logger.Info("failed to emit event", "peer", peerID, "type", peerEventType, "err", err)
 	}
