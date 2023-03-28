@@ -182,14 +182,6 @@ func (b *Blockchain) calcRollingAverage(newValues []*big.Int, sum *big.Int) {
 	b.gpAverage.count = inputSetCount.Add(inputSetCount, b.gpAverage.count)
 }
 
-// GetAvgGasPrice returns the average gas price for the chain
-func (b *Blockchain) GetAvgGasPrice() *big.Int {
-	b.gpAverage.RLock()
-	defer b.gpAverage.RUnlock()
-
-	return b.gpAverage.price
-}
-
 // NewBlockchain creates a new blockchain object
 func NewBlockchain(
 	logger hclog.Logger,
@@ -1494,4 +1486,12 @@ func (b *Blockchain) stop() {
 
 func (b *Blockchain) isStopped() bool {
 	return b.stopped.Load()
+}
+
+func (b *Blockchain) ForksInTime(number uint64) chain.ForksInTime {
+	return b.Config().Forks.At(number)
+}
+
+func (b *Blockchain) ChainID() uint64 {
+	return uint64(b.Config().ChainID)
 }
