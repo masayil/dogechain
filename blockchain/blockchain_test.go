@@ -642,36 +642,42 @@ func TestCalculateGasLimit(t *testing.T) {
 func TestGasPriceAverage(t *testing.T) {
 	testTable := []struct {
 		name               string
+		previousMax        *big.Int
 		previousAverage    *big.Int
 		previousCount      *big.Int
 		newValues          []*big.Int
+		expectedNewMax     *big.Int
 		expectedNewAverage *big.Int
 	}{
 		{
-			"no previous average data",
-			big.NewInt(0),
-			big.NewInt(0),
-			[]*big.Int{
+			name:            "no previous average data",
+			previousMax:     big.NewInt(0),
+			previousAverage: big.NewInt(0),
+			previousCount:   big.NewInt(0),
+			newValues: []*big.Int{
 				big.NewInt(1),
 				big.NewInt(2),
 				big.NewInt(3),
 				big.NewInt(4),
 				big.NewInt(5),
 			},
-			big.NewInt(3),
+			expectedNewMax:     big.NewInt(5),
+			expectedNewAverage: big.NewInt(3),
 		},
 		{
-			"previous average data",
+			name: "previous average data",
 			// For example (5 + 5 + 5 + 5 + 5) / 5
-			big.NewInt(5),
-			big.NewInt(5),
-			[]*big.Int{
+			previousMax:     big.NewInt(5),
+			previousAverage: big.NewInt(5),
+			previousCount:   big.NewInt(5),
+			newValues: []*big.Int{
 				big.NewInt(1),
 				big.NewInt(2),
 				big.NewInt(3),
 			},
-			// (5 * 5 + 1 + 2 + 3) / 8
-			big.NewInt(3),
+			expectedNewMax: big.NewInt(3),
+			// (1 + 2 + 3) / 3
+			expectedNewAverage: big.NewInt(2),
 		},
 	}
 
@@ -688,9 +694,12 @@ func TestGasPriceAverage(t *testing.T) {
 			// Make sure the average gas price count is correct
 			assert.Equal(
 				t,
-				int64(len(testCase.newValues))+testCase.previousCount.Int64(),
+				int64(len(testCase.newValues)),
 				blockchain.gpAverage.count.Int64(),
 			)
+
+			// Make sure the max gas price is correct
+			assert.Equal(t, testCase.expectedNewMax.String(), blockchain.gpAverage.max.String())
 
 			// Make sure the average gas price is correct
 			assert.Equal(t, testCase.expectedNewAverage.String(), blockchain.gpAverage.price.String())
