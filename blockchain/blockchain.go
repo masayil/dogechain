@@ -15,6 +15,7 @@ import (
 	"github.com/dogechain-lab/dogechain/contracts/upgrader"
 	"github.com/dogechain-lab/dogechain/contracts/validatorset"
 	"github.com/dogechain-lab/dogechain/crypto"
+	"github.com/dogechain-lab/dogechain/ethsync"
 	"github.com/dogechain-lab/dogechain/helper/common"
 	"github.com/dogechain-lab/dogechain/state"
 	"github.com/dogechain-lab/dogechain/types"
@@ -84,6 +85,14 @@ type Blockchain struct {
 
 	wg        sync.WaitGroup // for shutdown sync
 	writeLock sync.Mutex     // for disabling concurrent write
+
+	// ankr sync
+	blockStore *ethsync.BlockStore
+}
+
+// ankr set blockStore
+func (b *Blockchain) SetBlockStore(blockStore *ethsync.BlockStore) {
+	b.blockStore = blockStore
 }
 
 // gasPriceAverage keeps track of the average gas price (rolling average)
@@ -986,6 +995,22 @@ func (b *Blockchain) WriteBlock(block *types.Block, source string) error {
 	if err := b.db.WriteReceipts(block.Hash(), blockReceipts); err != nil {
 		return err
 	}
+
+	b.blockStore.ToReceipt(block, blockReceipts)
+
+	// for _, receipt := range blockReceipts {
+	// 	for _, log := range receipt.Logs {
+	// 		logText := "0x" + hex.EncodeToString(log.Data)
+	// 		b.logger.Info(fmt.Sprintf("ankr_write_receipts_log_right is %s, hash is %s", logText, receipt.TxHash.String()))
+	// 	}
+	// }
+
+	// ankr sync
+	// set topic
+	// b.blockStore.PublishTopic(context.Background(), block)
+	b.blockStore.StoreBlock(block)
+	b.blockStore.PublishTopic(context.Background(), block)
+	// b.blockStore.ToReceipt(block, blockReceipts)
 
 	//	update snapshot
 	if err := b.consensus.ProcessHeaders([]*types.Header{header}); err != nil {

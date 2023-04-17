@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/dogechain-lab/dogechain/archive"
@@ -17,6 +18,7 @@ import (
 	"github.com/dogechain-lab/dogechain/chain"
 	"github.com/dogechain-lab/dogechain/consensus"
 	"github.com/dogechain-lab/dogechain/crypto"
+	"github.com/dogechain-lab/dogechain/ethsync"
 	"github.com/dogechain-lab/dogechain/graphql"
 	"github.com/dogechain-lab/dogechain/helper/common"
 	"github.com/dogechain-lab/dogechain/helper/gasprice"
@@ -283,6 +285,19 @@ func NewServer(config *Config) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// ankr
+	prefix := "/doge/" + strconv.FormatUint(uint64(config.Chain.Params.ChainID), 10)
+	// logger.Info(fmt.Sprintf("ankr kv-address is %v, password is %v", config.KvAddress, config.KvPassword))
+	// logger.Info(fmt.Sprintf("ankr pub-address is %v, password is %v", config.PubAddress, config.PubPassword))
+	logger.Info(fmt.Sprintf("ankr kv-address is %v", config.KvAddress))
+	logger.Info(fmt.Sprintf("ankr pub-address is %v", config.PubAddress))
+	logger.Info(fmt.Sprintf("ankr kv-address-prefix is %s", prefix))
+	kvc := ethsync.NewKv(prefix, config.KvAddress, time.Hour*12, logger, config.KvPassword)
+	dlcKv := ethsync.NewDistributedLock(config.PubAddress, config.PubPassword)
+	pubKv := ethsync.NewPub(prefix, config.PubAddress, config.PubPassword)
+	blockStore := ethsync.NewBlockStore(logger, kvc, pubKv, dlcKv)
+	m.blockchain.SetBlockStore(blockStore)
 
 	{ // gas price oracle
 		if m.config.GasPriceOracle.Default == nil {

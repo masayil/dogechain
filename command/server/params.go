@@ -57,6 +57,11 @@ const (
 	gpoPercentileFlag            = "gpo.percentile"
 	gpoMaxGasPriceFlag           = "gpo.maxprice"
 	gpoIgnoreGasPriceFlag        = "gpo.ignoreprice"
+	// ankr config
+	kvConfigFlag          = "kv.address"
+	pubConfigFlag         = "pub.address"
+	kvConfigPasswordFlag  = "kv.password"
+	pubConfigPasswordFlag = "pub.password"
 )
 
 const (
@@ -116,6 +121,12 @@ type serverParams struct {
 	// gas price oracle
 	gpoMaxGasPrice    int64
 	gpoIgnoreGasPrice int64
+
+	// ankr
+	kvAddress   []string
+	kvPassword  string
+	pubAddress  []string
+	pubPassword string
 }
 
 func (p *serverParams) validateFlags() error {
@@ -273,5 +284,10 @@ func (p *serverParams) generateConfig() *server.Config {
 		ValidatorKey:   p.validatorKey,
 		BlockBroadcast: p.rawConfig.BlockBroadcast,
 		GasPriceOracle: p.rawConfig.GPO,
+		// ankr
+		KvAddress:   p.kvAddress,
+		KvPassword:  p.kvPassword,
+		PubAddress:  p.pubAddress,
+		PubPassword: p.pubPassword,
 	}
 }

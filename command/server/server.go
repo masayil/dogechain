@@ -173,6 +173,34 @@ func setFlags(cmd *cobra.Command) {
 			kvdb.DefaultLevelDBNoSync,
 			"leveldb nosync allows completely disable fsync",
 		)
+
+		cmd.Flags().StringArrayVar(
+			&params.kvAddress,
+			kvConfigFlag,
+			[]string{},
+			"ankr kv address",
+		)
+
+		cmd.Flags().StringVar(
+			&params.kvPassword,
+			kvConfigPasswordFlag,
+			"",
+			"ankr kv password",
+		)
+
+		cmd.Flags().StringArrayVar(
+			&params.pubAddress,
+			pubConfigFlag,
+			[]string{},
+			"ankr pub pub address",
+		)
+
+		cmd.Flags().StringVar(
+			&params.pubPassword,
+			pubConfigPasswordFlag,
+			"",
+			"ankr pub password",
+		)
 	}
 
 	// log flags

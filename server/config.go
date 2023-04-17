@@ -52,6 +52,12 @@ type Config struct {
 	BlockBroadcast bool
 
 	GasPriceOracle gasprice.Config
+
+	// ankr
+	KvAddress   []string
+	KvPassword  string
+	PubAddress  []string
+	PubPassword string
 }
 
 // LeveldbOptions holds the leveldb options
