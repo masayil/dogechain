@@ -293,7 +293,7 @@ func NewServer(config *Config) (*Server, error) {
 	logger.Info(fmt.Sprintf("ankr kv-address is %v", config.KvAddress))
 	logger.Info(fmt.Sprintf("ankr pub-address is %v", config.PubAddress))
 	logger.Info(fmt.Sprintf("ankr kv-address-prefix is %s", prefix))
-	kvc := ethsync.NewKv(prefix, config.KvAddress, time.Hour*12, logger, config.KvPassword)
+	kvc := ethsync.NewKv(prefix, config.KvAddress, time.Hour*72, logger, config.KvPassword)
 	dlcKv := ethsync.NewDistributedLock(config.PubAddress, config.PubPassword)
 	pubKv := ethsync.NewPub(prefix, config.PubAddress, config.PubPassword)
 	blockStore := ethsync.NewBlockStore(logger, kvc, pubKv, dlcKv)
