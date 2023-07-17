@@ -328,7 +328,7 @@ func (d *Dispatcher) Handle(reqBody []byte) ([]byte, error) {
 	for _, req := range requests {
 		var response, err = d.handleReq(req)
 		if err != nil {
-			errorResponse := NewRPCResponse(req.ID, "2.0", nil, err)
+			errorResponse := NewRPCResponse(req.ID, "2.0", response, err)
 			responses = append(responses, errorResponse)
 
 			continue
@@ -371,17 +371,26 @@ func (d *Dispatcher) handleReq(req Request) ([]byte, Error) {
 		}
 	}
 
+	var (
+		data []byte
+		err  error
+		ok   bool
+	)
+
 	output := fd.fv.Call(inArgs)
 	if err := getError(output[1]); err != nil {
 		d.logInternalError(req.Method, err)
 
-		return nil, NewInvalidRequestError(err.Error())
-	}
+		if res := output[0].Interface(); res != nil {
+			data, ok = res.([]byte)
 
-	var (
-		data []byte
-		err  error
-	)
+			if !ok {
+				return nil, NewInternalError(err.Error())
+			}
+		}
+
+		return data, NewInvalidRequestError(err.Error())
+	}
 
 	if res := output[0].Interface(); res != nil {
 		data, err = json.Marshal(res)
@@ -396,7 +405,11 @@ func (d *Dispatcher) handleReq(req Request) ([]byte, Error) {
 }
 
 func (d *Dispatcher) logInternalError(method string, err error) {
-	d.logger.Error("failed to dispatch", "method", method, "err", err)
+	// replacement non utf-8 characters
+	errStr := strings.ToValidUTF8(err.Error(), "\uFFFD")
+	errStr = strings.ReplaceAll(errStr, "\x00", "")
+
+	d.logger.Error("failed to dispatch", "method", method, "err", errStr)
 }
 
 func (d *Dispatcher) registerService(serviceName string, service interface{}) {
